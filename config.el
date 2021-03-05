@@ -78,6 +78,8 @@
  '(header-line ((t (:background "#000000"))))
  '(magit-header-line ((t (:background "#000000" :box nil))))
  '(match ((t (:background "#000000"))))
+ '(font-lock-comment-face ((t (:foreground "#444444"))))
+ '(org-src-block-faces ((t (:background "#000000"))))
  '(lazy-highlight ((t (:background "#29422d"))))
  '(lsp-face-highlight-read ((t (:background "#29422d"))))
  '(lsp-face-highlight-write ((t (:background "#29422d"))))
@@ -103,7 +105,7 @@
 
 (add-hook 'lsp-mode-hook (lambda ()
                           (setq header-line-format nil)
-                          (setq lsp-headerline-breadcrumb-enable t)))
+                          (lsp-headerline-breadcrumb-mode)))
 
 (defvar-local my/flycheck-local-cache nil)
 
@@ -138,6 +140,15 @@
 (global-set-key (kbd "H-J") 'buf-move-down)
 (global-set-key (kbd "H-H") 'buf-move-left)
 (global-set-key (kbd "H-L") 'buf-move-right)
+
+(global-set-key (kbd "H-/") 'winner-undo)
+(global-set-key (kbd "H-?") 'winner-redo)
+
+(defun switch-to-previous-buffer ()
+  (interactive)
+  (switch-to-buffer (other-buffer)))
+(global-set-key (kbd "H-<tab>") 'switch-to-previous-buffer)
+
 
 (setq-local MODELINE '(getenv "MODELINE"))
 (after! doom-modeline
