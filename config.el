@@ -64,6 +64,9 @@
 (after! solaire-mode
   (solaire-global-mode -1))
 
+(set-face-attribute 'mode-line nil :box nil)
+(set-face-attribute 'mode-line-inactive nil :box nil)
+
 (custom-set-faces
  '(default ((t (:background "#000000"))))
  '(mode-line ((t (:background "#000000"))))
@@ -77,9 +80,6 @@
  '(solaire-mode-line-inactive-face ((t (:background "#000000"))))
  '(mode-line-inactive ((t (:background "#000000"))))
  '(hl-line ((t (:background "#171717")))))
-
-(set-face-attribute 'mode-line nil
-                    :box '(:width 0))
 
 (setq window-divider-default-bottom-width 0)
 (setq evil-insert-state-map (make-sparse-keymap))
