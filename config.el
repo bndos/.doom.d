@@ -76,6 +76,7 @@
  '(default ((t (:background "#000000"))))
  '(mode-line ((t (:background "#000000"))))
  '(header-line ((t (:background "#000000"))))
+ '(magit-header-line ((t (:background "#000000" :box nil))))
  '(match ((t (:background "#000000"))))
  '(lazy-highlight ((t (:background "#29422d"))))
  '(lsp-face-highlight-read ((t (:background "#29422d"))))
