@@ -74,19 +74,24 @@
 
 (custom-set-faces
  '(default ((t (:background "#000000"))))
- '(mode-line ((t (:background "#000000"))))
- '(header-line ((t (:background "#000000"))))
- '(magit-header-line ((t (:background "#000000" :box nil))))
- '(match ((t (:background "#000000"))))
+ '(mode-line ((t (:background nil))))
+ '(header-line ((t (:background nil))))
+ '(magit-header-line ((t (:background nil :box nil))))
+ '(match ((t (:background nil))))
  '(font-lock-comment-face ((t (:foreground "#444444"))))
- '(org-src-block-faces ((t (:background "#000000"))))
+ '(ivy-virtual ((t (:foreground "#444444"))))
+ '(org-block-begin-line ((t (:background nil))))
+ '(org-block ((t (:background nil))))
+ '(org-block-end-line ((t (:background nil))))
+ '(whitespace-tab ((t (:background nil))))
+ '(whitespace-space ((t (:background nil))))
  '(lazy-highlight ((t (:background "#29422d"))))
  '(lsp-face-highlight-read ((t (:background "#29422d"))))
  '(lsp-face-highlight-write ((t (:background "#29422d"))))
  '(lsp-face-highlight-textual ((t (:background "#49322d"))))
- '(solaire-mode-line-face ((t (:background "#000000"))))
- '(solaire-mode-line-inactive-face ((t (:background "#000000"))))
- '(mode-line-inactive ((t (:background "#000000"))))
+ '(solaire-mode-line-face ((t (:background nil))))
+ '(solaire-mode-line-inactive-face ((t (:background nil))))
+ '(mode-line-inactive ((t (:background nil))))
  '(hl-line ((t (:background "#171717")))))
 
 (setq window-divider-default-bottom-width 0)
@@ -108,6 +113,26 @@
                           (lsp-headerline-breadcrumb-mode)))
 
 (defvar-local my/flycheck-local-cache nil)
+
+(defun my-counsel-projectile-switch-to-buffer ()
+  "Jump to a buffer in the current project."
+  (interactive)
+  (if (and (eq projectile-require-project-root 'prompt)
+	   (not (projectile-project-p)))
+      (counsel-projectile-switch-to-buffer-action-switch-project)
+    (ivy-read (projectile-prepend-project-name "Switch to buffer: ")
+	      ;; We use a collection function so that it is called each
+	      ;; time the `ivy-state' is reset. This is needed for the
+	      ;; "kill buffer" action.
+	      (cdr (projectile-project-buffer-names))
+
+	      :matcher #'ivy--switch-buffer-matcher
+	      :require-match t
+	      :sort counsel-projectile-sort-buffers
+	      :action counsel-projectile-switch-to-buffer-action
+	      :keymap counsel-projectile-switch-to-buffer-map
+	      :caller 'counsel-projectile-switch-to-buffer)))
+(setq projectile-switch-project-action 'my-counsel-projectile-switch-to-buffer)
 
 (defun my/flycheck-checker-get (fn checker property)
   (or (alist-get property (alist-get checker my/flycheck-local-cache))
