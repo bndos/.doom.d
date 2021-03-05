@@ -33,7 +33,7 @@
 
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
-(setq display-line-numbers-type t)
+(setq display-line-numbers-type nil)
 
 
 ;; Here are some additional functions/macros that could help you configure Doom:
@@ -53,6 +53,10 @@
 ;; You can also try 'gd' (or 'C-c c d') to jump to their definition and see how
 ;; they are implemented.
 
+(setq doom-font (font-spec :family "Monego" :size 11)
+      doom-variable-pitch-font (font-spec :family "Monego" :size 20)
+      doom-big-font (font-spec :family "Monego" :size 15))
+
 (add-to-list 'default-frame-alist
              '(font . "Monego-10"))
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
@@ -63,10 +67,16 @@
 (custom-set-faces
  '(default ((t (:background "#000000"))))
  '(mode-line ((t (:background "#000000"))))
+ '(header-line ((t (:background "#000000"))))
+ '(match ((t (:background "#000000"))))
+ '(lazy-highlight ((t (:background "#29422d"))))
+ '(lsp-face-highlight-read ((t (:background "#29422d"))))
+ '(lsp-face-highlight-write ((t (:background "#29422d"))))
+ '(lsp-face-highlight-textual ((t (:background "#49322d"))))
  '(solaire-mode-line-face ((t (:background "#000000"))))
  '(solaire-mode-line-inactive-face ((t (:background "#000000"))))
  '(mode-line-inactive ((t (:background "#000000"))))
- '(hl-line ((t (:background "#000000")))))
+ '(hl-line ((t (:background "#171717")))))
 
 (set-face-attribute 'mode-line nil
                     :box '(:width 0))
@@ -76,8 +86,7 @@
 (define-key evil-insert-state-map (kbd "<escape>") 'evil-normal-state)
 
 (setq gc-cons-threshold (* 100 1024 1024)
-      read-process-output-max (* 1024 1024)
-      treemacs-space-between-root-nodes nil)
+      read-process-output-max (* 1024 1024))
 
 (add-hook 'c-mode-hook 'lsp)
 (add-hook 'c++-mode-hook 'lsp)
