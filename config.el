@@ -93,7 +93,8 @@
 (setq gc-cons-threshold (* 100 1024 1024)
       read-process-output-max (* 1024 1024))
 
-(add-hook 'cc-mode-hook 'lsp)
+(add-hook 'c-mode-hook 'lsp)
+(add-hook 'c++-mode-hook 'lsp)
 (add-hook 'mhtml-mode-hook 'lsp)
 (add-hook 'css-mode-hook 'lsp)
 
@@ -141,4 +142,4 @@
 (after! doom-modeline
   (doom-modeline-def-modeline 'main
     '(bar window-number matches buffer-info remote-host buffer-position selection-info)
-    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker)))
+    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
