@@ -120,3 +120,8 @@
 (global-set-key (kbd "H-J") 'buf-move-down)
 (global-set-key (kbd "H-H") 'buf-move-left)
 (global-set-key (kbd "H-L") 'buf-move-right)
+
+(after! doom-modeline
+  (doom-modeline-def-modeline 'main
+    '(bar window-number matches buffer-info remote-host buffer-position selection-info)
+    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
