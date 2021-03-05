@@ -85,3 +85,29 @@
 (add-hook 'css-mode-hook 'lsp)
 (setq lsp-disabled-clients '(angular-ls))
 (setq lsp-headerline-breadcrumb-enable t)
+
+(add-hook 'lsp-managed-mode-hook
+          (lambda ()
+            (when (or (derived-mode-p 'typescript-mode)
+                      (string-equal "tsx" (file-name-extension buffer-file-name)))
+              (setq my/flycheck-local-cache '((lsp . ((next-checkers . (typescript-tslint)))))))))
+
+(add-hook 'lsp-managed-mode-hook
+          (lambda ()
+            (when (derived-mode-p 'js-mode)
+              (setq my/flycheck-local-cache '((lsp . ((next-checkers . (javascript-eslint)))))))))
+
+(global-set-key (kbd "H-h") 'windmove-left)
+(global-set-key (kbd "H-l") 'windmove-right)
+(global-set-key (kbd "H-k") 'windmove-up)
+(global-set-key (kbd "H-j") 'windmove-down)
+
+(global-set-key (kbd "H-M-h") 'shrink-window-horizontally)
+(global-set-key (kbd "H-M-l") 'enlarge-window-horizontally)
+(global-set-key (kbd "H-M-k") 'enlarge-window)
+(global-set-key (kbd "H-M-j") 'shrink-window)
+
+(global-set-key (kbd "H-K") 'buf-move-up)
+(global-set-key (kbd "H-J") 'buf-move-down)
+(global-set-key (kbd "H-H") 'buf-move-left)
+(global-set-key (kbd "H-L") 'buf-move-right)
