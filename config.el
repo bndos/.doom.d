@@ -64,6 +64,11 @@
 (after! solaire-mode
   (solaire-global-mode -1))
 
+(setq-default header-line-format " ")
+(set-fringe-mode 25)
+(setq-default left-fringe-width  25)
+(setq-default right-fringe-width 25)
+
 (set-face-attribute 'mode-line nil :box nil)
 (set-face-attribute 'mode-line-inactive nil :box nil)
 
@@ -88,12 +93,23 @@
 (setq gc-cons-threshold (* 100 1024 1024)
       read-process-output-max (* 1024 1024))
 
-(add-hook 'c-mode-hook 'lsp)
-(add-hook 'c++-mode-hook 'lsp)
+(add-hook 'cc-mode-hook 'lsp)
 (add-hook 'mhtml-mode-hook 'lsp)
 (add-hook 'css-mode-hook 'lsp)
+
 (setq lsp-disabled-clients '(angular-ls))
-(setq lsp-headerline-breadcrumb-enable t)
+
+(add-hook 'lsp-mode-hook (lambda ()
+                          (setq header-line-format nil)
+                          (setq lsp-headerline-breadcrumb-enable t)))
+
+(defvar-local my/flycheck-local-cache nil)
+
+(defun my/flycheck-checker-get (fn checker property)
+  (or (alist-get property (alist-get checker my/flycheck-local-cache))
+      (funcall fn checker property)))
+
+(advice-add 'flycheck-checker-get :around 'my/flycheck-checker-get)
 
 (add-hook 'lsp-managed-mode-hook
           (lambda ()
@@ -121,7 +137,8 @@
 (global-set-key (kbd "H-H") 'buf-move-left)
 (global-set-key (kbd "H-L") 'buf-move-right)
 
+(setq-local MODELINE '(getenv "MODELINE"))
 (after! doom-modeline
   (doom-modeline-def-modeline 'main
     '(bar window-number matches buffer-info remote-host buffer-position selection-info)
-    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
+    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker)))
