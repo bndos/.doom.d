@@ -74,3 +74,14 @@
 (setq window-divider-default-bottom-width 0)
 (setq evil-insert-state-map (make-sparse-keymap))
 (define-key evil-insert-state-map (kbd "<escape>") 'evil-normal-state)
+
+(setq gc-cons-threshold (* 100 1024 1024)
+      read-process-output-max (* 1024 1024)
+      treemacs-space-between-root-nodes nil)
+
+(add-hook 'c-mode-hook 'lsp)
+(add-hook 'c++-mode-hook 'lsp)
+(add-hook 'mhtml-mode-hook 'lsp)
+(add-hook 'css-mode-hook 'lsp)
+(setq lsp-disabled-clients '(angular-ls))
+(setq lsp-headerline-breadcrumb-enable t)
