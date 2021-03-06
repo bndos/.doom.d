@@ -196,3 +196,44 @@
       :desc "Open file externally"
       "f o" #'counsel-find-file-extern)
 
+
+(set-popup-rules!
+  '(("^ \\*" :slot -1) ; fallback rule for special buffers
+    ("^\\*" :select t)
+    ("^\\*Completions" :slot -1 :ttl 0)
+    ("^\\*\\(?:scratch\\|Messages\\)" :ttl t)
+    ("^\\*Help" :slot -1 :size 0.2 :select t)
+    ("^magit:" :slot -1 :size 0.2 :select t)
+    ("^\\*doom:"
+     :size 0.35 :select t :modeline t :quit t :ttl t)))
+
+(defvar parameters
+  '(window-parameters . ((no-delete-other-windows . t))))
+
+(setq
+ display-buffer-alist
+ `(("\\*Buffer List\\*" display-buffer-in-side-window
+    (side . bottom) (slot . 0) (window-height . fit-window-to-buffer)
+    (preserve-size . (nil . t)) ,parameters)
+   ("\\*Tags List\\*" display-buffer-in-side-window
+    (side . right) (slot . 0) (window-width . fit-window-to-buffer)
+    (preserve-size . (t . nil)) ,parameters)
+   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation:"
+    (display-buffer-reuse-window display-buffer-in-side-window)
+    (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15)
+    ,parameters)
+   ("\\*\\(?:shell\\|vterm\\)\\*\\|^magit:"
+    (display-buffer-reuse-window display-buffer-in-side-window)
+    (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15)
+    ,parameters)))
+(global-set-key (kbd "C-x w") 'window-toggle-side-windows)
+
+(global-set-key (kbd "H-!") (lambda()
+			      (interactive)
+			      (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . -1) (window-height . 0.15)))))
+(global-set-key (kbd "H-@") (lambda()
+			      (interactive)
+			      (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . 1) (window-height . 0.15)))))
+(global-set-key (kbd "H-#") (lambda()
+			      (interactive)
+			      (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . right) (slot . 1) (window-width . 0.35)))))
