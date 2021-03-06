@@ -197,16 +197,6 @@
       "f o" #'counsel-find-file-extern)
 
 
-(set-popup-rules!
-  '(("^ \\*" :slot -1) ; fallback rule for special buffers
-    ("^\\*" :select t)
-    ("^\\*Completions" :slot -1 :ttl 0)
-    ("^\\*\\(?:scratch\\|Messages\\)" :ttl t)
-    ("^\\*Help" :slot -1 :size 0.2 :select t)
-    ("^magit:" :slot -1 :size 0.2 :select t)
-    ("^\\*doom:"
-     :size 0.35 :select t :modeline t :quit t :ttl t)))
-
 (defvar parameters
   '(window-parameters . ((no-delete-other-windows . t))))
 
@@ -218,7 +208,7 @@
    ("\\*Tags List\\*" display-buffer-in-side-window
     (side . right) (slot . 0) (window-width . fit-window-to-buffer)
     (preserve-size . (t . nil)) ,parameters)
-   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation:"
+   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15)
     ,parameters)
@@ -226,14 +216,73 @@
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15)
     ,parameters)))
+
 (global-set-key (kbd "C-x w") 'window-toggle-side-windows)
 
 (global-set-key (kbd "H-!") (lambda()
-			      (interactive)
-			      (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . -1) (window-height . 0.15)))))
+                              (interactive)
+                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . -1) (window-height . 0.15)))))
 (global-set-key (kbd "H-@") (lambda()
-			      (interactive)
-			      (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . 1) (window-height . 0.15)))))
+                              (interactive)
+                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . 1) (window-height . 0.15)))))
 (global-set-key (kbd "H-#") (lambda()
-			      (interactive)
-			      (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . right) (slot . 1) (window-width . 0.35)))))
+                              (interactive)
+                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . right) (slot . 1) (window-width . 0.35)))))
+
+(defun my-ivy-read (prompt)
+  (ivy-read prompt (seq-filter
+                    (lambda (x) (and (or (string-match-p "^*compilation" x)
+                                         (string-match-p "^*vterm" x)
+                                         (string-match-p "^magit:" x))
+                                     (not (string-equal (buffer-name) x))))
+                    (mapcar #'buffer-name (buffer-list)))))
+
+(defun ivy-compilation-buffers (&optional name)
+  "Read desktop with a name."
+  (interactive)
+  (unless name
+    (setq name (my-ivy-read "compilation buffers: ")))
+  (switch-to-buffer name))
+
+(global-set-key (kbd "H-x b") 'ivy-compilation-buffers)
+
+
+(defun my-make-room-for-new-compilation-buffer ()
+  "Renames existing *compilation* buffer to something unique so
+         that a new compilation job can be run."
+  (interactive)
+  (let ((cbuf (get-buffer (concat "*compilation*<" (projectile-project-name) ">")))
+        (more-cbufs t)
+        (n 1)
+        (new-cbuf-name ""))
+    (when cbuf
+      (while more-cbufs
+        (setq new-cbuf-name (concat (format "*compilation %d*<" n) compile-command " " (projectile-project-name) ">"))
+        (setq n (1+ n))
+        (setq more-cbufs (get-buffer new-cbuf-name)))
+      (with-current-buffer cbuf
+        (rename-buffer new-cbuf-name)))))
+
+(map! :leader
+      :desc "Rename compile buffer"
+      "c n" #'my-make-room-for-new-compilation-buffer)
+
+(defun projectile-vterm ()
+  (interactive)
+  (if (projectile-project-p)
+      (let* ((project (projectile-project-root)))
+        (unless (require 'vterm nil 'noerror)
+          (error "Package 'vterm' is not available"))
+        (projectile-with-default-dir project
+          (vterm "*vterm*")
+          (vterm-send-string "cd .")
+          (vterm-send-return)))
+    (unless (require 'vterm nil 'noerror)
+      (error "Package 'vterm' is not available"))
+    (vterm "*vterm*")
+    (vterm-send-string "cd .")
+    (vterm-send-return)))
+
+(global-set-key (kbd "M-V") 'projectile-vterm)
+
+(setq vterm-buffer-name-string "*vterm %s*")
