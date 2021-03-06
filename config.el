@@ -208,11 +208,14 @@
    ("\\*Tags List\\*" display-buffer-in-side-window
     (side . right) (slot . 0) (window-width . fit-window-to-buffer)
     (preserve-size . (t . nil)) ,parameters)
+   ("^magit:" display-buffer-in-side-window
+    (side . left) (slot . 3) (window-width . 0.2)
+    (preserve-size . (t . nil)) ,parameters)
    ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15)
     ,parameters)
-   ("\\*\\(?:shell\\|vterm\\)\\*\\|^magit:"
+   ("\\*\\(?:shell\\|vterm\\)\\*"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15)
     ,parameters)))
@@ -286,3 +289,7 @@
 (global-set-key (kbd "M-V") 'projectile-vterm)
 
 (setq vterm-buffer-name-string "*vterm %s*")
+
+(map! :leader
+      :desc "Lsp symbols"
+      "o s" #'lsp-treemacs-symbols)
