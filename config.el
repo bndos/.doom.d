@@ -170,3 +170,9 @@
   (doom-modeline-def-modeline 'main
     '(bar window-number matches buffer-info remote-host buffer-position selection-info)
     '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
+
+(global-set-key (kbd "M-<backspace>") 'sp-backward-unwrap-sexp)
+
+(add-hook 'dired-mode-hook
+          (lambda ()
+            (dired-hide-details-mode)))
