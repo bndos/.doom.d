@@ -54,8 +54,8 @@
 ;; they are implemented.
 
 (setq doom-font (font-spec :family "Monego" :size 11)
-      doom-variable-pitch-font (font-spec :family "Monego" :size 20)
-      doom-big-font (font-spec :family "Monego" :size 15))
+      doom-variable-pitch-font (font-spec :family "Monego" :size 18)
+      doom-big-font (font-spec :family "Monego" :size 18))
 
 (add-to-list 'default-frame-alist
              '(font . "Monego-10"))
@@ -72,8 +72,11 @@
 (set-face-attribute 'mode-line nil :box nil)
 (set-face-attribute 'mode-line-inactive nil :box nil)
 
+(setq doom-themes-enable-bold t
+      doom-themes-enable-italic nil)
+
 (custom-set-faces
- '(default ((t (:background "#000000"))))
+ '(default ((t (:background "#000000" :foreground "#ffffff"))))
  '(mode-line ((t (:background nil))))
  '(header-line ((t (:background nil))))
  '(magit-header-line ((t (:background nil :box nil))))
