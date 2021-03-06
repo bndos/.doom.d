@@ -173,6 +173,26 @@
 
 (global-set-key (kbd "M-<backspace>") 'sp-backward-unwrap-sexp)
 
+(defun dired-open-in-external-app ()
+  "Open the file(s) at point with an external application."
+  (interactive)
+  (let ((file-list (dired-get-marked-files)))
+    (mapc
+     (lambda (file-path)
+       (let ((process-connection-type nil))
+         (start-process "" nil "xdg-open" file-path)))
+     file-list)))
+
 (add-hook 'dired-mode-hook
           (lambda ()
             (dired-hide-details-mode)))
+
+(add-hook 'dired-mode-hook
+          (lambda ()
+            (define-key dired-mode-map (kbd "M-o")
+              (lambda () (interactive) (dired-open-in-external-app)))))
+
+(map! :leader
+      :desc "Open file externally"
+      "f o" #'counsel-find-file-extern)
+
