@@ -310,3 +310,17 @@
 (map! :leader
       :desc "Lsp symbols"
       "o s" #'lsp-treemacs-symbols)
+
+(after! dap-mode
+  (require 'dap-gdb-lldb)
+  (dap-gdb-lldb-setup)
+  (setq dap-output-buffer-filter '("stdout"))
+  (map! :leader
+        :desc "Dap debug"
+        "d d" #'dap-debug)
+  (map! :leader
+        :desc "Dap toggle breakpoint"
+        "d b" #'dap-breakpoint-toggle)
+  (map! :leader
+        :desc "Dap debug"
+        "d h" #'dap-hydra))
