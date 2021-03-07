@@ -115,6 +115,7 @@
 (add-hook 'c++-mode-hook 'lsp)
 (add-hook 'mhtml-mode-hook 'lsp)
 (add-hook 'css-mode-hook 'lsp)
+(add-hook 'python-mode-hook 'lsp)
 
 (setq lsp-disabled-clients '(angular-ls))
 
@@ -123,6 +124,12 @@
                           (lsp-headerline-breadcrumb-mode)))
 
 (defvar-local my/flycheck-local-cache nil)
+
+(add-hook 'lsp-managed-mode-hook
+          (lambda ()
+            (when (derived-mode-p 'python-mode)
+              (setq my/flycheck-local-cache '((lsp . ((next-checkers . (python-pylint)))))))))
+
 
 (defun my/flycheck-checker-get (fn checker property)
   (or (alist-get property (alist-get checker my/flycheck-local-cache))
