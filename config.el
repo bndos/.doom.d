@@ -90,6 +90,7 @@
   '(magit-header-line :background nil :box nil)
   '(match :background nil)
   '(font-lock-comment-face :foreground "#444444")
+  '(font-lock-variable-name-face :foreground "#ffb86c")
   '(ivy-virtual :foreground "#444444" :italic nil)
   '(ivy-current-match :background "#bd93f9" :foreground "#000000" :inherit bold)
   '(org-block-begin-line :background nil)
