@@ -77,10 +77,10 @@
   (set-face-attribute 'mode-line-inactive nil :box nil))
 
 (after! ivy
-  (set-face-attribute 'ivy-minibuffer-match-face-1 nil :background "#ff79c6")
-  (set-face-attribute 'ivy-minibuffer-match-face-2 nil :background "#ff79c6")
-  (set-face-attribute 'ivy-minibuffer-match-face-3 nil :background "#ff79c6")
-  (set-face-attribute 'ivy-minibuffer-match-face-4 nil :background "#ff79c6")
+  (set-face-attribute 'ivy-minibuffer-match-face-1 nil :background "#ff79c6" :foreground "#000000")
+  (set-face-attribute 'ivy-minibuffer-match-face-2 nil :background "#ff79c6" :foreground "#000000")
+  (set-face-attribute 'ivy-minibuffer-match-face-3 nil :background "#ff79c6" :foreground "#000000")
+  (set-face-attribute 'ivy-minibuffer-match-face-4 nil :background "#ff79c6" :foreground "#000000")
   )
 
 (custom-set-faces!
