@@ -197,7 +197,7 @@
     (mapc
      (lambda (file-path)
        (let ((process-connection-type nil))
-         (start-process "" nil "xdg-open" file-path)))
+         (start-process "" nil "gio" "open" file-path)))
      file-list)))
 
 (add-hook 'dired-mode-hook
@@ -324,3 +324,9 @@
   (map! :leader
         :desc "Dap debug"
         "d h" #'dap-hydra))
+
+(defun open-nautilus ()
+  (interactive)
+  (call-process "nautilus" nil 0 nil "."))
+
+(global-set-key (kbd "C-c C-n") 'open-nautilus)
