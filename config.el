@@ -126,6 +126,7 @@
 (add-hook 'mhtml-mode-hook 'lsp)
 (add-hook 'css-mode-hook 'lsp)
 (add-hook 'python-mode-hook 'lsp)
+(add-hook 'ess-r-mode-hook 'lsp)
 
 (setq lsp-disabled-clients '(angular-ls))
 
