@@ -121,13 +121,6 @@
 (setq gc-cons-threshold (* 100 1024 1024)
       read-process-output-max (* 1024 1024))
 
-(add-hook 'c-mode-hook 'lsp)
-(add-hook 'c++-mode-hook 'lsp)
-(add-hook 'mhtml-mode-hook 'lsp)
-(add-hook 'css-mode-hook 'lsp)
-(add-hook 'python-mode-hook 'lsp)
-(add-hook 'ess-r-mode-hook 'lsp)
-
 (setq lsp-disabled-clients '(angular-ls))
 
 (add-hook 'lsp-mode-hook (lambda ()
