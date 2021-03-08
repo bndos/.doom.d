@@ -53,7 +53,7 @@
 ;; You can also try 'gd' (or 'C-c c d') to jump to their definition and see how
 ;; they are implemented.
 
-(setq doom-font (font-spec :family "Monego" :size 11)
+(setq doom-font (font-spec :family "Monego" :size 18)
       doom-variable-pitch-font (font-spec :family "Monego" :size 18)
       doom-big-font (font-spec :family "Monego" :size 18))
 
@@ -122,6 +122,9 @@
       read-process-output-max (* 1024 1024))
 
 (setq lsp-disabled-clients '(angular-ls))
+
+(after! lsp-clangd
+  (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
 
 (add-hook 'lsp-mode-hook (lambda ()
                           (setq header-line-format nil)
