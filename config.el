@@ -297,7 +297,8 @@
     (vterm-send-string "cd .")
     (vterm-send-return)))
 
-(global-set-key (kbd "M-V") 'projectile-vterm)
+(map! :desc "Open vterm in project root or current dir"
+      "M-V" #'projectile-vterm)
 
 (setq vterm-buffer-name-string "*vterm %s*")
 
@@ -323,4 +324,13 @@
   (interactive)
   (call-process "nautilus" nil 0 nil "."))
 
-(global-set-key (kbd "C-c C-n") 'open-nautilus)
+(map! :desc "Open nautilus in current dir"
+      "C-c C-n" #'open-nautilus)
+
+(map! :desc "Redo"
+      :i
+      "C-?" #'undo-fu-only-redo)
+
+(map! :desc "Redo all"
+      :i
+      "C-M-/" #'undo-fu-only-redo-all)
