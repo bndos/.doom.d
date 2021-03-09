@@ -337,5 +337,3 @@
 (map! :desc "Redo all"
       :i
       "C-M-/" #'undo-fu-only-redo-all)
-
-(setq require-final-newline nil)
