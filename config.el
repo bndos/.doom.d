@@ -61,6 +61,17 @@
 
 (setq window-divider-default-bottom-width 0)
 
+(after! git-gutter-fringe
+  (fringe-helper-define 'git-gutter-fr:deleted nil
+    "........"
+    "........"
+    "........"
+    "XXXXXXXX"
+    "XXXXXXXX"
+    "........"
+    "........"
+    "........"))
+
 ;; evil
 (setq evil-insert-state-map (make-sparse-keymap))
 (define-key evil-insert-state-map (kbd "<escape>") 'evil-normal-state)

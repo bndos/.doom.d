@@ -64,6 +64,20 @@
 (setq window-divider-default-bottom-width 0)
 #+END_SRC
 
+* git-gutter-fringe
+#+BEGIN_SRC emacs-lisp
+(after! git-gutter-fringe
+  (fringe-helper-define 'git-gutter-fr:deleted nil
+    "........"
+    "........"
+    "........"
+    "XXXXXXXX"
+    "XXXXXXXX"
+    "........"
+    "........"
+    "........"))
+#+END_SRC
+
 * evil
 #+BEGIN_SRC emacs-lisp
 ;; evil
