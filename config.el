@@ -1,8 +1,7 @@
-(setq doom-theme 'doom-outrun-electric)
-(setq org-directory "~/org/")
 (setq display-line-numbers-type nil)
 
 ;; Theme
+(setq doom-theme 'doom-outrun-electric)
 (setq doom-font (font-spec :family "Monego" :size 18)
       doom-variable-pitch-font (font-spec :family "Monego" :size 18)
       doom-big-font (font-spec :family "Monego" :size 24))
