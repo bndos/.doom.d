@@ -25,7 +25,7 @@
 ;; There are two ways to load a theme. Both assume the theme is installed and
 ;; available. You can either set `doom-theme' or manually load a theme with the
 ;; `load-theme' function. This is the default:
-(setq doom-theme 'doom-dracula)
+(setq doom-theme 'doom-outrun-electric)
 
 ;; If you use `org' and don't want your org files in the default location below,
 ;; change `org-directory'. It must be set before org loads!
@@ -98,15 +98,11 @@
   '(solaire-mode-line-inactive-face :background nil)
   '(mode-line-inactive :background nil)
   '(ivy-virtual :foreground "#444444" :italic nil)
-  '(font-lock-comment-face :foreground "#444444")
-  '(font-lock-variable-name-face :foreground "#ffb86c")
   '(ivy-current-match :background "#bd93f9" :foreground "#000000" :inherit bold)
-  '(lazy-highlight :background "#29422d")
-  '(lsp-face-highlight-read :background "#29422d")
-  '(lsp-face-highlight-write :background "#29422d")
-  '(lsp-face-highlight-textual :background "#49322d")
+  '(font-lock-comment-face :foreground "#444444")
   '(hl-line :background "#171717")
- )
+  '(region :background "#2f2157")
+  )
 
 (setq window-divider-default-bottom-width 0)
 (setq evil-insert-state-map (make-sparse-keymap))
@@ -339,3 +335,14 @@
       "C-M-/" #'undo-fu-only-redo-all)
 
 (setq treemacs-is-never-other-window nil)
+
+(global-set-key (kbd "H-d") (lambda ()
+                              (interactive)
+                              (scroll-up 4)
+                              (setq this-command 'next-line)
+                              (forward-line 4)))
+(global-set-key (kbd "H-u") (lambda ()
+                              (interactive)
+                              (scroll-down 4)
+                              (setq this-command 'previous-line)
+                              (forward-line -4)))
