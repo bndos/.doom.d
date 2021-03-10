@@ -161,9 +161,11 @@
        file-list)))
 
   (define-key dired-mode-map (kbd "M-o")
-    (lambda () (interactive) (dired-open-in-external-app)))
+    (lambda () (interactive) (dired-open-in-external-app))))
 
-  (add-hook 'dired-mode-hook #'dired-hide-details-mode))
+(add-hook 'dired-mode-hook
+          (lambda ()
+            (dired-hide-details-mode)))
 
 ;; window-rules
 (defvar parameters
