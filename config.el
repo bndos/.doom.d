@@ -56,7 +56,7 @@
 ;; Theme
 (setq doom-font (font-spec :family "Monego" :size 18)
       doom-variable-pitch-font (font-spec :family "Monego" :size 18)
-      doom-big-font (font-spec :family "Monego" :size 18))
+      doom-big-font (font-spec :family "Monego" :size 24))
 
 (add-to-list 'default-frame-alist
              '(font . "Monego-10"))
@@ -332,7 +332,6 @@
       "c n" #'my-make-room-for-new-compilation-buffer)
 
 ;; remaping
-
 (after! company
   (define-key company-active-map (kbd "<backtab>") 'counsel-company))
 
