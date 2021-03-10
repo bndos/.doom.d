@@ -1,7 +1,7 @@
 (setq display-line-numbers-type nil)
 
 ;; Theme
-(setq doom-theme 'doom-outrun-electric)
+(setq doom-theme 'doom-dracula)
 (setq doom-font (font-spec :family "Monego" :size 18)
       doom-variable-pitch-font (font-spec :family "Monego" :size 18)
       doom-big-font (font-spec :family "Monego" :size 24))
@@ -49,6 +49,7 @@
   '(ivy-virtual :foreground "#444444" :italic nil)
   '(ivy-current-match :background "#bd93f9" :foreground "#000000" :inherit bold)
   '(font-lock-comment-face :foreground "#444444")
+  '(font-lock-variable-name-face :foreground "#ffb86c")
   '(hl-line :background "#171717")
   '(region :background "#2f2157")
   )
