@@ -53,6 +53,7 @@
 ;; You can also try 'gd' (or 'C-c c d') to jump to their definition and see how
 ;; they are implemented.
 
+;; Theme
 (setq doom-font (font-spec :family "Monego" :size 18)
       doom-variable-pitch-font (font-spec :family "Monego" :size 18)
       doom-big-font (font-spec :family "Monego" :size 18))
@@ -104,16 +105,25 @@
   '(region :background "#2f2157")
   )
 
+(setq-local MODELINE '(getenv "MODELINE"))
+(after! doom-modeline
+  (doom-modeline-def-modeline 'main
+    '(bar window-number matches buffer-info remote-host buffer-position selection-info)
+    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
+
 (setq window-divider-default-bottom-width 0)
+
+;; evil
 (setq evil-insert-state-map (make-sparse-keymap))
 (define-key evil-insert-state-map (kbd "<escape>") 'evil-normal-state)
 
-
+;; counsel-projectile
 (after! counsel-projectile
   (ivy-set-display-transformer
- 'counsel-projectile-find-file
- 'counsel-projectile-find-file-transformer))
+   'counsel-projectile-find-file
+   'counsel-projectile-find-file-transformer))
 
+;; lsp/flycheck
 (setq gc-cons-threshold (* 100 1024 1024)
       read-process-output-max (* 1024 1024))
 
@@ -123,8 +133,8 @@
   (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
 
 (add-hook 'lsp-mode-hook (lambda ()
-                          (setq header-line-format nil)
-                          (lsp-headerline-breadcrumb-mode)))
+                           (setq header-line-format nil)
+                           (lsp-headerline-breadcrumb-mode)))
 
 (defvar-local my/flycheck-local-cache nil)
 
@@ -150,63 +160,49 @@
           (lambda ()
             (when (derived-mode-p 'js-mode)
               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (javascript-eslint)))))))))
-
-(global-set-key (kbd "H-h") 'windmove-left)
-(global-set-key (kbd "H-l") 'windmove-right)
-(global-set-key (kbd "H-k") 'windmove-up)
-(global-set-key (kbd "H-j") 'windmove-down)
-
-(global-set-key (kbd "H-M-h") 'shrink-window-horizontally)
-(global-set-key (kbd "H-M-l") 'enlarge-window-horizontally)
-(global-set-key (kbd "H-M-k") 'enlarge-window)
-(global-set-key (kbd "H-M-j") 'shrink-window)
-
-(global-set-key (kbd "H-K") 'buf-move-up)
-(global-set-key (kbd "H-J") 'buf-move-down)
-(global-set-key (kbd "H-H") 'buf-move-left)
-(global-set-key (kbd "H-L") 'buf-move-right)
-
-(global-set-key (kbd "H-/") 'winner-undo)
-(global-set-key (kbd "H-?") 'winner-redo)
-
-(defun switch-to-previous-buffer ()
-  (interactive)
-  (switch-to-buffer (other-buffer)))
-(global-set-key (kbd "H-<tab>") 'switch-to-previous-buffer)
-
-
-(setq-local MODELINE '(getenv "MODELINE"))
-(after! doom-modeline
-  (doom-modeline-def-modeline 'main
-    '(bar window-number matches buffer-info remote-host buffer-position selection-info)
-    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
-
-(global-set-key (kbd "M-<backspace>") 'sp-backward-unwrap-sexp)
-
-(defun dired-open-in-external-app ()
-  "Open the file(s) at point with an external application."
-  (interactive)
-  (let ((file-list (dired-get-marked-files)))
-    (mapc
-     (lambda (file-path)
-       (let ((process-connection-type nil))
-         (start-process "" nil "gio" "open" file-path)))
-     file-list)))
-
-(add-hook 'dired-mode-hook
-          (lambda ()
-            (dired-hide-details-mode)))
-
-(add-hook 'dired-mode-hook
-          (lambda ()
-            (define-key dired-mode-map (kbd "M-o")
-              (lambda () (interactive) (dired-open-in-external-app)))))
-
+;; dap-mode
+(after! dap-mode
+  (require 'dap-gdb-lldb)
+  (dap-gdb-lldb-setup)
+  (setq dap-output-buffer-filter '("stdout"))
+  (map! :leader
+        :desc "Dap debug"
+        "d d" #'dap-debug)
+  (map! :leader
+        :desc "Dap toggle breakpoint"
+        "d b" #'dap-breakpoint-toggle)
+  (map! :leader
+        :desc "Dap debug"
+        "d h" #'dap-hydra))
+;; treemacs
+(setq treemacs-is-never-other-window nil)
+;; lsp-treemacs
 (map! :leader
-      :desc "Open file externally"
-      "f o" #'counsel-find-file-extern)
+      :desc "Lsp symbols"
+      "o s" #'lsp-treemacs-symbols)
 
+;; smartparens
+(after! smartparens
+  (define-key smartparens-mode-map (kbd "M-<backspace>") 'sp-backward-unwrap-sexp))
 
+;; dired
+(after! dired-x
+  (defun dired-open-in-external-app ()
+    "Open the file(s) at point with an external application."
+    (interactive)
+    (let ((file-list (dired-get-marked-files)))
+      (mapc
+       (lambda (file-path)
+         (let ((process-connection-type nil))
+           (start-process "" nil "gio" "open" file-path)))
+       file-list)))
+
+  (define-key dired-mode-map (kbd "M-o")
+    (lambda () (interactive) (dired-open-in-external-app)))
+
+  (add-hook 'dired-mode-hook #'dired-hide-details-mode))
+
+;; window-rules
 (defvar parameters
   '(window-parameters . ((no-delete-other-windows . t))))
 
@@ -230,56 +226,11 @@
     (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15)
     ,parameters)))
 
-(global-set-key (kbd "C-x w") 'window-toggle-side-windows)
-
-(global-set-key (kbd "H-!") (lambda()
-                              (interactive)
-                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . -1) (window-height . 0.15)))))
-(global-set-key (kbd "H-@") (lambda()
-                              (interactive)
-                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . 1) (window-height . 0.15)))))
-(global-set-key (kbd "H-#") (lambda()
-                              (interactive)
-                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . right) (slot . 1) (window-width . 0.35)))))
-
-(defun my-ivy-read (prompt)
-  (ivy-read prompt (seq-filter
-                    (lambda (x) (and (or (string-match-p "^*compilation" x)
-                                         (string-match-p "^*vterm" x)
-                                         (string-match-p "^magit:" x))
-                                     (not (string-equal (buffer-name) x))))
-                    (mapcar #'buffer-name (buffer-list)))))
-
-(defun ivy-compilation-buffers (&optional name)
-  "Read desktop with a name."
-  (interactive)
-  (unless name
-    (setq name (my-ivy-read "compilation buffers: ")))
-  (switch-to-buffer name))
-
-(global-set-key (kbd "H-x b") 'ivy-compilation-buffers)
-
-
-(defun my-make-room-for-new-compilation-buffer ()
-  "Renames existing *compilation* buffer to something unique so
-         that a new compilation job can be run."
-  (interactive)
-  (let ((cbuf (get-buffer (concat "*compilation*<" (projectile-project-name) ">")))
-        (more-cbufs t)
-        (n 1)
-        (new-cbuf-name ""))
-    (when cbuf
-      (while more-cbufs
-        (setq new-cbuf-name (concat (format "*compilation %d*<" n) compile-command " " (projectile-project-name) ">"))
-        (setq n (1+ n))
-        (setq more-cbufs (get-buffer new-cbuf-name)))
-      (with-current-buffer cbuf
-        (rename-buffer new-cbuf-name)))))
-
 (map! :leader
-      :desc "Rename compile buffer"
-      "c n" #'my-make-room-for-new-compilation-buffer)
+      :desc "Toggle side windows"
+      "w x" #'window-toggle-side-windows)
 
+;; vterm
 (defun projectile-vterm ()
   (interactive)
   (if (projectile-project-p)
@@ -301,23 +252,16 @@
 
 (setq vterm-buffer-name-string "*vterm %s*")
 
-(map! :leader
-      :desc "Lsp symbols"
-      "o s" #'lsp-treemacs-symbols)
-
-(after! dap-mode
-  (require 'dap-gdb-lldb)
-  (dap-gdb-lldb-setup)
-  (setq dap-output-buffer-filter '("stdout"))
-  (map! :leader
-        :desc "Dap debug"
-        "d d" #'dap-debug)
-  (map! :leader
-        :desc "Dap toggle breakpoint"
-        "d b" #'dap-breakpoint-toggle)
-  (map! :leader
-        :desc "Dap debug"
-        "d h" #'dap-hydra))
+;; custom binds
+(global-set-key (kbd "H-!") (lambda()
+                              (interactive)
+                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . -1) (window-height . 0.15)))))
+(global-set-key (kbd "H-@") (lambda()
+                              (interactive)
+                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . 1) (window-height . 0.15)))))
+(global-set-key (kbd "H-#") (lambda()
+                              (interactive)
+                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . right) (slot . 1) (window-width . 0.35)))))
 
 (defun open-nautilus ()
   (interactive)
@@ -334,8 +278,6 @@
       :i
       "C-M-/" #'undo-fu-only-redo-all)
 
-(setq treemacs-is-never-other-window nil)
-
 (global-set-key (kbd "H-d") (lambda ()
                               (interactive)
                               (scroll-up 4)
@@ -346,3 +288,73 @@
                               (scroll-down 4)
                               (setq this-command 'previous-line)
                               (forward-line -4)))
+
+(defun switch-to-previous-buffer ()
+  (interactive)
+  (switch-to-buffer (other-buffer)))
+(global-set-key (kbd "H-<tab>") 'switch-to-previous-buffer)
+
+(defun my-ivy-read (prompt)
+  (ivy-read prompt (seq-filter
+                    (lambda (x) (and (or (string-match-p "^*compilation" x)
+                                         (string-match-p "^*vterm" x)
+                                         (string-match-p "^magit:" x))
+                                     (not (string-equal (buffer-name) x))))
+                    (mapcar #'buffer-name (buffer-list)))))
+
+(defun ivy-compilation-buffers (&optional name)
+  "Read desktop with a name."
+  (interactive)
+  (unless name
+    (setq name (my-ivy-read "compilation buffers: ")))
+  (switch-to-buffer name))
+
+(global-set-key (kbd "H-x b") 'ivy-compilation-buffers)
+
+(defun my-make-room-for-new-compilation-buffer ()
+  "Renames existing *compilation* buffer to something unique so
+         that a new compilation job can be run."
+  (interactive)
+  (let ((cbuf (get-buffer (concat "*compilation*<" (projectile-project-name) ">")))
+        (more-cbufs t)
+        (n 1)
+        (new-cbuf-name ""))
+    (when cbuf
+      (while more-cbufs
+        (setq new-cbuf-name (concat (format "*compilation %d*<" n) compile-command " " (projectile-project-name) ">"))
+        (setq n (1+ n))
+        (setq more-cbufs (get-buffer new-cbuf-name)))
+      (with-current-buffer cbuf
+        (rename-buffer new-cbuf-name)))))
+
+(map! :leader
+      :desc "Rename compile buffer"
+      "c n" #'my-make-room-for-new-compilation-buffer)
+
+;; remaping
+
+(after! company
+  (define-key company-active-map (kbd "<backtab>") 'counsel-company))
+
+(global-set-key (kbd "H-h") 'windmove-left)
+(global-set-key (kbd "H-l") 'windmove-right)
+(global-set-key (kbd "H-k") 'windmove-up)
+(global-set-key (kbd "H-j") 'windmove-down)
+
+(global-set-key (kbd "H-M-h") 'shrink-window-horizontally)
+(global-set-key (kbd "H-M-l") 'enlarge-window-horizontally)
+(global-set-key (kbd "H-M-k") 'enlarge-window)
+(global-set-key (kbd "H-M-j") 'shrink-window)
+
+(use-package! buffer-move
+  :bind (("H-K" . buf-move-up)
+         ("H-J" . buf-move-down)
+         ("H-H" . buf-move-left)
+         ("H-L" . buf-move-right)))
+
+(global-set-key (kbd "H-/") 'winner-undo)
+(global-set-key (kbd "H-?") 'winner-redo)
+
+(map! :leader
+      :desc "Open file externally"
+      "f o" #'counsel-find-file-extern)
