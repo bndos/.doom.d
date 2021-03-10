@@ -1,3 +1,5 @@
+* Appearance
+#+BEGIN_SRC emacs-lisp
 (setq doom-theme 'doom-outrun-electric)
 (setq org-directory "~/org/")
 (setq display-line-numbers-type nil)
@@ -61,17 +63,26 @@
     '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
 
 (setq window-divider-default-bottom-width 0)
+#+END_SRC
 
+* evil
+#+BEGIN_SRC emacs-lisp
 ;; evil
 (setq evil-insert-state-map (make-sparse-keymap))
 (define-key evil-insert-state-map (kbd "<escape>") 'evil-normal-state)
+#+END_SRC
 
+* counsel-projectile
+#+BEGIN_SRC emacs-lisp
 ;; counsel-projectile
 (after! counsel-projectile
   (ivy-set-display-transformer
    'counsel-projectile-find-file
    'counsel-projectile-find-file-transformer))
+#+END_SRC
 
+* lsp/flycheck
+#+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 (setq gc-cons-threshold (* 100 1024 1024)
       read-process-output-max (* 1024 1024))
@@ -109,7 +120,10 @@
           (lambda ()
             (when (derived-mode-p 'js-mode)
               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (javascript-eslint)))))))))
+#+END_SRC
 
+* dap-mode
+#+BEGIN_SRC emacs-lisp
 ;; dap-mode
 (after! dap-mode
   (require 'dap-gdb-lldb)
@@ -124,18 +138,27 @@
   (map! :leader
         :desc "Dap debug"
         "d h" #'dap-hydra))
+#+END_SRC
 
+* treemacs
+#+BEGIN_SRC emacs-lisp
 ;; treemacs
 (setq treemacs-is-never-other-window nil)
 ;; lsp-treemacs
 (map! :leader
       :desc "Lsp symbols"
       "o s" #'lsp-treemacs-symbols)
+#+END_SRC
 
+* smartparens
+#+BEGIN_SRC emacs-lisp
 ;; smartparens
 (after! smartparens
   (define-key smartparens-mode-map (kbd "M-<backspace>") 'sp-backward-unwrap-sexp))
+#+END_SRC
 
+* dired
+#+BEGIN_SRC emacs-lisp
 ;; dired
 (after! dired-x
   (defun dired-open-in-external-app ()
@@ -152,7 +175,10 @@
     (lambda () (interactive) (dired-open-in-external-app)))
 
   (add-hook 'dired-mode-hook #'dired-hide-details-mode))
+#+END_SRC
 
+* window-rules
+#+BEGIN_SRC emacs-lisp
 ;; window-rules
 (defvar parameters
   '(window-parameters . ((no-delete-other-windows . t))))
@@ -180,7 +206,10 @@
 (map! :leader
       :desc "Toggle side windows"
       "w x" #'window-toggle-side-windows)
+#+END_SRC
 
+* vterm
+#+BEGIN_SRC emacs-lisp
 ;; vterm
 (defun projectile-vterm ()
   (interactive)
@@ -202,7 +231,10 @@
       "M-V" #'projectile-vterm)
 
 (setq vterm-buffer-name-string "*vterm %s*")
+#+END_SRC
 
+* custom bindings
+#+BEGIN_SRC emacs-lisp
 ;; custom binds
 (global-set-key (kbd "H-!") (lambda()
                               (interactive)
@@ -281,7 +313,10 @@
 (map! :leader
       :desc "Rename compile buffer"
       "c n" #'my-make-room-for-new-compilation-buffer)
+#+END_SRC
 
+* remapping
+#+BEGIN_SRC emacs-lisp
 ;; remaping
 (after! company
   (define-key company-active-map (kbd "<backtab>") 'counsel-company))
@@ -308,3 +343,4 @@
 (map! :leader
       :desc "Open file externally"
       "f o" #'counsel-find-file-extern)
+#+END_SRC
