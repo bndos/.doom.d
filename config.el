@@ -64,13 +64,15 @@
 (after! git-gutter-fringe
   (fringe-helper-define 'git-gutter-fr:deleted nil
     "........"
-    "........"
-    "........"
-    "XXXXXXXX"
-    "XXXXXXXX"
-    "........"
-    "........"
-    "........"))
+    "..XXXX.."
+    "..XXXX.."
+    "..XXXX.."
+    "..XXXX.."
+    "..XXXX.."
+    "..XXXX.."
+    "........")
+  (define-fringe-bitmap 'git-gutter-fr:deleted [224]
+      nil nil '(center repeated)))
 
 ;; evil
 (setq evil-insert-state-map (make-sparse-keymap))
