@@ -149,6 +149,20 @@
 (after! smartparens
   (define-key smartparens-mode-map (kbd "M-<backspace>") 'sp-backward-unwrap-sexp))
 
+;; multiple-cursors
+(global-set-key (kbd "C-.")  'mc/mark-next-like-this)
+(global-set-key (kbd "C-,")  'mc/mark-previous-like-this)
+(global-set-key (kbd "C-\"")  'mc/mark-all-like-this)
+;; (global-set-key (kbd "M-<down>")  'mc/mark-next-word-like-this)
+(global-set-key (kbd "C->")  'mc/skip-to-next-like-this)
+(global-set-key (kbd "C-<")  'mc/skip-to-previous-like-this)
+(global-set-key (kbd "C-x C-.")  'mc/unmark-next-like-this)
+(global-set-key (kbd "C-x C-,")  'mc/unmark-previous-like-this)
+(global-set-key (kbd "C-x C-:")  'mc/mark-pop)
+(global-set-key (kbd "M-[")  'mc/insert-numbers)
+(global-set-key (kbd "M-]")  'mc/insert-letters)
+;; (global-set-key (kbd "C-c a")  'mc/vertical-align)
+
 ;; dired
 (after! dired-x
   (defun dired-open-in-external-app ()
