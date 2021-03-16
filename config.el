@@ -123,45 +123,57 @@
             (when (derived-mode-p 'js-mode)
               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (javascript-eslint)))))))))
 
+(map! :leader "[" #'flycheck-previous-error)
+
+(map! :leader "]" #'flycheck-next-error)
+
 ;; dap-mode
 (after! dap-mode
   (require 'dap-gdb-lldb)
   (dap-gdb-lldb-setup)
   (setq dap-output-buffer-filter '("stdout"))
-  (map! :leader
-        :desc "Dap debug"
-        "d d" #'dap-debug)
-  (map! :leader
-        :desc "Dap toggle breakpoint"
-        "d b" #'dap-breakpoint-toggle)
-  (map! :leader
-        :desc "Dap debug"
-        "d h" #'dap-hydra))
+  (map! :leader "d d" #'dap-debug)
+  (map! :leader "d b" #'dap-breakpoint-toggle)
+  (map! :leader "d h" #'dap-hydra))
+
+;; company
+(after! company
+  (setq company-idle-delay 0.01)
+  (define-key company-mode-map (kbd "H-SPC") 'company-complete)
+  (define-key company-active-map (kbd "<backtab>") 'counsel-company))
 
 ;; treemacs
 (setq treemacs-is-never-other-window nil)
 ;; lsp-treemacs
-(map! :leader
-      :desc "Lsp symbols"
-      "o s" #'lsp-treemacs-symbols)
+(map! :leader "o s" #'lsp-treemacs-symbols)
 
 ;; smartparens
 (after! smartparens
   (define-key smartparens-mode-map (kbd "M-<backspace>") 'sp-backward-unwrap-sexp))
 
 ;; multiple-cursors
-(global-set-key (kbd "C-.")  'mc/mark-next-like-this)
-(global-set-key (kbd "C-,")  'mc/mark-previous-like-this)
-(global-set-key (kbd "C-\"")  'mc/mark-all-like-this)
-;; (global-set-key (kbd "M-<down>")  'mc/mark-next-word-like-this)
-(global-set-key (kbd "C->")  'mc/skip-to-next-like-this)
-(global-set-key (kbd "C-<")  'mc/skip-to-previous-like-this)
-(global-set-key (kbd "C-x C-.")  'mc/unmark-next-like-this)
-(global-set-key (kbd "C-x C-,")  'mc/unmark-previous-like-this)
-(global-set-key (kbd "C-x C-:")  'mc/mark-pop)
-(global-set-key (kbd "M-[")  'mc/insert-numbers)
-(global-set-key (kbd "M-]")  'mc/insert-letters)
-;; (global-set-key (kbd "C-c a")  'mc/vertical-align)
+(use-package! multiple-cursors
+  :bind
+  (("C-."  . 'mc/mark-next-like-this)
+   ("C-,"  . 'mc/mark-previous-like-this)
+   ("C-\"" . 'mc/mark-all-like-this)
+
+   :map mc/keymap
+   ("C->"     . 'mc/skip-to-next-like-this)
+   ("C-<"     . 'mc/skip-to-previous-like-this)
+   ("C-x C-." . 'mc/unmark-next-like-this)
+   ("C-x C-," . 'mc/unmark-previous-like-this)
+   ("C-x C-:" . 'mc/mark-pop)
+   ("M-["     . 'mc/insert-numbers)
+   ("M-]"     . 'mc/insert-letters)
+   ("C-a"     . 'mc/vertical-align-with-space)))
+
+;; buffermove
+(use-package! buffer-move
+  :bind (("H-K" . buf-move-up)
+         ("H-J" . buf-move-down)
+         ("H-H" . buf-move-left)
+         ("H-L" . buf-move-right)))
 
 ;; dired
 (after! dired-x
@@ -206,9 +218,7 @@
     (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15)
     ,parameters)))
 
-(map! :leader
-      :desc "Toggle side windows"
-      "w x" #'window-toggle-side-windows)
+(map! :leader "w x" #'window-toggle-side-windows)
 
 ;; vterm
 (defun projectile-vterm ()
@@ -227,8 +237,7 @@
     (vterm-send-string "cd .")
     (vterm-send-return)))
 
-(map! :desc "Open vterm in project root or current dir"
-      "M-V" #'projectile-vterm)
+(map! "M-V" #'projectile-vterm)
 
 (setq vterm-buffer-name-string "*vterm %s*")
 
@@ -247,15 +256,12 @@
   (interactive)
   (call-process "nautilus" nil 0 nil "."))
 
-(map! :desc "Open nautilus in current dir"
-      "C-c C-n" #'open-nautilus)
+(map! "C-c C-n" #'open-nautilus)
 
-(map! :desc "Redo"
-      :i
+(map! :i
       "C-?" #'undo-fu-only-redo)
 
-(map! :desc "Redo all"
-      :i
+(map! :i
       "C-M-/" #'undo-fu-only-redo-all)
 
 (global-set-key (kbd "H-d") (lambda ()
@@ -307,14 +313,11 @@
       (with-current-buffer cbuf
         (rename-buffer new-cbuf-name)))))
 
-(map! :leader
-      :desc "Rename compile buffer"
-      "c n" #'my-make-room-for-new-compilation-buffer)
+(map! :leader "c n" #'my-make-room-for-new-compilation-buffer)
 
 ;; remaping
-(after! company
-  (define-key company-active-map (kbd "<backtab>") 'counsel-company))
 
+;; windows
 (global-set-key (kbd "H-h") 'windmove-left)
 (global-set-key (kbd "H-l") 'windmove-right)
 (global-set-key (kbd "H-k") 'windmove-up)
@@ -325,15 +328,12 @@
 (global-set-key (kbd "H-M-k") 'enlarge-window)
 (global-set-key (kbd "H-M-j") 'shrink-window)
 
-(use-package! buffer-move
-  :bind (("H-K" . buf-move-up)
-         ("H-J" . buf-move-down)
-         ("H-H" . buf-move-left)
-         ("H-L" . buf-move-right)))
-
 (global-set-key (kbd "H-/") 'winner-undo)
 (global-set-key (kbd "H-?") 'winner-redo)
 
-(map! :leader
-      :desc "Open file externally"
-      "f o" #'counsel-find-file-extern)
+;; open file externally
+(map! :leader "f o" #'counsel-find-file-extern)
+
+;; workspaces
+(map! :leader "TAB TAB" #'+workspace/other)
+(map! :leader "TAB '" #'+workspace/display)
