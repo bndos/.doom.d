@@ -163,6 +163,13 @@
   (define-key company-active-map (kbd "<backtab>") 'counsel-company))
 #+END_SRC
 
+* js-react-redux-yasnippets
+#+BEGIN_SRC emacs-lisp
+;; js-react-redux-yasnippets
+(after! js-react-redux-yasnippets
+  (setq js-react-redux-yasnippets-want-semicolon t))
+#+END_SRC
+
 * treemacs
 #+BEGIN_SRC emacs-lisp
 ;; treemacs

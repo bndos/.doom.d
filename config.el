@@ -142,6 +142,10 @@
   (define-key company-mode-map (kbd "H-SPC") 'company-complete)
   (define-key company-active-map (kbd "<backtab>") 'counsel-company))
 
+;; js-react-redux-yasnippets
+(after! js-react-redux-yasnippets
+  (setq js-react-redux-yasnippets-want-semicolon t))
+
 ;; treemacs
 (setq treemacs-is-never-other-window nil)
 ;; lsp-treemacs
