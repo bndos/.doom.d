@@ -337,3 +337,7 @@
 ;; workspaces
 (map! :leader "TAB TAB" #'+workspace/other)
 (map! :leader "TAB '" #'+workspace/display)
+
+;; org
+(map! :map org-mode-map :n "g k" #'org-up-element)
+(map! :map org-mode-map :n "g j" #'org-down-element)
