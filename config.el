@@ -245,6 +245,26 @@
 
 (setq vterm-buffer-name-string "*vterm %s*")
 
+;; org
+(after! org
+  (add-to-list 'org-latex-packages-alist '("" "minted"))
+  (setq org-latex-toc-command "\\tableofcontents \\clearpage")
+  (setq org-latex-listings 'minted)
+  (setq org-latex-minted-options
+        '(("breaklines" "true")
+          ("breakanywhere" "true")
+          ("linenos" "true")
+          ("gobble" "2")
+          ("xleftmargin" "20pt")
+          ("bgcolor" "borlandbg")))
+
+  (setq org-latex-pdf-process
+        '("xelatex -shell-escape -interaction nonstopmode -output-directory %o %f"
+          "xelatex -shell-escape -interaction nonstopmode -output-directory %o %f"
+          "xelatex -shell-escape -interaction nonstopmode -output-directory %o %f"))
+
+  (setq org-src-fontify-natively t))
+
 ;; custom binds
 (global-set-key (kbd "H-!") (lambda()
                               (interactive)
