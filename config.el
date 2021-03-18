@@ -247,6 +247,11 @@
 
 ;; org
 (after! org
+  (map! :map org-mode-map :n "g k" #'org-up-element)
+  (map! :map org-mode-map :n "g j" #'org-down-element)
+  (map! :map org-mode-map :leader "j s" 'jupyter-org-insert-src-block)
+  (map! :map org-mode-map :leader "j c" 'jupyter-org-clone-block)
+
   (add-to-list 'org-latex-packages-alist '("" "minted"))
   (setq org-latex-toc-command "\\tableofcontents \\clearpage")
   (setq org-latex-listings 'minted)
@@ -254,7 +259,7 @@
         '(("breaklines" "true")
           ("breakanywhere" "true")
           ("linenos" "true")
-          ("gobble" "2")
+          ("gobble" "-8")
           ("xleftmargin" "20pt")
           ("bgcolor" "borlandbg")))
 
@@ -361,7 +366,3 @@
 ;; workspaces
 (map! :leader "TAB TAB" #'+workspace/other)
 (map! :leader "TAB '" #'+workspace/display)
-
-;; org
-(map! :map org-mode-map :n "g k" #'org-up-element)
-(map! :map org-mode-map :n "g j" #'org-down-element)
