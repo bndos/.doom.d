@@ -24,15 +24,12 @@
   (set-face-attribute 'mode-line nil :box nil)
   (set-face-attribute 'mode-line-inactive nil :box nil))
 
-(after! ivy
-  (set-face-attribute 'ivy-minibuffer-match-face-1 nil :background "#ff79c6" :foreground "#000000")
-  (set-face-attribute 'ivy-minibuffer-match-face-2 nil :background "#ff79c6" :foreground "#000000")
-  (set-face-attribute 'ivy-minibuffer-match-face-3 nil :background "#ff79c6" :foreground "#000000")
-  (set-face-attribute 'ivy-minibuffer-match-face-4 nil :background "#ff79c6" :foreground "#000000")
-  )
-
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
+  '(ivy-minibuffer-match-face-1 :background "#ff79c6" :foreground "#000000")
+  '(ivy-minibuffer-match-face-2 :background "#ff79c6" :foreground "#000000")
+  '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
+  '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(mode-line :background nil)
   '(header-line :background nil)
   '(magit-header-line :background nil :box nil)
