@@ -3,9 +3,9 @@
 (setq display-line-numbers-type nil)
 
 ;; Theme
-(setq doom-theme 'doom-outrun-electric)
-(setq doom-font (font-spec :family "Monego" :size 18)
-      doom-variable-pitch-font (font-spec :family "Monego" :size 18)
+(setq doom-theme 'doom-dracula)
+(setq doom-font (font-spec :family "Monego" :size 20)
+      doom-variable-pitch-font (font-spec :family "Monego" :size 20)
       doom-big-font (font-spec :family "Monego" :size 24))
 
 (add-to-list 'default-frame-alist
@@ -167,9 +167,12 @@
 * treemacs
 #+BEGIN_SRC emacs-lisp
 ;; treemacs
-(setq treemacs-is-never-other-window nil)
+(after! treemacs
+  (treemacs-follow-mode 1)
+  (map! :leader "o s" #'lsp-treemacs-symbols)
+  (setq treemacs-is-never-other-window nil)
+  )
 ;; lsp-treemacs
-(map! :leader "o s" #'lsp-treemacs-symbols)
 #+END_SRC
 
 * smartparens
@@ -281,7 +284,8 @@
 
 (map! "M-V" #'projectile-vterm)
 
-(setq vterm-buffer-name-string "*vterm %s*")
+(after! vterm
+  (setq vterm-buffer-name-string "*vterm %s*"))
 #+END_SRC
 
 * org
