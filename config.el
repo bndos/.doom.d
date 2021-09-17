@@ -195,6 +195,9 @@
           (lambda ()
             (dired-hide-details-mode)))
 
+(after! magit
+  (setq transient-display-buffer-action '(display-buffer-in-side-window (side . bottom))))
+
 ;; window-rules
 (defvar parameters
   '(window-parameters . ((no-delete-other-windows . t))))

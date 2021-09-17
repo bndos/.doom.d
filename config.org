@@ -234,6 +234,12 @@
             (dired-hide-details-mode)))
 #+END_SRC
 
+* magit
+#+BEGIN_SRC emacs-lisp
+(after! magit
+  (setq transient-display-buffer-action '(display-buffer-in-side-window (side . bottom))))
+#+END_SRC
+
 * window-rules
 #+BEGIN_SRC emacs-lisp
 ;; window-rules
