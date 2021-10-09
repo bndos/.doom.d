@@ -3,10 +3,10 @@
 (setq display-line-numbers-type nil)
 
 ;; Theme
-(setq doom-theme 'doom-dracula)
-(setq doom-font (font-spec :family "Monego" :size 20)
-      doom-variable-pitch-font (font-spec :family "Monego" :size 20)
-      doom-big-font (font-spec :family "Monego" :size 24))
+(setq doom-theme 'doom-outrun-electric)
+(setq doom-font (font-spec :family "Consolas" :style "Bold" :size 20)
+      doom-variable-pitch-font (font-spec :family "Consolas" :style "Bold" :size 20)
+      doom-big-font (font-spec :family "Monego" :style "Bold" :size 24))
 
 (add-to-list 'default-frame-alist
              '(font . "Monego-10"))
@@ -107,12 +107,6 @@
                            (lsp-headerline-breadcrumb-mode)))
 
 (defvar-local my/flycheck-local-cache nil)
-
-;; (add-hook 'lsp-managed-mode-hook
-;;           (lambda ()
-;;             (when (derived-mode-p 'python-mode)
-;;               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (python-pylint)))))))))
-
 
 (defun my/flycheck-checker-get (fn checker property)
   (or (alist-get property (alist-get checker my/flycheck-local-cache))
