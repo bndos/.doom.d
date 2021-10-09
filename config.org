@@ -89,6 +89,9 @@
   (ivy-set-display-transformer
    'counsel-projectile-find-file
    'counsel-projectile-find-file-transformer))
+
+(after! ivy
+  (setq ivy-ignore-buffers '("\\` " "\\`\\*" "^magit:")))
 #+END_SRC
 
 * lsp/flycheck

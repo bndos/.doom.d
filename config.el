@@ -79,6 +79,9 @@
    'counsel-projectile-find-file
    'counsel-projectile-find-file-transformer))
 
+(after! ivy
+  (setq ivy-ignore-buffers '("\\` " "\\`\\*" "^magit:")))
+
 ;; lsp/flycheck
 (setq gc-cons-threshold (* 100 1024 1024)
       read-process-output-max (* 1024 1024))
