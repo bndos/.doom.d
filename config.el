@@ -2,8 +2,8 @@
 
 ;; Theme
 (setq doom-theme 'doom-outrun-electric)
-(setq doom-font (font-spec :family "Consolas" :style "Bold" :size 20)
-      doom-variable-pitch-font (font-spec :family "Consolas" :style "Bold" :size 20)
+(setq doom-font (font-spec :family "Consolas NF" :style "Bold" :size 20)
+      doom-variable-pitch-font (font-spec :family "Consolas NF" :style "Bold" :size 20)
       doom-big-font (font-spec :family "Monego" :style "Bold" :size 24))
 
 (add-to-list 'default-frame-alist
@@ -114,6 +114,12 @@
 (map! :leader "[" #'flycheck-previous-error)
 
 (map! :leader "]" #'flycheck-next-error)
+
+(add-hook 'js-mode-hook #'prettier-js-mode)
+(add-hook 'typescript-mode-hook #'prettier-js-mode)
+(after! prettier-js
+  (map! :map js-mode-map :leader "c f" #'prettier-js)
+  (map! :map typescript-mode-map :leader "c f" #'prettier-js))
 
 ;; dap-mode
 (after! dap-mode
