@@ -1,4 +1,5 @@
 (setq display-line-numbers-type nil)
+(setq truncate-lines t)
 
 ;; Theme
 (setq doom-theme 'doom-outrun-electric)
@@ -272,6 +273,16 @@
           "xelatex -shell-escape -interaction nonstopmode -output-directory %o %f"
           "xelatex -shell-escape -interaction nonstopmode -output-directory %o %f"))
 
+  (after! ox-latex
+    (add-to-list 'org-latex-classes
+                 '("extarticle"
+                   "\\documentclass{extarticle}"
+                   ("\\section{%s}" . "\\section*{%s}")
+                   ("\\subsection{%s}" . "\\subsection*{%s}")
+                   ("\\subsubsection{%s}" . "\\subsubsection*{%s}")
+                   ("\\paragraph{%s}" . "\\paragraph*{%s}")
+                   ("\\subparagraph{%s}" . "\\subparagraph*{%s}"))))
+  
   (setq org-src-fontify-natively t))
 
 ;; custom binds
