@@ -89,6 +89,9 @@
 
 (setq lsp-disabled-clients '(angular-ls))
 
+(after! lsp-ui
+  (setq lsp-ui-sideline-enable nil))
+
 (after! lsp-clangd
   (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
 
@@ -116,7 +119,6 @@
               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (javascript-eslint)))))))))
 
 (map! :leader "[" #'flycheck-previous-error)
-
 (map! :leader "]" #'flycheck-next-error)
 
 (add-hook 'js-mode-hook #'prettier-js-mode)
