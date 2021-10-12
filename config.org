@@ -31,6 +31,7 @@
   '(ivy-minibuffer-match-face-2 :background "#ff79c6" :foreground "#000000")
   '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
   '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
+  '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   '(mode-line :background nil)
   '(header-line :background nil)
   '(magit-header-line :background nil :box nil)
@@ -58,6 +59,12 @@
     '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
 
 (setq window-divider-default-bottom-width 0)
+
+(use-package! tree-sitter
+  :config
+  (require 'tree-sitter-langs)
+  (global-tree-sitter-mode)
+  (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 #+END_SRC
 
 * git-gutter-fringe
