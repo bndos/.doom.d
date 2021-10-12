@@ -1,5 +1,5 @@
 (setq display-line-numbers-type nil)
-(setq truncate-lines t)
+(global-visual-line-mode t)
 
 ;; Theme
 (setq doom-theme 'doom-outrun-electric)
