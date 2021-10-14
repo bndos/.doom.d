@@ -1,6 +1,12 @@
 (setq display-line-numbers-type nil)
 (global-visual-line-mode t)
 
+;; Color on compile buffer
+(require 'ansi-color)
+(defun my/ansi-colorize-buffer ()
+  (let ((buffer-read-only nil))
+    (ansi-color-apply-on-region (point-min) (point-max))))
+(add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
 (setq doom-theme 'doom-outrun-electric)
 (setq doom-font (font-spec :family "Consolas NF" :style "Bold" :size 20)
