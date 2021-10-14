@@ -232,7 +232,7 @@
    ("^magit:" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2)
     (preserve-size . (t . nil)) ,parameters)
-   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*docker-build-output"
+   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*docker-build-output\\|^* docker container"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15)
     ,parameters)
