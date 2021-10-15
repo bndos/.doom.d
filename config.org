@@ -29,7 +29,11 @@
 
 (after! doom-modeline
   (set-face-attribute 'mode-line nil :box nil)
-  (set-face-attribute 'mode-line-inactive nil :box nil))
+  (set-face-attribute 'mode-line-inactive nil :box nil)
+  (setq doom-modeline-buffer-file-name-style 'file-name)
+  (doom-modeline-def-modeline 'main
+    '(bar window-number matches buffer-info remote-host buffer-position selection-info)
+    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
 
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
@@ -38,7 +42,6 @@
   '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
   '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
-  '(mode-line :background nil)
   '(header-line :background nil)
   '(magit-header-line :background nil :box nil)
   '(match :background nil)
@@ -49,6 +52,7 @@
   '(whitespace-space :background nil)
   '(solaire-mode-line-face :background nil)
   '(solaire-mode-line-inactive-face :background nil)
+  '(mode-line :background nil)
   '(mode-line-inactive :background nil)
   '(ivy-virtual :foreground "#444444" :italic nil)
   '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
@@ -58,11 +62,16 @@
   '(region :background "#355461")
   )
 
-(setq-local MODELINE '(getenv "MODELINE"))
-(after! doom-modeline
-  (doom-modeline-def-modeline 'main
-    '(bar window-number matches buffer-info remote-host buffer-position selection-info)
-    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
+(global-set-key (kbd "s-N") 'flash-active-buffer)
+(make-face 'flash-active-buffer-face)
+(set-face-attribute 'flash-active-buffer-face nil
+                    :background "#151515" :foreground nil)
+(defun flash-active-buffer ()
+  (interactive)
+  (run-at-time "100 millisec" nil
+               (lambda (remap-cookie)
+                 (face-remap-remove-relative remap-cookie))
+               (face-remap-add-relative 'default 'flash-active-buffer-face)))
 
 (setq window-divider-default-bottom-width 0)
 
