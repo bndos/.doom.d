@@ -114,7 +114,8 @@
    'counsel-projectile-find-file-transformer))
 
 (after! ivy
-  (setq ivy-ignore-buffers '("\\` " "\\`\\*" "^magit:")))
+  (setq ivy-ignore-buffers '("\\` " "\\`\\*" "^magit:"))
+  (map! :map ivy-mode-map "C-k" #'ivy-switch-buffer-kill))
 #+END_SRC
 
 * lsp/flycheck
@@ -230,7 +231,7 @@
    ("C-x C-:" . 'mc/mark-pop)
    ("M-["     . 'mc/insert-numbers)
    ("M-]"     . 'mc/insert-letters)
-   ("C-a"     . 'mc/vertical-align-with-space)))
+   ("C-x C-a" . 'mc/vertical-align-with-space)))
 #+END_SRC
 
 * buffermove
