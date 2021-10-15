@@ -103,6 +103,7 @@
    'counsel-projectile-find-file-transformer))
 
 (after! ivy
+  (setq ivy-sort-max-size 30000)
   (setq ivy-ignore-buffers '("\\` " "\\`\\*" "^magit:"))
   (map! :map ivy-mode-map "C-k" #'ivy-switch-buffer-kill))
 
