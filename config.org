@@ -335,7 +335,7 @@
   (map! :map org-mode-map :n "g j" #'org-down-element)
   (map! :map org-mode-map :leader "j s" 'jupyter-org-insert-src-block)
   (map! :map org-mode-map :leader "j c" 'jupyter-org-clone-block)
-
+  (setq org-agenda-files '("~/Dropbox/agenda.org"))
   (add-to-list 'org-latex-packages-alist '("" "minted"))
   (setq org-latex-toc-command "\\tableofcontents \\clearpage")
   (setq org-latex-listings 'minted)
