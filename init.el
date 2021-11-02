@@ -111,7 +111,7 @@
 
        :lang
        ;;agda              ; types of types of types of types...
-       (cc -irony +lsp)                ; C/C++/Obj-C madness
+       (cc -irony +lsp +peek)                ; C/C++/Obj-C madness
        ;;clojure           ; java with a lisp
        ;;common-lisp       ; if you've seen one lisp, you've seen them all
        ;;coq               ; proofs-as-programs
@@ -123,7 +123,7 @@
        ;;elm               ; care for a cup of TEA?
        emacs-lisp        ; drown in parentheses
        ;;erlang            ; an elegant language for a more civilized age
-       (ess +lsp)               ; emacs speaks statistics
+       (ess +lsp +peek)               ; emacs speaks statistics
        ;;faust             ; dsp, but you get to keep your soul
        ;;fsharp            ; ML stands for Microsoft's Language
        ;;fstar             ; (dependent) types and (monadic) effects and Z3
@@ -133,9 +133,9 @@
        ;;hy                ; readability of scheme w/ speed of python
        ;;idris             ; a language you can depend on
        ;;json              ; At least it ain't XML
-       (java +lsp) ; the poster child for carpal tunnel syndrome
-       (javascript +lsp)        ; all(hope(abandon(ye(who(enter(here))))))
-       (typescript +lsp)        ; all(hope(abandon(ye(who(enter(here))))))
+       (java +lsp +peek) ; the poster child for carpal tunnel syndrome
+       (javascript +lsp +peek)        ; all(hope(abandon(ye(who(enter(here))))))
+       (typescript +lsp +peek)        ; all(hope(abandon(ye(who(enter(here))))))
        ;;julia             ; a better, faster MATLAB
        ;;kotlin            ; a better, slicker Java(Script)
        latex             ; writing papers in Emacs has never been so fun
@@ -153,6 +153,7 @@
        ;;purescript        ; javascript, but functional
        (python
         +lsp
+        +peek
         +pyright)           ; beautiful is better than ugly
        ;;qt                ; the 'cutest' gui framework ever
        ;;racket            ; a DSL for DSLs
