@@ -117,7 +117,16 @@
 (setq lsp-disabled-clients '(angular-ls))
 
 (after! lsp-ui
-  (setq lsp-ui-sideline-enable nil))
+  (setq lsp-ui-sideline-ignore-duplicate t
+        lsp-ui-sideline-show-hover nil
+        lsp-ui-doc-enable nil
+        lsp-ui-doc-position 'bottom
+        lsp-ui-doc-show-with-mouse t
+        ;; lsp-ui-doc-alignment 'frame
+        lsp-ui-doc-max-height 10
+        lsp-ui-doc-include-signature nil  ; don't include type signature in the child frame
+        lsp-ui-sideline-show-symbol nil)  ; don't show info on the right
+  (put 'lsp-ui-doc--handle-mouse-movement 'isearch-scroll t))
 
 (after! lsp-clangd
   (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
