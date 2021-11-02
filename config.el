@@ -58,6 +58,8 @@
   '(font-lock-variable-name-face :foreground "#ffb86c")
   '(hl-line :background "#171717")
   '(region :background "#355461")
+  '(ediff-current-diff-A :background "#3d2940")
+  '(ediff-current-diff-B :background "#223740")
   )
 
 (global-set-key (kbd "s-N") 'flash-active-buffer)
@@ -230,7 +232,7 @@
 
 ;; window-rules
 (defvar parameters
-  '(window-parameters . ((no-delete-other-windows . t))))
+  '(window-parameters . ((no-delete-other-windows . t) (unsplittable . t))))
 
 (setq
  display-buffer-alist
