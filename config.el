@@ -117,6 +117,8 @@
 (setq lsp-disabled-clients '(angular-ls))
 
 (after! lsp-ui
+  (map! :map lsp-ui-mode-map
+        "g P" #'lsp-ui-peek-find-references)
   (setq lsp-ui-sideline-ignore-duplicate t
         lsp-ui-sideline-show-hover nil
         lsp-ui-doc-enable nil
