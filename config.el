@@ -230,7 +230,7 @@
 
 ;; window-rules
 (defvar parameters
-  '(window-parameters . ((no-delete-other-windows . t) (dedicated . t))))
+  '(window-parameters . ((no-delete-other-windows . t))))
 
 (setq
  display-buffer-alist
