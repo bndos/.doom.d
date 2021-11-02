@@ -230,7 +230,7 @@
 
 ;; window-rules
 (defvar parameters
-  '(window-parameters . ((no-delete-other-windows . t))))
+  '(window-parameters . ((no-delete-other-windows . t) (dedicated . t))))
 
 (setq
  display-buffer-alist
@@ -253,6 +253,8 @@
     ,parameters)))
 
 (map! :leader "w x" #'window-toggle-side-windows)
+
+(add-hook 'ediff-before-setup-hook (lambda () (select-frame (make-frame))))
 
 ;; vterm
 (defun projectile-vterm ()
