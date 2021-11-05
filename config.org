@@ -411,6 +411,20 @@
 
 (map! "C-c C-n" #'open-nautilus)
 
+(defun open-term ()
+  "Lists the contents of the current directory."
+  (interactive)
+  (call-process "st" nil 0 nil))
+
+(defun open-terminal-in-project-root ()
+  "Open default terminal in the project root."
+  (interactive)
+  (if (projectile-project-p)
+      (let ((default-directory (projectile-project-root)))
+        (open-term))
+    (open-term)))
+(map! "H-<return>" 'open-terminal-in-project-root)
+
 (map! :i
       "C-?" #'undo-fu-only-redo)
 
