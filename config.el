@@ -39,7 +39,7 @@
   '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
   '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
-  '(header-line :background nil)
+  '(header-line :background "#000000")
   '(magit-header-line :background nil :box nil)
   '(match :background nil)
   '(org-block-begin-line :background nil)
