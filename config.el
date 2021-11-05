@@ -80,17 +80,30 @@
   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 
 (after! git-gutter-fringe
+  (set-face-foreground 'git-gutter-fr:modified  "purple")
+  
   (fringe-helper-define 'git-gutter-fr:deleted nil
     "........"
-    "..XXXX.."
-    "..XXXX.."
-    "..XXXX.."
-    "..XXXX.."
-    "..XXXX.."
-    "..XXXX.."
-    "........")
-  (define-fringe-bitmap 'git-gutter-fr:deleted [224]
-      nil nil '(center repeated)))
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "........"
+    "XXXXXXXX"
+    "XXXXXXXX"
+    "XXXXXXXX"
+    "XXXXXXXX"))
 
 ;; evil
 (setq evil-insert-state-map (make-sparse-keymap))
