@@ -26,9 +26,10 @@
       doom-themes-enable-italic nil)
 
 (after! doom-modeline
-  (set-face-attribute 'mode-line nil :box nil)
+  (set-face-attribute 'mode-line nil :background "#101010" :box nil)
   (set-face-attribute 'mode-line-inactive nil :box nil)
   (setq doom-modeline-buffer-file-name-style 'file-name)
+  (setq-default doom-modeline-height 35)
   (doom-modeline-def-modeline 'main
     '(bar window-number matches buffer-info remote-host buffer-position selection-info)
     '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
