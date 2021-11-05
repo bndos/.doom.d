@@ -28,8 +28,6 @@
       doom-themes-enable-italic nil)
 
 (after! doom-modeline
-  (set-face-attribute 'mode-line nil :background "#101010" :box nil)
-  (set-face-attribute 'mode-line-inactive nil :box nil)
   (setq doom-modeline-buffer-file-name-style 'file-name)
   (setq-default doom-modeline-height 35)
   (doom-modeline-def-modeline 'main
@@ -51,9 +49,7 @@
   '(org-block-end-line :background nil)
   '(whitespace-tab :background nil)
   '(whitespace-space :background nil)
-  '(solaire-mode-line-face :background nil)
-  '(solaire-mode-line-inactive-face :background nil)
-  '(mode-line :background nil)
+  '(mode-line :background "#101010")
   '(mode-line-inactive :background nil)
   '(ivy-virtual :foreground "#444444" :italic nil)
   '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
