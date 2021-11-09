@@ -119,6 +119,19 @@
 (define-key evil-insert-state-map (kbd "<escape>") 'evil-normal-state)
 #+END_SRC
 
+* persp-mode
+#+BEGIN_SRC emacs-lisp
+(after! persp-mode
+                                        ; magit restore fix with persp-mode.el
+  (persp-def-buffer-save/load
+   :mode 'magit-status-mode :tag-symbol 'def-magit-status-buffer
+   :save-vars '(default-directory)
+   :load-function #'(lambda (savelist &rest _)
+                      (cl-destructuring-bind (buffer-name vars-list &rest _rest) (cdr savelist)
+                        (let ((buf-dir (alist-get 'default-directory vars-list)))
+                          (magit-status buf-dir))))))
+#+END_SRC
+
 * counsel-projectile
 #+BEGIN_SRC emacs-lisp
 ;; counsel-projectile
