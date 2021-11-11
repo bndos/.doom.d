@@ -11,8 +11,8 @@
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
 (setq doom-theme 'doom-outrun-electric)
-(setq doom-font (font-spec :family "Consolas NF" :style "Bold" :size 19)
-      doom-variable-pitch-font (font-spec :family "Consolas NF" :style "Bold" :size 19)
+(setq doom-font (font-spec :family "Consolas NF" :style "Bold" :size 16)
+      doom-variable-pitch-font (font-spec :family "Consolas NF" :style "Bold" :size 16)
       doom-big-font (font-spec :family "Monego" :style "Bold" :size 24))
 
 (add-to-list 'default-frame-alist
