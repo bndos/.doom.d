@@ -10,7 +10,7 @@
     (ansi-color-apply-on-region (point-min) (point-max))))
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
-(setq doom-theme 'doom-outrun-electric)
+(setq doom-theme 'doom-challenger-deep)
 (setq doom-font (font-spec :family "Consolas NF" :style "Bold" :size 17)
       doom-variable-pitch-font (font-spec :family "Consolas NF" :style "Bold" :size 17)
       doom-big-font (font-spec :family "Monego" :style "Bold" :size 24))
