@@ -1,6 +1,6 @@
 * Appearance
 #+BEGIN_SRC emacs-lisp
-(setq fancy-splash-image "~/.doom.d/gnu-head.png")
+(setq fancy-splash-image "~/.doom.d/logo.png")
 (setq display-line-numbers-type nil)
 (global-visual-line-mode t)
 
