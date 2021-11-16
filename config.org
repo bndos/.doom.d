@@ -404,6 +404,14 @@
                    ("\\subparagraph{%s}" . "\\subparagraph*{%s}"))))
   
   (setq org-src-fontify-natively t))
+
+(use-package! org-ref
+    :after org
+    :init
+    ; code to run before loading org-ref
+    :config
+    ; code to run after loading org-ref
+    )
 #+END_SRC
 
 * custom bindings
