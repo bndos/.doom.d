@@ -13,6 +13,7 @@
 (package! multiple-cursors)
 (package! js-react-redux-yasnippets)
 (package! prettier-js)
+(package! citeproc-org)
 (package! org-ref)
 (package! tree-sitter)
 (package! tree-sitter-langs)
