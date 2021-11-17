@@ -418,15 +418,18 @@
 * custom bindings
 #+BEGIN_SRC emacs-lisp
 ;; custom binds
-(global-set-key (kbd "H-!") (lambda()
+(global-set-key (kbd "H-M-J") (lambda()
                               (interactive)
                               (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . -1) (window-height . 0.15)))))
-(global-set-key (kbd "H-@") (lambda()
+(global-set-key (kbd "H-M-K") (lambda()
                               (interactive)
                               (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . 1) (window-height . 0.15)))))
-(global-set-key (kbd "H-#") (lambda()
+(global-set-key (kbd "H-M-L") (lambda()
                               (interactive)
                               (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . right) (slot . 1) (window-width . 0.35)))))
+(global-set-key (kbd "H-M-H") (lambda()
+                              (interactive)
+                              (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . left) (slot . 1) (window-width . 0.2)))))
 
 (defun open-nautilus ()
   (interactive)
