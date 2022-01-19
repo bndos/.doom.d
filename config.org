@@ -203,9 +203,6 @@
 #+BEGIN_SRC emacs-lisp
 (add-hook 'js-mode-hook #'prettier-js-mode)
 (add-hook 'typescript-mode-hook #'prettier-js-mode)
-(after! prettier-js
-  (map! :map js-mode-map :leader "c f" #'prettier-js)
-  (map! :map typescript-mode-map :leader "c f" #'prettier-js))
 #+END_SRC
 
 * dap-mode
@@ -422,9 +419,11 @@
   (map! :map org-mode-map :n "z M-=" #'langtool-check-done))
 #+END_SRC
 
-* custom bindings
+* custom conf
 #+BEGIN_SRC emacs-lisp
 ;; custom binds
+(setq-default comment-line-break-function nil)
+
 (global-set-key (kbd "H-M-J") (lambda()
                               (interactive)
                               (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . -1) (window-height . 0.15)))))
