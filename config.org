@@ -151,7 +151,7 @@
 ;; lsp/flycheck
 (setq gc-cons-threshold (* 100 1024 1024)
       read-process-output-max (* 1024 1024))
-
+(setq lsp-enable-file-watchers nil)
 (setq lsp-disabled-clients '(angular-ls))
 
 (after! lsp-ui
@@ -254,6 +254,7 @@
 * multiple cursors
 #+BEGIN_SRC emacs-lisp
 ;; multiple-cursors
+(blink-cursor-mode 1)
 (use-package! multiple-cursors
   :bind
   (("C-."  . 'mc/mark-next-like-this)
@@ -410,7 +411,7 @@
 
 (use-package! langtool
   :init
-  (setq langtool-language-tool-jar "/snap/languagetool/31/usr/bin/languagetool-commandline.jar")
+  (setq langtool-language-tool-jar "/snap/languagetool/34/usr/bin/languagetool-commandline.jar")
   :config
   (setq langtool-mother-tongue "fr")
   (map! :map org-mode-map :n "] C-l" #'langtool-goto-next-error)
