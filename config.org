@@ -11,14 +11,16 @@
     (ansi-color-apply-on-region (point-min) (point-max))))
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
-(setq doom-theme 'doom-challenger-deep)
-(setq doom-font (font-spec :family "Consolas NF" :style "Bold" :size 18)
-      doom-variable-pitch-font (font-spec :family "Consolas NF" :style "Bold" :size 18)
-      doom-big-font (font-spec :family "Monego" :style "Bold" :size 24))
+(setq doom-theme 'doom-dracula)
+(setq doom-font (font-spec :family "Consolas" :style "Bold" :size 18)
+      doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 18)
+      doom-big-font (font-spec :family "Consolas" :style "Bold" :size 24))
 
 (add-to-list 'default-frame-alist
-             '(font . "Monego-10"))
+             '(font . "Consolas-11"))
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
+
+(set-frame-parameter (selected-frame) 'alpha-background 0.90)
 
 (setq-default header-line-format " ")
 (set-fringe-mode 25)
@@ -423,6 +425,7 @@
 * custom conf
 #+BEGIN_SRC emacs-lisp
 ;; custom binds
+(setq delete-by-moving-to-trash t)
 (setq-default comment-line-break-function nil)
 
 (global-set-key (kbd "H-M-J") (lambda()
