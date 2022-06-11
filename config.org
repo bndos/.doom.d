@@ -43,6 +43,8 @@
   '(ivy-minibuffer-match-face-2 :background "#ff79c6" :foreground "#000000")
   '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
   '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
+  '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
+  '(mc/cursor-bar-face :foreground "#ff79c6")
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   '(header-line :background "#000000")
   '(magit-header-line :background nil :box nil)
@@ -259,8 +261,8 @@
 (blink-cursor-mode 1)
 (use-package! multiple-cursors
   :bind
-  (("C-."  . 'mc/mark-next-like-this)
-   ("C-,"  . 'mc/mark-previous-like-this)
+  (("H-."  . 'mc/mark-next-like-this)
+   ("H-,"  . 'mc/mark-previous-like-this)
    ("C-\"" . 'mc/mark-all-like-this)
 
    :map mc/keymap
@@ -304,6 +306,26 @@
 (add-hook 'dired-mode-hook
           (lambda ()
             (dired-hide-details-mode)))
+#+END_SRC
+
+* copilot
+#+BEGIN_SRC emacs-lisp
+;; copilot
+(defun my-tab ()
+  (interactive)
+  (or (copilot-accept-completion)
+      (company-indent-or-complete-common nil)))
+
+(use-package! copilot
+  :hook (prog-mode . copilot-mode)
+  :bind (("M-f" . 'copilot-accept-completion-by-word)
+         ("C-<tab>" . 'copilot-accept-completion-by-word)
+         :map company-active-map
+         ("C-e" . 'copilot-accept-completion)
+         ("<tab>" . 'copilot-accept-completion)
+         :map company-mode-map
+         ("C-e" . 'copilot-accept-completion)
+         ("<tab>" . 'copilot-accept-completion)))
 #+END_SRC
 
 * magit

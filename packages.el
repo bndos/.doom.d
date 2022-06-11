@@ -16,6 +16,8 @@
 (package! org-ref)
 (package! tree-sitter)
 (package! tree-sitter-langs)
+(package! copilot
+  :recipe (:host github :repo "zerolfx/copilot.el" :files ("*.el" "dist")))
 
 ;; To install a package directly from a remote git repo, you must specify a
 ;; `:recipe'. You'll find documentation on what `:recipe' accepts here:
