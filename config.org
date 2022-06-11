@@ -13,7 +13,7 @@
 ;; Theme
 (setq doom-theme 'doom-dracula)
 (setq doom-font (font-spec :family "Consolas" :style "Bold" :size 18)
-      doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 18)
+      doom-variable-pitch-font (font-spec :family "Consolas" :style "Bold" :size 18)
       doom-big-font (font-spec :family "Consolas" :style "Bold" :size 24))
 
 (add-to-list 'default-frame-alist
