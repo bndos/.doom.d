@@ -198,6 +198,7 @@
             (when (derived-mode-p 'js-mode)
               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (javascript-eslint)))))))))
 
+
 (map! :leader "[" #'flycheck-previous-error)
 (map! :leader "]" #'flycheck-next-error)
 
@@ -318,13 +319,13 @@
 
 (use-package! copilot
   :hook (prog-mode . copilot-mode)
-  :bind (("M-f" . 'copilot-accept-completion-by-word)
+  :bind (("C-TAB" . 'copilot-accept-completion-by-word)
          ("C-<tab>" . 'copilot-accept-completion-by-word)
          :map company-active-map
-         ("C-e" . 'copilot-accept-completion)
+         ("S-<return>" . 'copilot-accept-completion)
          ("<tab>" . 'copilot-accept-completion)
          :map company-mode-map
-         ("C-e" . 'copilot-accept-completion)
+         ("S-<return>" . 'copilot-accept-completion)
          ("<tab>" . 'copilot-accept-completion)))
 #+END_SRC
 
