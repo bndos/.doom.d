@@ -560,6 +560,14 @@
 (global-set-key (kbd "H-/") 'winner-undo)
 (global-set-key (kbd "H-?") 'winner-redo)
 
+;; Pull from PRIMARY (same as middle mouse click)
+(defun get-primary ()
+  (interactive)
+  (insert
+   (gui-get-primary-selection)))
+
+(map! :n "*p" 'get-primary)
+
 ;; open file externally
 (map! :leader "f o" #'counsel-find-file-extern)
 
