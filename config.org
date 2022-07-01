@@ -307,8 +307,11 @@
     (let ((file-list (dired-get-marked-files)))
       (mapc
        (lambda (file-path)
-         (let ((process-connection-type nil))
-           (start-process "" nil "gio" "open" file-path)))
+         ;; (let ((process-connection-type nil))
+         ;;   (start-process "" nil "gio" "open" file-path))
+         ;; (start-process "" nil "gio" "open" file-path)
+         (call-process "gio" nil 0 nil "open" file-path)
+         (message file-path))
        file-list)))
 
   (define-key dired-mode-map (kbd "M-o")
