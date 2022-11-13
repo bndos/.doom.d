@@ -336,10 +336,8 @@
          ("C-<tab>" . 'copilot-accept-completion-by-word)
          :map company-active-map
          ("S-<return>" . 'copilot-accept-completion)
-         ("<tab>" . 'copilot-accept-completion)
          :map company-mode-map
-         ("S-<return>" . 'copilot-accept-completion)
-         ("<tab>" . 'copilot-accept-completion)))
+         ("S-<return>" . 'copilot-accept-completion)))
 #+END_SRC
 
 * magit
