@@ -135,7 +135,7 @@
        ;;json              ; At least it ain't XML
        (java +lsp +peek) ; the poster child for carpal tunnel syndrome
        (javascript +lsp +peek)        ; all(hope(abandon(ye(who(enter(here))))))
-       (typescript +lsp +peek)        ; all(hope(abandon(ye(who(enter(here))))))
+       ;;(typescript +lsp +peek)        ; all(hope(abandon(ye(who(enter(here))))))
        ;;julia             ; a better, faster MATLAB
        ;;kotlin            ; a better, slicker Java(Script)
        latex             ; writing papers in Emacs has never been so fun
