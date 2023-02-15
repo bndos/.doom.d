@@ -332,12 +332,14 @@
 
 (use-package! copilot
   :hook (prog-mode . copilot-mode)
-  :bind (("C-TAB" . 'copilot-accept-completion-by-word)
-         ("C-<tab>" . 'copilot-accept-completion-by-word)
-         :map company-active-map
+  :bind (:map copilot-completion-map
+         ("M-n" . 'copilot-next-completion)
+         ("M-p" . 'copilot-previous-completion)
+         ("TAB" . 'my-tab)
          ("S-<return>" . 'copilot-accept-completion)
-         :map company-mode-map
-         ("S-<return>" . 'copilot-accept-completion)))
+         ("C-<tab>" . 'copilot-accept-completion-by-word)
+         ("H-<tab>" . 'copilot-accept-completion-by-line)
+         ))
 #+END_SRC
 
 * magit
