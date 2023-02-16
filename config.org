@@ -191,15 +191,23 @@
 * counsel-projectile
 #+BEGIN_SRC emacs-lisp
 ;; counsel-projectile
+(setq recentf-menu-filter 'recentf-show-basenames)
+
 (after! counsel-projectile
   (ivy-set-display-transformer
    'counsel-projectile-find-file
-   'counsel-projectile-find-file-transformer))
+   'counsel-projectile-find-file-transformer)
+  )
 
 (after! ivy
   (setq ivy-sort-max-size 30000)
   (setq ivy-ignore-buffers '("\\` " "\\`\\*" "^magit:"))
-  (map! :map ivy-mode-map "C-k" #'ivy-switch-buffer-kill))
+  (map! :map ivy-mode-map "C-k" #'ivy-switch-buffer-kill)
+  (setq ivy-count-format "(%d/%d) ")
+  (setq ivy-use-virtual-buffers t)
+  ;; abbreviate ivy virtual buffers
+  (setq ivy-virtual-abbreviate 'abbreviate)
+  )
 #+END_SRC
 
 * lsp/flycheck
