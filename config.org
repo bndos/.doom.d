@@ -12,15 +12,22 @@
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
 (setq doom-theme 'doom-dracula)
-(setq doom-font (font-spec :family "Monego" :style "Bold" :size 18)
-      doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 18)
-      doom-big-font (font-spec :family "Monego" :style "Bold" :size 24))
+(setq! doom-font (font-spec :family "Monego" :style "Bold" :size 20)
+       doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 20)
+       doom-big-font (font-spec :family "Monego" :style "Bold" :size 24))
+(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :size 20))
+(set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
+
+;; set default height and width
+(add-to-list 'default-frame-alist '(height . 75))
+(add-to-list 'default-frame-alist '(width . 290))
 
 (add-to-list 'default-frame-alist
              '(font . "Monego-10"))
-(set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
-;; (set-frame-parameter (selected-frame) 'alpha-background 0.92)
+
+
+(set-frame-parameter (selected-frame) 'alpha-background 0.92)
 
 (setq-default header-line-format " ")
 (set-fringe-mode 25)
@@ -43,7 +50,9 @@
   (setq spaceline-window-numbers-unicode t)
   (setq spaceline-workspace-numbers-unicode t)
   (setq powerline-default-separator 'wave)
-  (setq powerline-height 35)
+  (setq powerline-height 40)
+  ;; disable minor modes
+  (setq spaceline-minor-modes-p nil)
   ;; spaceline-evil-state-faces
   (setq spaceline-highlight-face-func 'spaceline-highlight-face-evil-state)
   (spaceline-compile)
@@ -60,7 +69,14 @@
   '(mc/cursor-bar-face :foreground "#ff79c6")
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   '(header-line :background "#000000")
+
   '(magit-header-line :background nil :box nil)
+  ;; better ediff colors for dark theme
+  '(ediff-current-diff-A :background "#773333")
+  '(ediff-current-diff-B :background "#337733")
+  '(ediff-current-diff-C :background "#333377")
+        
+
   '(match :background nil)
   '(org-block-begin-line :background nil)
   '(org-block :background nil)
@@ -92,7 +108,7 @@
   '(spaceline-evil-emacs :foreground "#000000")
   '(spaceline-evil-visual :background "#8be9fd" :foreground "#000000")
 
-  '(region :background "#111122" :foreground "#999999")
+  '(region :background "#282222")
   '(xref-match :foreground "#ff79c6" :inherit bold)
 
   '(highlight :background "#ff79c6" :foreground "#000000" :inherit bold)
