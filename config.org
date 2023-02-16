@@ -47,8 +47,6 @@
 (use-package! spaceline
   :config
   (spaceline-emacs-theme)
-  (setq spaceline-window-numbers-unicode t)
-  (setq spaceline-workspace-numbers-unicode t)
   (setq powerline-default-separator 'wave)
   (setq powerline-height 40)
   ;; disable minor modes
