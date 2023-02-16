@@ -75,8 +75,6 @@
   '(font-lock-variable-name-face :foreground "#ffb86c")
   '(hl-line :background "#171717")
   ;; '(region :background "#355461")
-  '(ediff-current-diff-A :background "#3d2940")
-  '(ediff-current-diff-B :background "#223740")
   '(lsp-ui-peek-highlight :background "#355461")
 
   '(mode-line :background "#101010" :box nil)
