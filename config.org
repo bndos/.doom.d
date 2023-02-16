@@ -30,12 +30,25 @@
 (setq doom-themes-enable-bold t
       doom-themes-enable-italic nil)
 
-(after! doom-modeline
-  (setq doom-modeline-buffer-file-name-style 'file-name)
-  (setq-default doom-modeline-height 45)
-  (doom-modeline-def-modeline 'main
-    '(bar window-number matches buffer-info remote-host buffer-position selection-info)
-    '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
+;; (after! doom-modeline
+;;   (setq doom-modeline-buffer-file-name-style 'file-name)
+;;   (setq-default doom-modeline-height 45)
+;;   (doom-modeline-def-modeline 'main
+;;     '(bar window-number matches buffer-info remote-host buffer-position selection-info)
+;;     '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
+
+(use-package! spaceline
+  :config
+  (spaceline-emacs-theme)
+  (setq spaceline-window-numbers-unicode t)
+  (setq spaceline-workspace-numbers-unicode t)
+  (setq powerline-default-separator 'wave)
+  (setq powerline-height 35)
+  ;; spaceline-evil-state-faces
+  (setq spaceline-highlight-face-func 'spaceline-highlight-face-evil-state)
+  (spaceline-compile)
+  ;; spaceline-face-func
+  )
 
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
@@ -61,10 +74,35 @@
   '(font-lock-comment-face :foreground "#444444")
   '(font-lock-variable-name-face :foreground "#ffb86c")
   '(hl-line :background "#171717")
-  '(region :background "#355461")
+  ;; '(region :background "#355461")
   '(ediff-current-diff-A :background "#3d2940")
   '(ediff-current-diff-B :background "#223740")
   '(lsp-ui-peek-highlight :background "#355461")
+
+  '(mode-line :background "#101010" :box nil)
+  '(mode-line-active :background "#050505")
+  '(mode-line-inactive :background "#000000" :box nil)
+  '(powerline-active0 :background "#202020")
+  '(powerline-active1 :background "#202020")
+  '(powerline-active2 :background "#050505")
+  '(powerline-inactive0 :background "#000000")
+  '(powerline-inactive1 :background "#000000")
+  '(powerline-inactive2 :background "#050505")
+
+  '(spaceline-evil-normal :background "#ff79c6" :foreground "#000000")
+  '(spaceline-evil-insert :foreground "#000000")
+  '(spaceline-evil-emacs :foreground "#000000")
+  '(spaceline-evil-visual :background "#8be9fd" :foreground "#000000")
+
+  '(region :background "#111122" :foreground "#999999")
+  '(xref-match :foreground "#ff79c6" :inherit bold)
+
+  '(highlight :background "#ff79c6" :foreground "#000000" :inherit bold)
+
+  '(company-tooltip :background "#101010")
+  '(company-tooltip-common-selection :background "#ff79c6" :foreground "#000000" :inherit bold)
+  '(company-tooltip-selection :background "#ff79c6" :foreground "#000000" :inherit bold)
+
   )
 
 (global-set-key (kbd "s-N") 'flash-active-buffer)
