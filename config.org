@@ -75,7 +75,7 @@
   '(ediff-current-diff-A :background "#773333")
   '(ediff-current-diff-B :background "#337733")
   '(ediff-current-diff-C :background "#333377")
-        
+
 
   '(match :background nil)
   '(org-block-begin-line :background nil)
