@@ -399,8 +399,7 @@
          ("H-<tab>" . 'copilot-accept-completion-by-line)
          )
         (:map copilot-mode-map
-         ("C-<tab>" . 'copilot-accept-completion-by-word)
-         ("H-<tab>" . 'copilot-accept-completion-by-line)
+         ("S-<tab>" . 'copilot-accept-completion-by-word)
          ))
 #+END_SRC
 
