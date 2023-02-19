@@ -20,14 +20,14 @@
 
 ;; set default height and width
 (add-to-list 'default-frame-alist '(height . 75))
-(add-to-list 'default-frame-alist '(width . 290))
+;; (add-to-list 'default-frame-alist '(width . 290))
 
 (add-to-list 'default-frame-alist
              '(font . "Monego-10"))
 
 
 
-(set-frame-parameter (selected-frame) 'alpha-background 0.92)
+;; (set-frame-parameter (selected-frame) 'alpha-background 0.96)
 
 (setq-default header-line-format " ")
 (set-fringe-mode 25)
@@ -390,7 +390,8 @@
 
 (use-package! copilot
   :hook (prog-mode . copilot-mode)
-  :bind (:map copilot-completion-map
+  :bind (("S-<tab>" . 'copilot-accept-completion-by-word)
+         :map copilot-completion-map
          ("M-n" . 'copilot-next-completion)
          ("M-p" . 'copilot-previous-completion)
          ("TAB" . 'my-tab)
@@ -517,6 +518,26 @@
   (map! :map org-mode-map :n "[ C-l" #'langtool-goto-previous-error)
   (map! :map org-mode-map :n "z C-=" #'langtool-check)
   (map! :map org-mode-map :n "z M-=" #'langtool-check-done))
+
+(use-package! websocket
+    :after org-roam)
+
+(use-package! org-roam-ui
+    :after org-roam ;; or :after org
+;;         normally we'd recommend hooking orui after org-roam, but since org-roam does not have
+;;         a hookable mode anymore, you're advised to pick something yourself
+;;         if you don't care about startup time, use
+;;  :hook (after-init . org-roam-ui-mode)
+    :config
+    (setq org-roam-ui-sync-theme t
+          org-roam-ui-follow t
+          org-roam-ui-update-on-save t
+          org-roam-ui-open-on-start t))
+
+(setq org-journal-date-format "%a, %Y %b %d")
+
+(use-package! olivetti
+  :hook (org-mode . olivetti-mode))
 #+END_SRC
 
 * custom conf

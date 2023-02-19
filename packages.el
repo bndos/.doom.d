@@ -18,6 +18,9 @@
 (package! tree-sitter-langs)
 (package! meson-mode)
 (package! spaceline)
+(package! olivetti)
+(unpin! org-roam)
+(package! org-roam-ui)
 (package! copilot
   :recipe (:host github :repo "zerolfx/copilot.el" :files ("*.el" "dist")))
 (package! transient
