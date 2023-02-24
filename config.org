@@ -391,6 +391,7 @@
 (use-package! copilot
   :hook (prog-mode . copilot-mode)
   :bind (("S-<tab>" . 'copilot-accept-completion-by-word)
+         ("S-<return>" . 'copilot-accept-completion)
          :map copilot-completion-map
          ("M-n" . 'copilot-next-completion)
          ("M-p" . 'copilot-previous-completion)
