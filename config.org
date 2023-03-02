@@ -216,6 +216,13 @@
 (setq lsp-enable-file-watchers nil)
 (setq lsp-disabled-clients '(angular-ls))
 
+(setq lsp-pyright-use-library-code-for-types t)
+(setq lsp-pyright-disable-language-services nil)
+(setq lsp-pyright-disable-organize-imports nil)
+(setq lsp-pyright-auto-import-completions t)
+(setq lsp-pyright-auto-search-paths t)
+(setq lsp-pyright-diagnostic-mode "workspace")
+
 (after! lsp-ui
   (map! :map lsp-ui-mode-map :n
         "g P" #'lsp-ui-peek-find-references)
