@@ -275,6 +275,27 @@
 
 #+END_SRC
 
+* dart
+#+BEGIN_SRC emacs-lisp
+;; dart
+(defun set-flutter-sdk-dir ()
+  (direnv-update-environment)
+  (setq lsp-dart-flutter-sdk-dir
+        (string-trim-right (shell-command-to-string "echo $FLUTTER_SDK"))))
+
+(use-package! dart-mode
+  :init
+  (setq lsp-dart-flutter-sdk-dir "~/Downloads/programs/flutter")
+  (setq flutter-sdk-path "~/Downloads/programs/flutter")
+  (setq lsp-dart-sdk-dir "~/Downloads/programs/flutter/bin/cache/dart-sdk"))
+
+(use-package! flutter
+  :bind (:map dart-mode-map
+              ("C-M-x" . #'flutter-run-or-hot-reload))
+  :init
+  (setq flutter-sdk-path "~/Downloads/programs/flutter"))
+#+END_SRC
+
 * prettier-js
 #+BEGIN_SRC emacs-lisp
 (add-hook 'js-mode-hook #'prettier-js-mode)
@@ -459,7 +480,9 @@
 ;; vterm
 (defun projectile-vterm ()
   (interactive)
-  (if (projectile-project-p)
+  ;; (if (projectile-project-p)
+  ;; if projectile-project-p is not nil and not dired-mode
+  (if (and (projectile-project-p) (not (eq major-mode 'dired-mode)))
       (let* ((project (projectile-project-root)))
         (unless (require 'vterm nil 'noerror)
           (error "Package 'vterm' is not available"))
