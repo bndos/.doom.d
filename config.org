@@ -551,15 +551,6 @@
     ; code to run after loading org-ref
     )
 
-(use-package! langtool
-  :init
-  (setq langtool-language-tool-jar "/snap/languagetool/34/usr/bin/languagetool-commandline.jar")
-  :config
-  (setq langtool-mother-tongue "fr")
-  (map! :map org-mode-map :n "] C-l" #'langtool-goto-next-error)
-  (map! :map org-mode-map :n "[ C-l" #'langtool-goto-previous-error)
-  (map! :map org-mode-map :n "z C-=" #'langtool-check)
-  (map! :map org-mode-map :n "z M-=" #'langtool-check-done))
 
 (use-package! websocket
     :after org-roam)
