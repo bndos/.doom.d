@@ -505,6 +505,7 @@
 (map! "M-V" #'projectile-vterm)
 
 (after! vterm
+  (setq vterm-shell "zsh")
   (setq vterm-buffer-name-string "*vterm %s*"))
 #+END_SRC
 
