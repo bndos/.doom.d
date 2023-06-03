@@ -67,6 +67,7 @@
   '(mc/cursor-bar-face :foreground "#ff79c6")
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   '(header-line :background "#000000")
+  '(ein:basecell-input-area-face :background "#191919")
 
   '(magit-header-line :background nil :box nil)
   ;; better ediff colors for dark theme
@@ -231,11 +232,12 @@
   (setq lsp-ui-sideline-ignore-duplicate t
         lsp-ui-sideline-show-hover nil
         lsp-ui-doc-enable nil
-        lsp-ui-doc-position 'bottom
+        lsp-ui-doc-position 'at-point
         lsp-ui-doc-show-with-mouse t
         ;; lsp-ui-doc-alignment 'frame
-        lsp-ui-doc-max-height 10
-        lsp-ui-doc-include-signature nil  ; don't include type signature in the child frame
+        lsp-ui-doc-max-height 300
+        lsp-ui-doc-max-width 1000
+        lsp-ui-doc-include-signature t  ; don't include type signature in the child frame
         lsp-ui-sideline-show-symbol nil)  ; don't show info on the right
   (put 'lsp-ui-doc--handle-mouse-movement 'isearch-scroll t))
 
@@ -453,7 +455,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; window-rules
 (defvar parameters
-  '(window-parameters . ((no-delete-other-windows . t) (unsplittable . t)))
+  '(window-parameters . ((no-delete-other-windows . t) (unsplittable . t) (no-other-window . t)))
   )
 
 (setq
@@ -467,7 +469,7 @@
    ("^magit:" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
-   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*Flutter\\|^*docker-build-output\\|^* docker container"
+   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^* docker container"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
     ,parameters)
