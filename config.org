@@ -455,7 +455,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; window-rules
 (defvar parameters
-  '(window-parameters . ((no-delete-other-windows . t) (unsplittable . t) (no-other-window . t)))
+  '(window-parameters . ((no-delete-other-windows . t) (unsplittable . t) (no-other-window . nil)))
   )
 
 (setq
