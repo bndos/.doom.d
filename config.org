@@ -322,6 +322,13 @@
   (map! :leader "d h" #'dap-hydra))
 #+END_SRC
 
+* go-mode
+#+BEGIN_SRC emacs-lisp
+;; go-mode
+(after! go-mode
+  (add-hook 'before-save-hook 'gofmt-before-save))
+#+END_SRC
+
 * company
 #+BEGIN_SRC emacs-lisp
 ;; company
