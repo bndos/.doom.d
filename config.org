@@ -476,7 +476,7 @@
    ("^magit:" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
-   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^* docker container"
+   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*Python\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^* docker container"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
     ,parameters)
