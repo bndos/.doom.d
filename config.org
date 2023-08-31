@@ -196,6 +196,7 @@
   (ivy-set-display-transformer
    'counsel-projectile-find-file
    'counsel-projectile-find-file-transformer)
+  (setq projectile-indexing-method 'hybrid)
   )
 
 (after! ivy
@@ -312,6 +313,13 @@
   (map! :leader "d d" #'dap-debug)
   (map! :leader "d b" #'dap-breakpoint-toggle)
   (map! :leader "d h" #'dap-hydra))
+#+END_SRC
+
+* ein
+#+BEGIN_SRC emacs-lisp
+(after! ein
+  (setq ein:output-area-inlined-images t)
+  (setq ein:slice-image t))
 #+END_SRC
 
 * go-mode
