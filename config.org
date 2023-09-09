@@ -1,6 +1,6 @@
 * Appearance
 #+BEGIN_SRC emacs-lisp
-(setq fancy-splash-image "~/.doom.d/cute-demon.png")
+(setq fancy-splash-image "~/.config/doom/cute-demon.png")
 (setq display-line-numbers-type nil)
 (global-visual-line-mode t)
 
@@ -68,6 +68,7 @@
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   '(header-line :background "#000000")
   '(ein:basecell-input-area-face :background "#191919")
+  '(markdown-code-face :inherit default)
 
   '(magit-header-line :background nil :box nil)
   ;; better ediff colors for dark theme
@@ -230,16 +231,19 @@
         "g P" #'lsp-ui-peek-find-references)
   (map! :map lsp-ui-mode-map :leader
         "c g" #'lsp-ui-doc-show)
-  (setq lsp-ui-sideline-ignore-duplicate t
-        lsp-ui-sideline-show-hover nil
-        lsp-ui-doc-enable nil
-        lsp-ui-doc-position 'at-point
-        lsp-ui-doc-show-with-mouse t
-        ;; lsp-ui-doc-alignment 'frame
-        lsp-ui-doc-max-height 300
-        lsp-ui-doc-max-width 1000
-        lsp-ui-doc-include-signature t  ; don't include type signature in the child frame
-        lsp-ui-sideline-show-symbol nil)  ; don't show info on the right
+  (setq lsp-ui-sideline-enable nil)
+  ;; (setq lsp-ui-sideline-ignore-duplicate t)
+  ;; (setq lsp-ui-sideline-show-hover t)
+  ;; (setq lsp-ui-sideline-show-symbol t)
+  (setq lsp-ui-doc-enable nil)
+  (setq lsp-ui-doc-position 'at-point)
+  (setq lsp-ui-doc-show-with-mouse t)
+  (setq lsp-ui-doc-alignment 'frame)
+  (setq lsp-ui-doc-max-height 300)
+  (setq lsp-ui-doc-max-width 1000)
+  (setq lsp-lens-enable t)
+  (setq lsp-ui-doc-include-signature t)
+  
   (put 'lsp-ui-doc--handle-mouse-movement 'isearch-scroll t))
 
 (after! lsp-clangd
@@ -286,7 +290,6 @@
 
 (map! :leader "[" #'flycheck-previous-error)
 (map! :leader "]" #'flycheck-next-error)
-
 #+END_SRC
 
 * dart
