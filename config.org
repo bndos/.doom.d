@@ -1,8 +1,46 @@
 * Appearance
 #+BEGIN_SRC emacs-lisp
-(setq fancy-splash-image "~/.config/doom/cute-demon.png")
+;; (setq fancy-splash-image "~/.doom.d/splash.png")
+(defun my-custom-banner ()
+  (let* ((banner
+          '(" .-._                                                   _,-,"
+            "  `._`-._                                           _,-'_,"
+            "     `._ `-._                                   _,-' _,"
+            "        `._  `-._        __.-----.__        _,-'  _,"
+            "           `._   `#===\"\"           \"\"===#'   _,"
+            "              `._/)  ._               _.  (\\_,"
+            "               )*'     **.__     __.**     '*( "
+            "               #  .==..__  \"\"   \"\"  __..==,  # "
+            ""
+            ""
+            ""
+            ""
+            ""
+            ""
+            ""
+            ""
+            ""
+            ""
+            ))
+         (longest-line (apply #'max (mapcar #'length banner))))
+    (put-text-property
+     (point)
+     (dolist (line banner (point))
+       (insert (+doom-dashboard--center
+                +doom-dashboard--width
+                (concat
+                 line (make-string (max 0 (- longest-line (length line)))
+                                   32)))
+               "\n"))
+     'face 'doom-dashboard-banner)))
+
+(setq +doom-dashboard-ascii-banner-fn 'my-custom-banner)
+
+
+
 (setq display-line-numbers-type nil)
 (global-visual-line-mode t)
+(setq warning-minimum-level :emergency)
 
 ;; Color on compile buffer
 (require 'ansi-color)
@@ -12,10 +50,10 @@
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
 (setq doom-theme 'doom-dracula)
-(setq! doom-font (font-spec :family "Monego" :style "Bold" :size 20)
-       doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 20)
-       doom-big-font (font-spec :family "Monego" :style "Bold" :size 24))
-(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :size 20))
+(setq! doom-font (font-spec :family "Monego" :style "Bold" :size 25)
+       doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 25)
+       doom-big-font (font-spec :family "Monego" :style "Bold" :size 28))
+(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :size 25))
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
 ;; set default height and width
@@ -26,8 +64,10 @@
              '(font . "Monego-10"))
 
 
+(add-to-list 'default-frame-alist '(alpha-background . 80))
 
-;; (set-frame-parameter (selected-frame) 'alpha-background 0.96)
+(set-frame-parameter (selected-frame) 'alpha-background 0.8)
+;; (set-frame-parameter nil 'alpha-background 80)
 
 (setq-default header-line-format " ")
 (set-fringe-mode 25)
@@ -65,6 +105,7 @@
   '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(mc/cursor-bar-face :foreground "#ff79c6")
+  '(doom-dashboard-banner :foreground "#ff9090")
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   '(header-line :background "#000000")
   '(ein:basecell-input-area-face :background "#191919")
@@ -202,13 +243,22 @@
 
 (after! ivy
   (setq ivy-sort-max-size 30000)
-  (setq ivy-ignore-buffers '("\\` " "\\`\\*" "^magit:"))
+  ;; (setq ivy-ignore-buffers '("\\` " "\\`\\*" "^magit:"))
   (map! :map ivy-mode-map "C-k" #'ivy-switch-buffer-kill)
   (setq ivy-count-format "(%d/%d) ")
   (setq ivy-use-virtual-buffers t)
   ;; abbreviate ivy virtual buffers
   (setq ivy-virtual-abbreviate 'abbreviate)
   )
+#+END_SRC
+
+* webkit-color-picker
+#+BEGIN_SRC emacs-lisp
+;; webkit-color-picker
+(use-package! webkit-color-picker
+  :ensure t
+  :bind (("C-c w" . webkit-color-picker-show))
+ )
 #+END_SRC
 
 * lsp/flycheck
@@ -473,13 +523,13 @@
  `(("\\*Buffer List\\*" display-buffer-in-side-window
     (side . bottom) (slot . 0) (window-height . fit-window-to-buffer) (dedicated . t)
     (preserve-size . (nil . t)) ,parameters)
-   ("\\*Tags List\\*" display-buffer-in-side-window
-    (side . right) (slot . 0) (window-width . fit-window-to-buffer) (dedicated . t)
+   ("\\*\\(?:Tag List\\|Python\\)\\*" display-buffer-in-side-window
+    (side . right) (slot . 0) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
    ("^magit:" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
-   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*Python\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^* docker container"
+   ("\\*\\(?:help\\|grep\\|MATLAB\\|Completions\\)\\*\\|^*compilation\\|^*Python\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^* docker container"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
     ,parameters)
@@ -652,6 +702,7 @@
                     (lambda (x) (and (or (string-match-p "^*compilation" x)
                                          (string-match-p "^*vterm" x)
                                          (string-match-p "^*Flutter" x)
+                                         (string-match-p "^*Python" x)
                                          (string-match-p "^magit:" x))
                                      (not (string-equal (buffer-name) x))))
                     (mapcar #'buffer-name (buffer-list)))))
