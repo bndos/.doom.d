@@ -54,6 +54,7 @@
        doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 26)
        doom-big-font (font-spec :family "Monego" :style "Bold" :size 29))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :size 26))
+(setq doom-theme 'doom-outrun-electric)
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
 ;; set default height and width
@@ -371,6 +372,7 @@
 * ein
 #+BEGIN_SRC emacs-lisp
 (after! ein
+  (map! :map ein:notebook-mode-map "H-M-<return>" #'ein:worksheet-execute-all-cells-above)
   (setq ein:output-area-inlined-images t)
   (setq ein:slice-image t)
   ;; (setq ein:truncate-long-cell-output t)
@@ -519,7 +521,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; window-rules
 (defvar parameters
-  '(window-parameters . ((no-delete-other-windows . t) (unsplittable . t) (no-other-window . nil)))
+  '(window-parameters . ((window-dedicated-p . t) (no-delete-other-windows . t) (unsplittable . t) (no-other-window . nil)))
   )
 
 (setq
@@ -533,7 +535,7 @@
    ("^magit:" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
-   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*MATLAB\\|^* docker container"
+   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
     ,parameters)
