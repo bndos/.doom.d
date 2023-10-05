@@ -88,7 +88,7 @@
 (use-package! spaceline
   :config
   (spaceline-emacs-theme)
-  (setq powerline-default-separator 'wave)
+  (setq powerline-default-separator 'bar)
   (setq powerline-height 40)
   ;; disable minor modes
   (setq spaceline-minor-modes-p nil)
@@ -129,7 +129,7 @@
   '(mode-line-inactive :background nil)
   '(ivy-virtual :foreground "#444444" :italic nil)
   '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
-  '(font-lock-comment-face :foreground "#444444")
+  '(font-lock-comment-face :foreground "#545577")
   '(font-lock-variable-name-face :foreground "#ffb86c")
   '(hl-line :background "#171717")
   ;; '(region :background "#355461")
