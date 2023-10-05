@@ -137,13 +137,13 @@
 
   '(mode-line :background "#101010" :box nil)
   '(mode-line-active :background "#050505")
-  '(mode-line-inactive :background "#000000" :box nil)
+  '(mode-line-inactive :background nil :box nil)
   '(powerline-active0 :background "#202020")
   '(powerline-active1 :background "#202020")
   '(powerline-active2 :background "#050505")
-  '(powerline-inactive0 :background "#000000")
-  '(powerline-inactive1 :background "#000000")
-  '(powerline-inactive2 :background "#050505")
+  '(powerline-inactive0 :background nil)
+  '(powerline-inactive1 :background nil)
+  '(powerline-inactive2 :background nil)
 
   '(spaceline-evil-normal :background "#ff79c6" :foreground "#000000")
   '(spaceline-evil-insert :foreground "#000000")
