@@ -49,12 +49,11 @@
     (ansi-color-apply-on-region (point-min) (point-max))))
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
-(setq doom-theme 'doom-dracula)
-(setq! doom-font (font-spec :family "Monego" :style "Bold" :size 26)
-       doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 26)
-       doom-big-font (font-spec :family "Monego" :style "Bold" :size 29))
-(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :size 26))
 (setq doom-theme 'doom-outrun-electric)
+(setq! doom-font (font-spec :family "Monego" :style "Bold" :size 21)
+       doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 21)
+       doom-big-font (font-spec :family "Monego" :style "Bold" :size 28))
+(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :size 21))
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
 ;; set default height and width
@@ -62,7 +61,7 @@
 ;; (add-to-list 'default-frame-alist '(width . 290))
 
 (add-to-list 'default-frame-alist
-             '(font . "Monego-15"))
+             '(font . "Monego-12"))
 
 
 (add-to-list 'default-frame-alist '(alpha-background . 80))
@@ -109,7 +108,7 @@
   '(doom-dashboard-banner :foreground "#ff9090")
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   '(header-line :background "#000000")
-  '(ein:basecell-input-area-face :background "#0a0a0a")
+  '(ein:basecell-input-area-face :background "#0f0f0f")
   '(markdown-code-face :inherit default)
 
   '(magit-header-line :background nil :box nil)
@@ -343,6 +342,15 @@
 (map! :leader "]" #'flycheck-next-error)
 #+END_SRC
 
+* julia
+#+BEGIN_SRC emacs-lisp
+(use-package! lsp-julia
+  :config
+  (setq lsp-julia-default-depot "/home/bndo/.julia")
+  ;; (setq lsp-julia-default-environment "/home/bndo/.julia/environments/v1.6")
+  )
+#+END_SRC
+
 * dart
 #+BEGIN_SRC emacs-lisp
 ;; dart
@@ -486,6 +494,15 @@
             (dired-hide-details-mode)))
 #+END_SRC
 
+* poetry
+#+BEGIN_SRC emacs-lisp
+;; poetry
+(use-package! poetry
+  :config
+  (setq poetry-tracking-strategy 'projectile)
+  )
+#+END_SRC
+
 * copilot
 #+BEGIN_SRC emacs-lisp
 ;; copilot
@@ -529,13 +546,13 @@
  `(("\\*Buffer List\\*" display-buffer-in-side-window
     (side . bottom) (slot . 0) (window-height . fit-window-to-buffer) (dedicated . t)
     (preserve-size . (nil . t)) ,parameters)
-   ("\\*\\(?:Tag List\\|Python\\)\\*\\|^*julia" display-buffer-in-side-window
+   ("\\*\\(?:Tag List\\)\\*\\|^*julia" display-buffer-in-side-window
     (side . right) (slot . 0) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
    ("^magit:" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
-   ("\\*\\(?:help\\|grep\\|Completions\\)\\*\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
+   ("\\*\\(?:help\\|grep\\|Completions\\|Python\\)\\*\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
     ,parameters)
