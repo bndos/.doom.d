@@ -443,23 +443,6 @@
   (setq leetcode-prefer-language "python3"))
 #+END_SRC
 
-* pyvenv
-#+BEGIN_SRC emacs-lisp
-;; pyvenv
-(use-package! pyvenv
-  :ensure t
-  :config
-  (pyvenv-mode t)
-
-  ;; Set correct Python interpreter
-  (setq pyvenv-post-activate-hooks
-        (list (lambda ()
-                (setq python-shell-interpreter (concat pyvenv-virtual-env "bin/python3")))))
-  (setq pyvenv-post-deactivate-hooks
-        (list (lambda ()
-                (setq python-shell-interpreter "python3")))))
-
-#+END_SRC
 * lsp-pyright
 #+BEGIN_SRC emacs-lisp
 ;; lsp-pyright
