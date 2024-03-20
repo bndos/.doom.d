@@ -416,7 +416,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; treemacs
 (after! treemacs
-  (treemacs-follow-mode 1)
+  (treemacs-project-follow-mode 1)
   (map! :leader "o s" #'lsp-treemacs-symbols)
   (setq treemacs-is-never-other-window nil)
   )
@@ -436,6 +436,36 @@
 ;; smartparens
 (after! smartparens
   (define-key smartparens-mode-map (kbd "M-<backspace>") 'sp-backward-unwrap-sexp))
+#+END_SRC
+
+* leetcode
+#+BEGIN_SRC emacs-lisp
+;; leetcode
+(use-package! leetcode
+  :config
+  (add-hook 'leetcode-solution-mode-hook
+          (lambda() (copilot-mode -1)))
+  (setq leetcode-save-solutions t)
+  (setq leetcode-directory "~/leetcode")
+  (setq leetcode-prefer-language "python3"))
+#+END_SRC
+
+* pyvenv
+#+BEGIN_SRC emacs-lisp
+;; pyvenv
+(use-package! pyvenv
+  :ensure t
+  :config
+  (pyvenv-mode t)
+
+  ;; Set correct Python interpreter
+  (setq pyvenv-post-activate-hooks
+        (list (lambda ()
+                (setq python-shell-interpreter (concat pyvenv-virtual-env "bin/python3")))))
+  (setq pyvenv-post-deactivate-hooks
+        (list (lambda ()
+                (setq python-shell-interpreter "python3")))))
+
 #+END_SRC
 
 * multiple cursors
@@ -494,15 +524,6 @@
             (dired-hide-details-mode)))
 #+END_SRC
 
-* poetry
-#+BEGIN_SRC emacs-lisp
-;; poetry
-(use-package! poetry
-  :config
-  (setq poetry-tracking-strategy 'projectile)
-  )
-#+END_SRC
-
 * copilot
 #+BEGIN_SRC emacs-lisp
 ;; copilot
@@ -518,7 +539,7 @@
          :map copilot-completion-map
          ("M-n" . 'copilot-next-completion)
          ("M-p" . 'copilot-previous-completion)
-         ("TAB" . 'my-tab)
+         ;; ("TAB" . 'my-tab)
          ("S-<return>" . 'copilot-accept-completion)
          ("C-<tab>" . 'copilot-accept-completion-by-word)
          ("H-<tab>" . 'copilot-accept-completion-by-line)
@@ -552,7 +573,7 @@
    ("^magit:" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
-   ("\\*\\(?:help\\|grep\\|Completions\\|Python\\)\\*\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
+   ("\\*\\(?:help\\|grep\\|Completions\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
     ,parameters)
@@ -615,7 +636,10 @@
           ("xleftmargin" "20pt")
           ("bgcolor" "borlandbg")))
 
-  (setq org-latex-pdf-process '("latexmk -pdflatex=xelatex -shell-escape -pdf %f"))
+  ;; (setq org-latex-pdf-process '("latexmk -pdflatex=xelatex -shell-escape -pdf %f"))
+  ;; (setq org-latex-pdf-process '("xelatex -shell-escape -interaction nonstopmode -output-directory %o %f"))
+  (setq org-latex-pdf-process '("xetex -shell-escape -interaction nonstopmode %f"))
+
 
   (after! ox-latex
     (add-to-list 'org-latex-classes
