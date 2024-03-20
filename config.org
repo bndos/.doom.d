@@ -269,13 +269,6 @@
 (setq lsp-enable-file-watchers nil)
 (setq lsp-disabled-clients '(angular-ls))
 
-(setq lsp-pyright-use-library-code-for-types t)
-(setq lsp-pyright-disable-language-services nil)
-(setq lsp-pyright-disable-organize-imports nil)
-(setq lsp-pyright-auto-import-completions t)
-(setq lsp-pyright-auto-search-paths t)
-(setq lsp-pyright-diagnostic-mode "workspace")
-
 (after! lsp-ui
   (map! :map lsp-ui-mode-map :n
         "g P" #'lsp-ui-peek-find-references)
@@ -466,6 +459,23 @@
         (list (lambda ()
                 (setq python-shell-interpreter "python3")))))
 
+#+END_SRC
+* lsp-pyright
+#+BEGIN_SRC emacs-lisp
+;; lsp-pyright
+(use-package! lsp-pyright
+  :defer t
+  :init
+  (setq lsp-pyright-multi-root nil)
+  :config
+  (setq lsp-pyright-python-executable-cmd "python3")
+  (setq lsp-pyright-use-library-code-for-types t)
+  (setq lsp-pyright-disable-language-services nil)
+  (setq lsp-pyright-disable-organize-imports nil)
+  (setq lsp-pyright-auto-import-completions t)
+  (setq lsp-pyright-auto-search-paths t)
+  (setq lsp-pyright-diagnostic-mode "openFilesOnly")
+  )
 #+END_SRC
 
 * multiple cursors
