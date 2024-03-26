@@ -111,21 +111,21 @@
   '(ein:basecell-input-area-face :background "#0f0f0f")
   '(markdown-code-face :inherit default)
 
-  '(magit-header-line :background nil :box nil)
+  '(magit-header-line :background "#000000"  :box nil)
   ;; better ediff colors for dark theme
   '(ediff-current-diff-A :background "#773333")
   '(ediff-current-diff-B :background "#337733")
   '(ediff-current-diff-C :background "#333377")
 
 
-  '(match :background nil)
-  '(org-block-begin-line :background nil)
-  '(org-block :background nil)
-  '(org-block-end-line :background nil)
-  '(whitespace-tab :background nil)
-  '(whitespace-space :background nil)
+  '(match :background "#000000" )
+  '(org-block-begin-line :background "#000000" )
+  '(org-block :background "#000000" )
+  '(org-block-end-line :background "#000000" )
+  '(whitespace-tab :background "#000000" )
+  '(whitespace-space :background "#000000" )
   '(mode-line :background "#101010")
-  '(mode-line-inactive :background nil)
+  '(mode-line-inactive :background "#000000" )
   '(ivy-virtual :foreground "#444444" :italic nil)
   '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
   '(font-lock-comment-face :foreground "#545577")
@@ -136,13 +136,13 @@
 
   '(mode-line :background "#101010" :box nil)
   '(mode-line-active :background "#050505")
-  '(mode-line-inactive :background nil :box nil)
+  '(mode-line-inactive :background "#000000"  :box nil)
   '(powerline-active0 :background "#202020")
   '(powerline-active1 :background "#202020")
   '(powerline-active2 :background "#050505")
-  '(powerline-inactive0 :background nil)
-  '(powerline-inactive1 :background nil)
-  '(powerline-inactive2 :background nil)
+  '(powerline-inactive0 :background "#000000" )
+  '(powerline-inactive1 :background "#000000" )
+  '(powerline-inactive2 :background "#000000" )
 
   '(spaceline-evil-normal :background "#ff79c6" :foreground "#000000")
   '(spaceline-evil-insert :foreground "#000000")
@@ -163,7 +163,7 @@
 (global-set-key (kbd "s-N") 'flash-active-buffer)
 (make-face 'flash-active-buffer-face)
 (set-face-attribute 'flash-active-buffer-face nil
-                    :background "#151515" :foreground nil)
+                    :background "#151515")
 (defun flash-active-buffer ()
   (interactive)
   (run-at-time "100 millisec" nil
