@@ -99,11 +99,11 @@
 
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
-  '(ivy-minibuffer-match-face-1 :background "#ff79c6" :foreground "#000000")
-  '(ivy-minibuffer-match-face-2 :background "#ff79c6" :foreground "#000000")
-  '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
-  '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
-  '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-1 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-2 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(mc/cursor-bar-face :foreground "#ff79c6")
   '(doom-dashboard-banner :foreground "#ff9090")
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
