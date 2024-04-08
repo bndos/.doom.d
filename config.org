@@ -97,13 +97,18 @@
   ;; spaceline-face-func
   )
 
+(use-package pdf-view
+  :hook (pdf-tools-enabled . pdf-view-midnight-minor-mode)
+  :config
+  (setq pdf-view-midnight-colors '("#FFFFFF" . "#000000")))
+
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
   '(ivy-minibuffer-match-face-1 :background "#ff79c6" :foreground "#000000")
   '(ivy-minibuffer-match-face-2 :background "#ff79c6" :foreground "#000000")
-  '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
-  '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
-  '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(mc/cursor-bar-face :foreground "#ff79c6")
   '(doom-dashboard-banner :foreground "#ff9090")
   '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
@@ -179,6 +184,9 @@
   (global-tree-sitter-mode)
   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 #+END_SRC
+
+#+RESULTS:
+: t
 
 * git-gutter-fringe
 #+BEGIN_SRC emacs-lisp
@@ -446,7 +454,7 @@
 * lsp-pyright
 #+BEGIN_SRC emacs-lisp
 ;; lsp-pyright
-(use-package! lsp-pyright
+(use-package pyright
   :defer t
   :init
   (setq lsp-pyright-multi-root nil)

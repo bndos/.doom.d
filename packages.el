@@ -21,7 +21,7 @@
 (package! olivetti)
 (unpin! org-roam)
 (package! org-roam-ui)
-(package! matlab-mode)
+;; (package! matlab-mode)
 (package! webkit-color-picker)
 (package! copilot
   :recipe (:host github :repo "zerolfx/copilot.el" :files ("*.el" "dist")))
