@@ -106,8 +106,8 @@
   '(default :background "#000000" :foreground "#ffffff")
   '(ivy-minibuffer-match-face-1 :background "#ff79c6" :foreground "#000000")
   '(ivy-minibuffer-match-face-2 :background "#8be9fd" :foreground "#000000")
-  ;; '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
-  ;; '(ivy-minibuffer-match-face-4 :background "#aaabaf" :foreground "#000000")
+  '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
+  '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(mc/cursor-bar-face :foreground "#ff79c6")
   '(doom-dashboard-banner :foreground "#ff9090")
@@ -157,7 +157,7 @@
   '(region :background "#282222")
   '(xref-match :foreground "#000000" :background "#8be9fd" :inherit bold)
 
-  '(highlight :background "#ffb86c" :foreground "#000000" :inherit bold)
+  '(highlight :background "#ff79c6" :foreground "#000000" :inherit bold)
 
   '(company-tooltip :background "#101010")
   '(company-tooltip-common-selection :background "#ff79c6" :foreground "#000000" :inherit bold)
@@ -531,7 +531,9 @@
       (company-indent-or-complete-common nil)))
 
 (use-package! copilot
-  :hook (prog-mode . copilot-mode)
+  :hook
+  (prog-mode . copilot-mode)
+  (org-mode . copilot-mode)
   :bind (("S-<tab>" . 'copilot-accept-completion-by-word)
          ("S-<return>" . 'copilot-accept-completion)
          :map copilot-completion-map
@@ -562,19 +564,24 @@
 
 (setq
  display-buffer-alist
- `(("\\*Buffer List\\*" display-buffer-in-side-window
-    (side . bottom) (slot . 0) (window-height . fit-window-to-buffer) (dedicated . t)
-    (preserve-size . (nil . t)) ,parameters)
+ `(
+   ("\\*Buffer List\\*\\|^magit-log\\|^magit-revision:"
+    (display-buffer-reuse-window display-buffer-in-side-window)
+    (side . bottom) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
+    ,parameters)
+
    ("\\*\\(?:Tag List\\)\\*\\|^*julia" display-buffer-in-side-window
     (side . right) (slot . 0) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
+
    ("^magit:" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
-   ("\\*\\(?:help\\|grep\\|Completions\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
+                   ("\\*\\(?:help\\|grep\\|Completions\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
     ,parameters)
+
    ("\\*\\(?:shell\\|vterm\\)\\*"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
