@@ -50,10 +50,10 @@
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
 (setq doom-theme 'doom-outrun-electric)
-(setq! doom-font (font-spec :family "Monego" :style "Bold" :size 21)
-       doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 21)
+(setq! doom-font (font-spec :family "Monego" :style "Bold" :size 20)
+       doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 20)
        doom-big-font (font-spec :family "Monego" :style "Bold" :size 28))
-(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :size 21))
+(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :size 20))
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
 ;; set default height and width
@@ -577,7 +577,7 @@
    ("^magit:" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)) ,parameters)
-                   ("\\*\\(?:help\\|grep\\|Completions\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
+                   ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
     (display-buffer-reuse-window display-buffer-in-side-window)
     (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
     ,parameters)
@@ -628,6 +628,16 @@
   (map! :map org-mode-map :n "g j" #'org-down-element)
   (map! :map org-mode-map :leader "j s" 'jupyter-org-insert-src-block)
   (map! :map org-mode-map :leader "j c" 'jupyter-org-clone-block)
+
+  ;; temp fix for org 9.7
+  (defun my-org-babel-python--preemptive-init ()
+    (setq-local org-babel-python--initialized t))
+  
+  (add-hook
+   'python-shell-first-prompt-hook
+   'my-org-babel-python--preemptive-init)
+
+
   (setq org-agenda-files '("~/Dropbox/agenda.org"))
   (setq org-latex-hyperref-template nil)
   (add-to-list 'org-latex-packages-alist '("" "minted"))
@@ -638,7 +648,7 @@
           ("breakanywhere" "true")
           ("linenos" "true")
           ("gobble" "-8")
-          ("xleftmargin" "20pt")
+          ("xleftmargin" "10pt")
           ("bgcolor" "borlandbg")))
 
   (setq org-latex-pdf-process '("latexmk -pdflatex=xelatex -shell-escape -pdf %f"))
@@ -755,6 +765,7 @@
                                          (string-match-p "^*vterm" x)
                                          (string-match-p "^*Flutter" x)
                                          (string-match-p "^*Python" x)
+                                         (string-match-p "^*org" x)
                                          (string-match-p "^*julia" x)
                                          (string-match-p "^magit:" x))
                                      (not (string-equal (buffer-name) x))))
@@ -820,4 +831,9 @@
 ;; workspaces
 (map! :leader "TAB TAB" #'+workspace/other)
 (map! :leader "TAB '" #'+workspace/display)
+
+;; tangling
+(map! :leader "m b t" #'org-babel-tangle)
+(map! :leader "m b T" #'org-babel-tangle-file)
+(map! :leader "m b d" #'org-babel-detangle)
 #+END_SRC
