@@ -558,34 +558,36 @@
 * window-rules
 #+BEGIN_SRC emacs-lisp
 ;; window-rules
-(defvar parameters
-  '(window-parameters . ((window-dedicated-p . t) (no-delete-other-windows . t) (unsplittable . t) (no-other-window . nil)))
-  )
+
+(setq switch-to-buffer-obey-display-actions t)
+(setq-default switch-to-buffer-in-dedicated-window 'pop)
 
 (setq
  display-buffer-alist
  `(
-   ("\\*Buffer List\\*\\|^magit-log\\|^magit-revision:"
+   ("\\*Buffer List\\*"
     (display-buffer-reuse-window display-buffer-in-side-window)
-    (side . bottom) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
-    ,parameters)
+    (side . bottom) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
 
    ("\\*\\(?:Tag List\\)\\*\\|^*julia" display-buffer-in-side-window
     (side . right) (slot . 0) (window-width . 0.2) (dedicated . t)
-    (preserve-size . (t . nil)) ,parameters)
+    (preserve-size . (t . nil)))
 
-   ("^magit:" display-buffer-in-side-window
+   ("^magit:\\|^magit-diff" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
-    (preserve-size . (t . nil)) ,parameters)
-                   ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container"
-    (display-buffer-reuse-window display-buffer-in-side-window)
-    (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
-    ,parameters)
+    (preserve-size . (t . nil)))
 
-   ("\\*\\(?:shell\\|vterm\\)\\*"
-    (display-buffer-reuse-window display-buffer-in-side-window)
-    (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t)
-    ,parameters)))
+   ("COMMIT_EDITMSG" display-buffer-in-side-window
+    (side . left) (slot . 2) (window-width . 0.2) (dedicated . t)
+    (preserve-size . (t . nil)))
+   ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container" display-buffer-in-side-window
+    (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
+
+   ("\\*\\(?:shell\\|vterm\\)\\*" display-buffer-in-side-window
+    (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
+
+   )
+ )
 
 (map! :leader "w x" #'window-toggle-side-windows)
 
@@ -629,14 +631,6 @@
   (map! :map org-mode-map :leader "j s" 'jupyter-org-insert-src-block)
   (map! :map org-mode-map :leader "j c" 'jupyter-org-clone-block)
 
-  ;; temp fix for org 9.7
-  (defun my-org-babel-python--preemptive-init ()
-    (setq-local org-babel-python--initialized t))
-  
-  (add-hook
-   'python-shell-first-prompt-hook
-   'my-org-babel-python--preemptive-init)
-
 
   (setq org-agenda-files '("~/Dropbox/agenda.org"))
   (setq org-latex-hyperref-template nil)
@@ -669,33 +663,41 @@
   (setq org-src-fontify-natively t))
 
 (use-package! org-ref
-    :after org
-    :init
-    ; code to run before loading org-ref
-    :config
-    ; code to run after loading org-ref
-    )
+  :after org
+  :init
+                                        ; code to run before loading org-ref
+  :config
+                                        ; code to run after loading org-ref
+  )
 
 
 (use-package! websocket
-    :after org-roam)
+  :after org-roam)
 
 (use-package! org-roam-ui
-    :after org-roam ;; or :after org
-;;         normally we'd recommend hooking orui after org-roam, but since org-roam does not have
-;;         a hookable mode anymore, you're advised to pick something yourself
-;;         if you don't care about startup time, use
-;;  :hook (after-init . org-roam-ui-mode)
-    :config
-    (setq org-roam-ui-sync-theme t
-          org-roam-ui-follow t
-          org-roam-ui-update-on-save t
-          org-roam-ui-open-on-start t))
+  :after org-roam ;; or :after org
+  ;;         normally we'd recommend hooking orui after org-roam, but since org-roam does not have
+  ;;         a hookable mode anymore, you're advised to pick something yourself
+  ;;         if you don't care about startup time, use
+  ;;  :hook (after-init . org-roam-ui-mode)
+  :config
+  (setq org-roam-ui-sync-theme t
+        org-roam-ui-follow t
+        org-roam-ui-update-on-save t
+        org-roam-ui-open-on-start t))
 
 (setq org-journal-date-format "%a, %Y %b %d")
 
 (use-package! olivetti
   :hook (org-mode . olivetti-mode))
+
+(org-babel-do-load-languages
+ 'org-babel-load-languages
+ '((emacs-lisp . t)
+   (julia . t)
+   (python . t)
+   (jupyter . t)))
+
 #+END_SRC
 
 * custom conf
