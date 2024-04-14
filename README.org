@@ -1,4 +1,0 @@
-#+title: Readme
-
-* Python
-- lsp-pyright-multi-root should be set to nil directly in emacs/.local/straight/repos/lsp-pyright
