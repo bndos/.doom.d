@@ -1,0 +1,4 @@
+#+title: Readme
+
+* emacs daemon
+Need to run copilot-install-server in normal emacs instance so that emacs --daemon can be started.
