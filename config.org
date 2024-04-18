@@ -49,11 +49,12 @@
     (ansi-color-apply-on-region (point-min) (point-max))))
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
+;; (setq doom-theme 'doom-snazzy)
 (setq doom-theme 'doom-outrun-electric)
-(setq! doom-font (font-spec :family "Monego" :style "Bold" :size 20)
-       doom-variable-pitch-font (font-spec :family "Monego" :style "Bold" :size 20)
-       doom-big-font (font-spec :family "Monego" :style "Bold" :size 28))
-(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :size 20))
+(setq! doom-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 20)
+       doom-variable-pitch-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 20)
+       doom-big-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 28))
+(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :slant 'normal :weight 'bold :size 20))
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
 ;; set default height and width
@@ -111,7 +112,8 @@
   ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(mc/cursor-bar-face :foreground "#ff79c6")
   '(doom-dashboard-banner :foreground "#ff9090")
-  '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
+  ;; '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
+  ;; '(tree-sitter-hl-face:string :foreground "#434493")
   '(header-line :background "#000000")
   '(ein:basecell-input-area-face :background "#0f0f0f")
   '(markdown-code-face :inherit default)
