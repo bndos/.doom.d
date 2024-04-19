@@ -87,8 +87,8 @@
 ;; Theme
 ;; (setq doom-theme 'doom-snazzy)
 (setq doom-theme 'doom-outrun-electric)
-(setq! doom-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 20)
-       doom-variable-pitch-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 20)
+(setq! doom-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 22)
+       doom-variable-pitch-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 22)
        doom-big-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 38))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :slant 'normal :weight 'bold))
 
@@ -257,6 +257,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; evil
 (setq evil-insert-state-map (make-sparse-keymap))
+(setq evil-respect-visual-line-mode t)
 (define-key evil-insert-state-map (kbd "<escape>") 'evil-normal-state)
 #+END_SRC
 
