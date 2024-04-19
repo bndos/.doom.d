@@ -1,21 +1,57 @@
 * Appearance
 #+BEGIN_SRC emacs-lisp
 ;; (setq fancy-splash-image "~/.doom.d/splash.png")
+;; (defun my-custom-banner ()
+;;   (let* ((banner
+;;           '(" .-._                                                   _,-,"
+;;             "  `._`-._                                           _,-'_,"
+;;             "     `._ `-._                                   _,-' _,"
+;;             "        `._  `-._        __.-----.__        _,-'  _,"
+;;             "           `._   `#===\"\"           \"\"===#'   _,"
+;;             "              `._/)  ._               _.  (\\_,"
+;;             "               )*'     **.__     __.**     '*( "
+;;             "               #  .==..__  \"\"   \"\"  __..==,  # "
+;;             ""
+;;             ""
+;;             ""
+;;             ""
+;;             ""
+;;             ""
+;;             ""
+;;             ""
+;;             ""
+;;             ""
+;;             ))
+;;          (longest-line (apply #'max (mapcar #'length banner))))
+;;     (put-text-property
+;;      (point)
+;;      (dolist (line banner (point))
+;;        (insert (+doom-dashboard--center
+;;                 +doom-dashboard--width
+;;                 (concat
+;;                  line (make-string (max 0 (- longest-line (length line)))
+;;                                    32)))
+;;                "\n"))
+;;      'face 'doom-dashboard-banner)))
+
 (defun my-custom-banner ()
   (let* ((banner
-          '(" .-._                                                   _,-,"
-            "  `._`-._                                           _,-'_,"
-            "     `._ `-._                                   _,-' _,"
-            "        `._  `-._        __.-----.__        _,-'  _,"
-            "           `._   `#===\"\"           \"\"===#'   _,"
-            "              `._/)  ._               _.  (\\_,"
-            "               )*'     **.__     __.**     '*( "
-            "               #  .==..__  \"\"   \"\"  __..==,  # "
+          '(
+            "██████╗   ██████╗   ██████╗  ███╗   ███╗"
+            "██╔══██╗ ██╔═══██╗ ██╔═══██╗ ████╗ ████║"
+            "██║  ██║ ██║   ██║ ██║   ██║ ██╔████╔██║"
+            "██║  ██║ ██║   ██║ ██║   ██║ ██║╚██╔╝██║"
+            "██████╔╝ ╚██████╔╝ ╚██████╔╝ ██║ ╚═╝ ██║"
+            "╚═════╝   ╚═════╝   ╚═════╝  ╚═╝     ╚═╝"
+            ;; 
+            ;; "██████       ██████       ██████      ███    ███ "
+            ;; "██   ██     ██    ██     ██    ██     ████  ████ "
+            ;; "██   ██     ██    ██     ██    ██     ██ ████ ██ "
+            ;; "██   ██     ██    ██     ██    ██     ██  ██  ██ "
+            ;; "██████       ██████       ██████      ██      ██ "
+            ;;
             ""
-            ""
-            ""
-            ""
-            ""
+
             ""
             ""
             ""
@@ -35,7 +71,7 @@
      'face 'doom-dashboard-banner)))
 
 (setq +doom-dashboard-ascii-banner-fn 'my-custom-banner)
-
+;; (setq fancy-splash-image (concat doom-private-dir "doom.svg"))
 
 
 (setq display-line-numbers-type nil)
@@ -53,8 +89,9 @@
 (setq doom-theme 'doom-outrun-electric)
 (setq! doom-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 20)
        doom-variable-pitch-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 20)
-       doom-big-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 28))
-(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :slant 'normal :weight 'bold :size 20))
+       doom-big-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 38))
+(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :slant 'normal :weight 'bold))
+
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
 ;; set default height and width
@@ -65,7 +102,7 @@
              '(font . "Monego-12"))
 
 
-(add-to-list 'default-frame-alist '(alpha-background . 80))
+(add-to-list 'default-frame-alist '(alpha-background . 75))
 
 (set-frame-parameter (selected-frame) 'alpha-background 0.8)
 ;; (set-frame-parameter nil 'alpha-background 80)
@@ -111,7 +148,7 @@
   '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(mc/cursor-bar-face :foreground "#ff79c6")
-  '(doom-dashboard-banner :foreground "#ff9090")
+  '(doom-dashboard-banner :foreground "#fafaf3")
   ;; '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   ;; '(tree-sitter-hl-face:string :foreground "#434493")
   '(header-line :background "#000000")
