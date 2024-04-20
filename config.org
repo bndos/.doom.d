@@ -86,10 +86,11 @@
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
 ;; (setq doom-theme 'doom-snazzy)
-(setq doom-theme 'doom-outrun-electric)
+;; (setq doom-theme 'doom-outrun-electric)
+(setq doom-theme 'doom-ephemeral)
 (setq! doom-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 22)
        doom-variable-pitch-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 22)
-       doom-big-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 38))
+       doom-big-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 40))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :slant 'normal :weight 'bold))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
@@ -177,6 +178,8 @@
   '(hl-line :background "#171717")
   ;; '(region :background "#355461")
   '(lsp-ui-peek-highlight :background "#355461")
+  '(lsp-ui-peek-list :background "#000000")
+  '(lsp-ui-peek-peek :background "#000000")
 
   '(mode-line :background "#101010" :box nil)
   '(mode-line-active :background "#050505")
@@ -455,6 +458,8 @@
 ;; treemacs
 (after! treemacs
   (treemacs-project-follow-mode 1)
+  (treemacs-follow-mode 1)
+  ;; (treemacs-tag-follow-mode 1)
   (map! :leader "o s" #'lsp-treemacs-symbols)
   (setq treemacs-is-never-other-window nil)
   )
