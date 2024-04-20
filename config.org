@@ -179,7 +179,7 @@
   ;; '(region :background "#355461")
   '(lsp-ui-peek-highlight :background "#355461")
   '(lsp-ui-peek-list :background "#000000")
-  '(lsp-ui-peek-peek :background "#000000")
+  '(lsp-ui-peek-peek :background "#131318")
 
   '(mode-line :background "#101010" :box nil)
   '(mode-line-active :background "#050505")
@@ -651,14 +651,10 @@
         (unless (require 'vterm nil 'noerror)
           (error "Package 'vterm' is not available"))
         (projectile-with-default-dir project
-          (vterm "*vterm*")
-          (vterm-send-string "cd .")
-          (vterm-send-return)))
+          (vterm "*vterm*")))
     (unless (require 'vterm nil 'noerror)
       (error "Package 'vterm' is not available"))
-    (vterm "*vterm*")
-    (vterm-send-string "cd .")
-    (vterm-send-return)))
+    (vterm "*vterm*")))
 
 (map! "M-V" #'projectile-vterm)
 
