@@ -34,44 +34,44 @@
 ;;                "\n"))
 ;;      'face 'doom-dashboard-banner)))
 
-(defun my-custom-banner ()
-  (let* ((banner
-          '(
-            "██████╗   ██████╗   ██████╗  ███╗   ███╗"
-            "██╔══██╗ ██╔═══██╗ ██╔═══██╗ ████╗ ████║"
-            "██║  ██║ ██║   ██║ ██║   ██║ ██╔████╔██║"
-            "██║  ██║ ██║   ██║ ██║   ██║ ██║╚██╔╝██║"
-            "██████╔╝ ╚██████╔╝ ╚██████╔╝ ██║ ╚═╝ ██║"
-            "╚═════╝   ╚═════╝   ╚═════╝  ╚═╝     ╚═╝"
-            ;; 
-            ;; "██████       ██████       ██████      ███    ███ "
-            ;; "██   ██     ██    ██     ██    ██     ████  ████ "
-            ;; "██   ██     ██    ██     ██    ██     ██ ████ ██ "
-            ;; "██   ██     ██    ██     ██    ██     ██  ██  ██ "
-            ;; "██████       ██████       ██████      ██      ██ "
-            ;;
-            ""
+;; (defun my-custom-banner ()
+;;   (let* ((banner
+;;           '(
+;;             ;; "██████╗   ██████╗   ██████╗  ███╗   ███╗"
+;;             ;; "██╔══██╗ ██╔═══██╗ ██╔═══██╗ ████╗ ████║"
+;;             ;; "██║  ██║ ██║   ██║ ██║   ██║ ██╔████╔██║"
+;;             ;; "██║  ██║ ██║   ██║ ██║   ██║ ██║╚██╔╝██║"
+;;             ;; "██████╔╝ ╚██████╔╝ ╚██████╔╝ ██║ ╚═╝ ██║"
+;;             ;; "╚═════╝   ╚═════╝   ╚═════╝  ╚═╝     ╚═╝"
+;;             ;;
+;;             "██████       ██████       ██████      ███    ███ "
+;;             "██   ██     ██    ██     ██    ██     ████  ████ "
+;;             "██   ██     ██    ██     ██    ██     ██ ████ ██ "
+;;             "██   ██     ██    ██     ██    ██     ██  ██  ██ "
+;;             "██████       ██████       ██████      ██      ██ "
+;;             ;;
+;;             ""
 
-            ""
-            ""
-            ""
-            ""
-            ""
-            ))
-         (longest-line (apply #'max (mapcar #'length banner))))
-    (put-text-property
-     (point)
-     (dolist (line banner (point))
-       (insert (+doom-dashboard--center
-                +doom-dashboard--width
-                (concat
-                 line (make-string (max 0 (- longest-line (length line)))
-                                   32)))
-               "\n"))
-     'face 'doom-dashboard-banner)))
+;;             ""
+;;             ""
+;;             ""
+;;             ""
+;;             ""
+;;             ))
+;;          (longest-line (apply #'max (mapcar #'length banner))))
+;;     (put-text-property
+;;      (point)
+;;      (dolist (line banner (point))
+;;        (insert (+doom-dashboard--center
+;;                 +doom-dashboard--width
+;;                 (concat
+;;                  line (make-string (max 0 (- longest-line (length line)))
+;;                                    32)))
+;;                "\n"))
+;;      'face 'doom-dashboard-banner)))
 
-(setq +doom-dashboard-ascii-banner-fn 'my-custom-banner)
-;; (setq fancy-splash-image (concat doom-private-dir "doom.svg"))
+;; (setq +doom-dashboard-ascii-banner-fn 'my-custom-banner)
+(setq fancy-splash-image (concat doom-private-dir "doom.xpm"))
 
 
 (setq display-line-numbers-type nil)
@@ -87,11 +87,12 @@
 ;; Theme
 ;; (setq doom-theme 'doom-snazzy)
 ;; (setq doom-theme 'doom-outrun-electric)
-(setq doom-theme 'doom-ephemeral)
-(setq! doom-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 22)
-       doom-variable-pitch-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 22)
-       doom-big-font (font-spec :family "Monego" :slant 'normal :weight 'bold :size 40))
-(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :slant 'normal :weight 'bold))
+;; (setq doom-theme 'doom-ephemeral)
+(setq doom-theme 'doom-dracula)
+(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
+       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
+       doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 42))
+(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'normal))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
@@ -100,7 +101,7 @@
 ;; (add-to-list 'default-frame-alist '(width . 290))
 
 (add-to-list 'default-frame-alist
-             '(font . "Monego-12"))
+             '(font . "Comic Mono-13"))
 
 
 (add-to-list 'default-frame-alist '(alpha-background . 75))
@@ -112,9 +113,8 @@
 (set-fringe-mode 25)
 (setq-default left-fringe-width  25)
 (setq-default right-fringe-width 25)
-
 (setq doom-themes-enable-bold t
-      doom-themes-enable-italic nil)
+      doom-themes-enable-italic t)
 
 ;; (after! doom-modeline
 ;;   (setq doom-modeline-buffer-file-name-style 'file-name)
@@ -163,8 +163,8 @@
   '(ediff-current-diff-C :background "#333377")
 
 
-  '(match :background "#000000" )
-  '(org-block-begin-line :background "#000000" )
+  '(match :background "#000000")
+  '(org-block-begin-line :background "#000000")
   '(org-block :background "#000000" )
   '(org-block-end-line :background "#000000" )
   '(whitespace-tab :background "#000000" )
@@ -187,9 +187,9 @@
   '(powerline-active0 :background "#202020")
   '(powerline-active1 :background "#202020")
   '(powerline-active2 :background "#050505")
-  '(powerline-inactive0 :background "#000000" )
-  '(powerline-inactive1 :background "#000000" )
-  '(powerline-inactive2 :background "#000000" )
+  '(powerline-inactive0 :background "#000000")
+  '(powerline-inactive1 :background "#000000")
+  '(powerline-inactive2 :background "#000000")
 
   '(spaceline-evil-normal :background "#ff79c6" :foreground "#000000")
   '(spaceline-evil-insert :foreground "#000000")
