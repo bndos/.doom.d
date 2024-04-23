@@ -97,8 +97,8 @@
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
 ;; set default height and width
-(add-to-list 'default-frame-alist '(height . 75))
-;; (add-to-list 'default-frame-alist '(width . 290))
+(add-to-list 'default-frame-alist '(height . 65))
+(add-to-list 'default-frame-alist '(width . 230))
 
 (add-to-list 'default-frame-alist
              '(font . "Comic Mono-13"))
@@ -110,9 +110,9 @@
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 (setq-default header-line-format " ")
-(set-fringe-mode 25)
-(setq-default left-fringe-width  25)
-(setq-default right-fringe-width 25)
+(set-fringe-mode 35)
+(setq-default left-fringe-width  35)
+(setq-default right-fringe-width 35)
 (setq doom-themes-enable-bold t
       doom-themes-enable-italic t)
 
@@ -269,7 +269,6 @@
 (after! persp-mode
                                         ; magit restore fix with persp-mode.el
   (persp-def-buffer-save/load
-   :mode 'magit-status-mode :tag-symbol 'def-magit-status-buffer
    :save-vars '(default-directory)
    :load-function #'(lambda (savelist &rest _)
                       (cl-destructuring-bind (buffer-name vars-list &rest _rest) (cdr savelist)
@@ -592,6 +591,17 @@
         (:map copilot-mode-map
          ("S-<tab>" . 'copilot-accept-completion-by-word)
          ))
+#+END_SRC
+
+* gptel
+#+BEGIN_SRC emacs-lisp
+;; gptel
+
+(use-package! gptel
+ :config
+ (global-set-key (kbd "C-c c g") 'gptel-menu)
+ (global-set-key (kbd "C-c c c") 'gptel)
+ (setq gptel-default-mode 'org-mode))
 #+END_SRC
 
 * magit
