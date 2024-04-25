@@ -853,6 +853,32 @@
 (map! :leader "c n" #'my-make-room-for-new-compilation-buffer)
 #+END_SRC
 
+* workspaces
+#+BEGIN_SRC emacs-lisp
+;; workspaces
+(defun +workspace-switch (name &optional auto-create-p)
+  "Switch to another workspace named NAME (a string).
+
+If AUTO-CREATE-P is non-nil, create the workspace if it doesn't exist, otherwise
+throws an error."
+  (unless (+workspace-exists-p name)
+    (if auto-create-p
+        (+workspace-new name)
+      (error "%s is not an available workspace" name)))
+  (let ((old-name (+workspace-current-name)))
+    (unless (equal old-name name)
+      (setq +workspace--last
+            (or (and (not (string= old-name persp-nil-name))
+                     old-name)
+                +workspaces-main))
+      (unless (+workspace-exists-p "main")
+        (+workspace-new "main"))
+      (persp-switch "main")
+      (persp-frame-switch name))
+    (equal (+workspace-current-name) name)))
+#+END_SRC
+
+
 * remapping
 #+BEGIN_SRC emacs-lisp
 ;; remaping
