@@ -394,11 +394,24 @@
 (add-hook 'lsp-managed-mode-hook
           (lambda ()
             (when (derived-mode-p 'python-mode)
-              (setq-default flycheck-disabled-checkers '(python-pylint python-mypy))
-              (setq my/flycheck-local-cache '((lsp . ((next-checkers . '(warning . python-flake8)))))))))
+              (setq-default flycheck-disabled-checkers '(python-pylint python-mypy python-flake8))
+              (setq my/flycheck-local-cache '((lsp . ((next-checkers . '(warning . python-ruff)))))))))
 
 (map! :leader "[" #'flycheck-previous-error)
 (map! :leader "]" #'flycheck-next-error)
+#+END_SRC
+
+* ruff
+#+BEGIN_SRC emacs-lisp
+;; ruff
+(use-package! reformatter
+  :hook 
+  (python-mode . ruff-format-on-save-mode)
+  (python-ts-mode . ruff-format-on-save-mode)
+  :config
+  (reformatter-define ruff-format
+    :program "ruff"
+    :args `("format" "--stdin-filename" ,buffer-file-name "-")))
 #+END_SRC
 
 * julia
