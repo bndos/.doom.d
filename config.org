@@ -230,6 +230,21 @@
   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 #+END_SRC
 
+* pulsar
+#+BEGIN_SRC emacs-lisp
+;; pulsar
+
+(use-package! pulsar
+  :config
+  (setq pulsar-pulse t)
+  (setq pulsar-delay 0.055)
+  (setq pulsar-iterations 10)
+  (setq pulsar-face 'pulsar-magenta)
+  (setq pulsar-highlight-face 'pulsar-yellow)
+
+  (pulsar-global-mode 1))
+#+END_SRC
+
 * git-gutter-fringe
 #+BEGIN_SRC emacs-lisp
 (after! git-gutter-fringe
