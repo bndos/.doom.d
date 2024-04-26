@@ -116,25 +116,22 @@
 (setq doom-themes-enable-bold t
       doom-themes-enable-italic t)
 
-;; (after! doom-modeline
-;;   (setq doom-modeline-buffer-file-name-style 'file-name)
-;;   (setq-default doom-modeline-height 45)
-;;   (doom-modeline-def-modeline 'main
-;;     '(bar window-number matches buffer-info remote-host buffer-position selection-info)
-;;     '(objed-state misc-info persp-name irc mu4e github debug input-method buffer-encoding lsp major-mode process vcs checker "  ")))
+(after! doom-modeline
+  (setq doom-modeline-buffer-file-name-style 'file-name)
+  (setq-default doom-modeline-height 45))
 
-(use-package! spaceline
-  :config
-  (spaceline-emacs-theme)
-  (setq powerline-default-separator 'bar)
-  (setq powerline-height 40)
-  ;; disable minor modes
-  (setq spaceline-minor-modes-p nil)
-  ;; spaceline-evil-state-faces
-  (setq spaceline-highlight-face-func 'spaceline-highlight-face-evil-state)
-  (spaceline-compile)
-  ;; spaceline-face-func
-  )
+;; (use-package! spaceline
+;;   :config
+;;   (spaceline-emacs-theme)
+;;   (setq powerline-default-separator 'bar)
+;;   (setq powerline-height 40)
+;;   ;; disable minor modes
+;;   (setq spaceline-minor-modes-p nil)
+;;   ;; spaceline-evil-state-faces
+;;   (setq spaceline-highlight-face-func 'spaceline-highlight-face-evil-state)
+;;   (spaceline-compile)
+;;   ;; spaceline-face-func
+;;   )
 
 (use-package pdf-view
   :hook (pdf-tools-enabled . pdf-view-midnight-minor-mode)
@@ -702,6 +699,14 @@
   ;; (setq org-latex-pdf-process '("xelatex -shell-escape -interaction nonstopmode -output-directory %o %f"))
   ;; (setq org-latex-pdf-process '("xetex -shell-escape -interaction nonstopmode %f"))
 
+  (org-babel-do-load-languages
+   'org-babel-load-languages
+   '((emacs-lisp . t)
+     (julia . t)
+     (python . t)
+     (jupyter . t)))
+
+
 
   (after! ox-latex
     (add-to-list 'org-latex-classes
@@ -743,13 +748,6 @@
 
 (use-package! olivetti
   :hook (org-mode . olivetti-mode))
-
-(org-babel-do-load-languages
- 'org-babel-load-languages
- '((emacs-lisp . t)
-   (julia . t)
-   (python . t)
-   (jupyter . t)))
 
 #+END_SRC
 

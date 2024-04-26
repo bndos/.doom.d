@@ -17,7 +17,6 @@
 ;; (package! tree-sitter)
 ;; (package! tree-sitter-langs)
 (package! meson-mode)
-(package! spaceline)
 (package! olivetti)
 (unpin! org-roam)
 (package! org-roam-ui)
