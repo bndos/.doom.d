@@ -122,7 +122,7 @@
   (require 'doom-modeline)
   (doom-modeline-def-modeline 'main
     '(eldoc bar workspace-name window-number modals matches follow buffer-info remote-host buffer-position word-count parrot selection-info)
-    '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs "  " check time " "))
+    '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time "   "))
   )
 
 ;; (use-package! spaceline
@@ -921,10 +921,10 @@ throws an error."
 (global-set-key (kbd "H-k") 'windmove-up)
 (global-set-key (kbd "H-j") 'windmove-down)
 
-(global-set-key (kbd "H-M-h") 'shrink-window-horizontally)
-(global-set-key (kbd "H-M-l") 'enlarge-window-horizontally)
-(global-set-key (kbd "H-M-k") 'enlarge-window)
-(global-set-key (kbd "H-M-j") 'shrink-window)
+(global-set-key (kbd "H-M-h") '(lambda () (interactive) (shrink-window-horizontally 10)))
+(global-set-key (kbd "H-M-l") '(lambda () (interactive) (enlarge-window-horizontally 10)))
+(global-set-key (kbd "H-M-j") '(lambda () (interactive) (shrink-window 10)))
+(global-set-key (kbd "H-M-k") '(lambda () (interactive) (enlarge-window 10)))
 
 (global-set-key (kbd "H-/") 'winner-undo)
 (global-set-key (kbd "H-?") 'winner-redo)
