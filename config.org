@@ -404,14 +404,37 @@
 * ruff
 #+BEGIN_SRC emacs-lisp
 ;; ruff
-(use-package! reformatter
-  :hook 
-  (python-mode . ruff-format-on-save-mode)
-  (python-ts-mode . ruff-format-on-save-mode)
+(use-package lazy-ruff
+  :ensure t
+  :hook (python-mode . lazy-ruff-mode)
   :config
-  (reformatter-define ruff-format
-    :program "ruff"
-    :args `("format" "--stdin-filename" ,buffer-file-name "-")))
+  (after! python
+    (map! :map python-mode-map
+          "C-c f" 'lazy-ruff-lint-format-buffer)
+    )
+  (defun lazy-ruff-lint-format-buffer ()
+    "Format the current Python buffer using `ruff` before saving."
+    (interactive)
+    (let ((initial-line (line-number-at-pos))
+          (initial-column (current-column)))
+      (unless (derived-mode-p 'python-mode 'python-base-mode)
+        (user-error "Only python buffers can be linted with ruff"))
+      (let ((temp-file (make-temp-file "ruff-tmp" nil ".py")))
+        ;; Write buffer to temporary file, format it, and replace buffer contents.
+        (write-region nil nil temp-file)
+        (if lazy-ruff-only-format-buffer
+            (shell-command-to-string (format "%s %s" lazy-ruff-format-command temp-file))
+          (shell-command-to-string (format "%s %s" lazy-ruff-check-command temp-file))
+          (shell-command-to-string (format "%s %s" lazy-ruff-format-command temp-file)))
+        (erase-buffer)
+        (insert-file-contents temp-file)
+        ;; Clean up temporary file.
+        (delete-file temp-file))
+      (forward-line (1- initial-line))
+      (move-to-column initial-column)
+      )
+    )
+  )
 #+END_SRC
 
 * julia
