@@ -2,6 +2,7 @@
 #+BEGIN_SRC emacs-lisp
 (setq fancy-splash-image (concat doom-private-dir "doom.xpm"))
 
+(setq recentf-menu-filter 'recentf-show-basenames)
 (setq display-line-numbers-type nil)
 (global-visual-line-mode t)
 (setq warning-minimum-level :emergency)
@@ -13,10 +14,11 @@
     (ansi-color-apply-on-region (point-min) (point-max))))
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
-(setq doom-theme 'doom-snazzy)
+;; (setq doom-theme 'doom-snazzy)
 ;; (setq doom-theme 'doom-outrun-electric)
-;; (setq doom-theme 'doom-ephemeral)
+(setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
+;; (setq doom-theme 'doom-challenger-deep)
 (setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
        doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
        doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 42))
@@ -73,10 +75,10 @@
 
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
-  '(ivy-minibuffer-match-face-1 :background "#ff79c6" :foreground "#000000")
-  '(ivy-minibuffer-match-face-2 :background "#8be9fd" :foreground "#000000")
-  '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
-  '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-1 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-2 :background "#8be9fd" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
+  ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(mc/cursor-bar-face :foreground "#ff79c6")
   '(doom-dashboard-banner :foreground "#fafaf3")
@@ -101,11 +103,11 @@
   '(whitespace-space :background "#000000" )
   '(mode-line :background "#101010")
   '(mode-line-inactive :background "#000000" )
-  '(ivy-virtual :foreground "#444444" :italic nil)
-  '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
+  ;; '(ivy-virtual :foreground "#444444" :italic nil)
+  ;; '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
   '(vertico-current :background "#270f25")
   '(font-lock-comment-face :foreground "#545577")
-  ;; '(font-lock-variable-name-face :foreground "#ffb86c")
+  '(font-lock-variable-name-face :foreground "#f22d88")
   '(hl-line :background "#171717")
   ;; '(region :background "#355461")
   '(lsp-ui-peek-highlight :background "#355461")
@@ -223,29 +225,6 @@
                           (magit-status buf-dir))))))
 #+END_SRC
 
-* counsel-projectile
-#+BEGIN_SRC emacs-lisp
-;; counsel-projectile
-(setq recentf-menu-filter 'recentf-show-basenames)
-
-(after! counsel-projectile
-  (ivy-set-display-transformer
-   'counsel-projectile-find-file
-   'counsel-projectile-find-file-transformer)
-  (setq projectile-indexing-method 'hybrid)
-  )
-
-(after! ivy
-  (setq ivy-sort-max-size 30000)
-  ;; (setq ivy-ignore-buffers '("\\` " "\\`\\*" "^magit:"))
-  (map! :map ivy-mode-map "C-k" #'ivy-switch-buffer-kill)
-  (setq ivy-count-format "(%d/%d) ")
-  (setq ivy-use-virtual-buffers t)
-  ;; abbreviate ivy virtual buffers
-  (setq ivy-virtual-abbreviate 'abbreviate)
-  )
-#+END_SRC
-
 * webkit-color-picker
 #+BEGIN_SRC emacs-lisp
 ;; webkit-color-picker
@@ -259,10 +238,12 @@
 * lsp/flycheck
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
-(setq lsp-enable-file-watchers nil)
-(setq lsp-disabled-clients '(angular-ls))
 
-(after! lsp-ui
+;; (after! lsp-ui
+(use-package! lsp
+  :init
+  (setq lsp-enable-file-watchers nil)
+  (setq lsp-disabled-clients '(angular-ls))
   (map! :map lsp-ui-mode-map :n
         "g P" #'lsp-ui-peek-find-references)
   (map! :map lsp-ui-mode-map :leader
@@ -279,15 +260,16 @@
   (setq lsp-ui-doc-max-width 1000)
   (setq lsp-lens-enable t)
   (setq lsp-ui-doc-include-signature t)
-  
-  (put 'lsp-ui-doc--handle-mouse-movement 'isearch-scroll t))
 
-(after! lsp-clangd
-  (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
+  (add-hook 'lsp-after-diagnostics-hook (lambda ()
+                                          (lsp-headerline-breadcrumb-mode)))
+  (put 'lsp-ui-doc--handle-mouse-movement 'isearch-scroll t)
+  ;; (after! lsp-clangd
+  ;;   (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
+  )
 
 
-(add-hook 'lsp-after-diagnostics-hook (lambda ()
-                                        (lsp-headerline-breadcrumb-mode)))
+
 
 (defvar-local my/flycheck-local-cache nil)
 
@@ -746,27 +728,6 @@
   (interactive)
   (switch-to-buffer (other-buffer)))
 (global-set-key (kbd "H-<tab>") 'switch-to-previous-buffer)
-
-(defun my-ivy-read (prompt)
-  (ivy-read prompt (seq-filter
-                    (lambda (x) (and (or (string-match-p "^*compilation" x)
-                                         (string-match-p "^*vterm" x)
-                                         (string-match-p "^*Flutter" x)
-                                         (string-match-p "^*Python" x)
-                                         (string-match-p "^*org" x)
-                                         (string-match-p "^*julia" x)
-                                         (string-match-p "^magit:" x))
-                                     (not (string-equal (buffer-name) x))))
-                    (mapcar #'buffer-name (buffer-list)))))
-
-(defun ivy-compilation-buffers (&optional name)
-  "Read desktop with a name."
-  (interactive)
-  (unless name
-    (setq name (my-ivy-read "compilation buffers: ")))
-  (switch-to-buffer name))
-
-(global-set-key (kbd "H-x b") 'ivy-compilation-buffers)
 
 (defun my-make-room-for-new-compilation-buffer ()
   "Renames existing *compilation* buffer to something unique so
