@@ -18,8 +18,6 @@
 ;; (package! tree-sitter-langs)
 (package! meson-mode)
 (package! olivetti)
-(unpin! org-roam)
-(package! org-roam-ui)
 ;; (package! matlab-mode)
 (package! webkit-color-picker)
 (package! copilot
