@@ -244,8 +244,8 @@
   :init
   (setq lsp-enable-file-watchers nil)
   (setq lsp-disabled-clients '(angular-ls))
-  (map! :map lsp-ui-mode-map :n
-        "g P" #'lsp-ui-peek-find-references)
+  (map! :map lsp-ui-mode-map :leader
+        "c p" #'lsp-ui-peek-find-references)
   (map! :map lsp-ui-mode-map :leader
         "c g" #'lsp-ui-doc-show)
   (setq lsp-ui-sideline-enable nil)
