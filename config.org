@@ -1,78 +1,6 @@
 * Appearance
 #+BEGIN_SRC emacs-lisp
-;; (setq fancy-splash-image "~/.doom.d/splash.png")
-;; (defun my-custom-banner ()
-;;   (let* ((banner
-;;           '(" .-._                                                   _,-,"
-;;             "  `._`-._                                           _,-'_,"
-;;             "     `._ `-._                                   _,-' _,"
-;;             "        `._  `-._        __.-----.__        _,-'  _,"
-;;             "           `._   `#===\"\"           \"\"===#'   _,"
-;;             "              `._/)  ._               _.  (\\_,"
-;;             "               )*'     **.__     __.**     '*( "
-;;             "               #  .==..__  \"\"   \"\"  __..==,  # "
-;;             ""
-;;             ""
-;;             ""
-;;             ""
-;;             ""
-;;             ""
-;;             ""
-;;             ""
-;;             ""
-;;             ""
-;;             ))
-;;          (longest-line (apply #'max (mapcar #'length banner))))
-;;     (put-text-property
-;;      (point)
-;;      (dolist (line banner (point))
-;;        (insert (+doom-dashboard--center
-;;                 +doom-dashboard--width
-;;                 (concat
-;;                  line (make-string (max 0 (- longest-line (length line)))
-;;                                    32)))
-;;                "\n"))
-;;      'face 'doom-dashboard-banner)))
-
-;; (defun my-custom-banner ()
-;;   (let* ((banner
-;;           '(
-;;             ;; "██████╗   ██████╗   ██████╗  ███╗   ███╗"
-;;             ;; "██╔══██╗ ██╔═══██╗ ██╔═══██╗ ████╗ ████║"
-;;             ;; "██║  ██║ ██║   ██║ ██║   ██║ ██╔████╔██║"
-;;             ;; "██║  ██║ ██║   ██║ ██║   ██║ ██║╚██╔╝██║"
-;;             ;; "██████╔╝ ╚██████╔╝ ╚██████╔╝ ██║ ╚═╝ ██║"
-;;             ;; "╚═════╝   ╚═════╝   ╚═════╝  ╚═╝     ╚═╝"
-;;             ;;
-;;             "██████       ██████       ██████      ███    ███ "
-;;             "██   ██     ██    ██     ██    ██     ████  ████ "
-;;             "██   ██     ██    ██     ██    ██     ██ ████ ██ "
-;;             "██   ██     ██    ██     ██    ██     ██  ██  ██ "
-;;             "██████       ██████       ██████      ██      ██ "
-;;             ;;
-;;             ""
-
-;;             ""
-;;             ""
-;;             ""
-;;             ""
-;;             ""
-;;             ))
-;;          (longest-line (apply #'max (mapcar #'length banner))))
-;;     (put-text-property
-;;      (point)
-;;      (dolist (line banner (point))
-;;        (insert (+doom-dashboard--center
-;;                 +doom-dashboard--width
-;;                 (concat
-;;                  line (make-string (max 0 (- longest-line (length line)))
-;;                                    32)))
-;;                "\n"))
-;;      'face 'doom-dashboard-banner)))
-
-;; (setq +doom-dashboard-ascii-banner-fn 'my-custom-banner)
 (setq fancy-splash-image (concat doom-private-dir "doom.xpm"))
-
 
 (setq display-line-numbers-type nil)
 (global-visual-line-mode t)
@@ -85,10 +13,10 @@
     (ansi-color-apply-on-region (point-min) (point-max))))
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
-;; (setq doom-theme 'doom-snazzy)
+(setq doom-theme 'doom-snazzy)
 ;; (setq doom-theme 'doom-outrun-electric)
 ;; (setq doom-theme 'doom-ephemeral)
-(setq doom-theme 'doom-dracula)
+;; (setq doom-theme 'doom-dracula)
 (setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
        doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
        doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 42))
@@ -177,7 +105,7 @@
   '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
   '(vertico-current :background "#270f25")
   '(font-lock-comment-face :foreground "#545577")
-  '(font-lock-variable-name-face :foreground "#ffb86c")
+  ;; '(font-lock-variable-name-face :foreground "#ffb86c")
   '(hl-line :background "#171717")
   ;; '(region :background "#355461")
   '(lsp-ui-peek-highlight :background "#355461")
@@ -224,6 +152,7 @@
 (setq window-divider-default-bottom-width 0)
 
 (use-package! tree-sitter
+  :defer t
   :config
   (require 'tree-sitter-langs)
   (global-tree-sitter-mode)
@@ -321,6 +250,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; webkit-color-picker
 (use-package! webkit-color-picker
+  :defer t
   :ensure t
   :bind (("C-c w" . webkit-color-picker-show))
  )
@@ -329,8 +259,6 @@
 * lsp/flycheck
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
-(setq gc-cons-threshold (* 100 1024 1024)
-      read-process-output-max (* 1024 1024))
 (setq lsp-enable-file-watchers nil)
 (setq lsp-disabled-clients '(angular-ls))
 
@@ -357,18 +285,7 @@
 (after! lsp-clangd
   (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
 
-;; (add-hook 'lsp-mode-hook (lambda ()
-;;                            (setq header-line-format nil)
-;;                            (lsp-headerline-breadcrumb-mode)))
-;; (add-hook 'lsp-after-open-hook (lambda ()
-;;                                  (setq header-line-format nil)
-;;                                  (lsp-headerline-breadcrumb-mode)))
-;; (add-hook 'lsp-after-initialize-hook (lambda ()
-;;                                        (setq header-line-format nil)
-;;                                        (lsp-headerline-breadcrumb-mode)))
-;; (add-hook 'lsp-after-uninitialized-hook (lambda ()
-;;                                           (setq header-line-format nil)
-;;                                           (lsp-headerline-breadcrumb-mode)))
+
 (add-hook 'lsp-after-diagnostics-hook (lambda ()
                                         (lsp-headerline-breadcrumb-mode)))
 
@@ -437,19 +354,11 @@
   )
 #+END_SRC
 
-* julia
-#+BEGIN_SRC emacs-lisp
-(use-package! lsp-julia
-  :config
-  (setq lsp-julia-default-depot "/home/bndo/.julia")
-  ;; (setq lsp-julia-default-environment "/home/bndo/.julia/environments/v1.6")
-  )
-#+END_SRC
-
 * dart
 #+BEGIN_SRC emacs-lisp
 ;; dart
 (use-package! dart-mode
+  :defer t
   :bind (:map dart-mode-map
               ("C-M-x" . #'flutter-run-or-hot-reload)))
 #+END_SRC
@@ -472,18 +381,6 @@
   (map! :leader "d h" #'dap-hydra))
 #+END_SRC
 
-* ein
-#+BEGIN_SRC emacs-lisp
-(after! ein
-  (map! :map ein:notebook-mode-map "H-M-<return>" #'ein:worksheet-execute-all-cells-above)
-  (setq ein:output-area-inlined-images t)
-  (setq ein:slice-image t)
-  ;; (setq ein:truncate-long-cell-output t)
-  (setq ein:completion-backend 'ein:use-company-backend)
-  (setq ein:use-auto-complete t)
-  (setq ein:auto-black-on-execute t))
-#+END_SRC
-
 * go-mode
 #+BEGIN_SRC emacs-lisp
 ;; go-mode
@@ -495,7 +392,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; company
 (after! company
-  (setq company-idle-delay 0.01)
+  ;; (setq company-idle-delay 0.01)
   (define-key company-mode-map (kbd "H-SPC") 'company-complete)
   (define-key company-active-map (kbd "<backtab>") 'counsel-company))
 #+END_SRC
@@ -539,6 +436,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; leetcode
 (use-package! leetcode
+  :defer t
   :config
   (add-hook 'leetcode-solution-mode-hook
           (lambda() (copilot-mode -1)))
@@ -691,7 +589,7 @@
     (side . left) (slot . 2) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)))
    ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container" display-buffer-in-side-window
-    (side . top) (slot . -1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 0) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
 
    ("\\*\\(?:shell\\|vterm\\)\\*" display-buffer-in-side-window
     (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
