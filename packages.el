@@ -11,7 +11,6 @@
 (package! solaire-mode :disable t)
 (package! buffer-move)
 (package! multiple-cursors)
-(package! js-react-redux-yasnippets)
 (package! prettier-js)
 (package! org-ref)
 ;; (package! tree-sitter)

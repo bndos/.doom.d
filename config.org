@@ -167,9 +167,9 @@
 
 (use-package! pulsar
   :config
-  (setq pulsar-pulse t)
-  (setq pulsar-delay 0.055)
-  (setq pulsar-iterations 10)
+  (setq pulsar-pulse nil)
+  (setq pulsar-delay 0.1)
+  (setq pulsar-iterations 1)
   (setq pulsar-face 'pulsar-magenta)
   (setq pulsar-highlight-face 'pulsar-yellow)
 
@@ -242,7 +242,7 @@
 ;; (after! lsp-ui
 (use-package! lsp
   :init
-  (setq lsp-enable-file-watchers nil)
+  (setq lsp-enable-file-watchers t)
   (setq lsp-disabled-clients '(angular-ls))
   (map! :map lsp-ui-mode-map :leader
         "c p" #'lsp-ui-peek-find-references)
@@ -374,16 +374,10 @@
 #+BEGIN_SRC emacs-lisp
 ;; company
 (after! company
-  ;; (setq company-idle-delay 0.01)
+  (setq company-idle-delay 0.1)
+  (setq company-minimum-prefix-length 1)
   (define-key company-mode-map (kbd "H-SPC") 'company-complete)
   (define-key company-active-map (kbd "<backtab>") 'counsel-company))
-#+END_SRC
-
-* js-react-redux-yasnippets
-#+BEGIN_SRC emacs-lisp
-;; js-react-redux-yasnippets
-(after! js-react-redux-yasnippets
-  (setq js-react-redux-yasnippets-want-semicolon t))
 #+END_SRC
 
 * treemacs
@@ -571,10 +565,10 @@
     (side . left) (slot . 2) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)))
    ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container" display-buffer-in-side-window
-    (side . top) (slot . 1) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 2) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
 
    ("\\*\\(?:shell\\|vterm\\)\\*" display-buffer-in-side-window
-    (side . top) (slot . 2) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 3) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
 
    )
  )
