@@ -571,10 +571,10 @@
     (side . left) (slot . 2) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)))
    ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container" display-buffer-in-side-window
-    (side . top) (slot . 0) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 1) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
 
    ("\\*\\(?:shell\\|vterm\\)\\*" display-buffer-in-side-window
-    (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 2) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
 
    )
  )
