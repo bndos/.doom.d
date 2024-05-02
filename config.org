@@ -180,6 +180,7 @@
 #+BEGIN_SRC emacs-lisp
 (after! git-gutter-fringe
   (set-face-foreground 'git-gutter-fr:modified  "purple")
+  (add-to-list 'git-gutter:update-hooks 'after-save-hook)
   
   (fringe-helper-define 'git-gutter-fr:deleted nil
     "........"
@@ -223,16 +224,6 @@
                       (cl-destructuring-bind (buffer-name vars-list &rest _rest) (cdr savelist)
                         (let ((buf-dir (alist-get 'default-directory vars-list)))
                           (magit-status buf-dir))))))
-#+END_SRC
-
-* webkit-color-picker
-#+BEGIN_SRC emacs-lisp
-;; webkit-color-picker
-(use-package! webkit-color-picker
-  :defer t
-  :ensure t
-  :bind (("C-c w" . webkit-color-picker-show))
- )
 #+END_SRC
 
 * lsp/flycheck
@@ -450,11 +441,11 @@
    ("C-\"" . 'mc/mark-all-like-this)
 
    :map mc/keymap
-   ("C->"     . 'mc/skip-to-next-like-this)
-   ("C-<"     . 'mc/skip-to-previous-like-this)
-   ("C-x C-." . 'mc/unmark-next-like-this)
-   ("C-x C-," . 'mc/unmark-previous-like-this)
-   ("C-x C-:" . 'mc/mark-pop)
+   ("H->"     . 'mc/skip-to-next-like-this)
+   ("H-<"     . 'mc/skip-to-previous-like-this)
+   ("H-x C-." . 'mc/unmark-next-like-this)
+   ("H-x C-," . 'mc/unmark-previous-like-this)
+   ("H-x C-:" . 'mc/mark-pop)
    ("M-["     . 'mc/insert-numbers)
    ("M-]"     . 'mc/insert-letters)
    ("C-x C-a" . 'mc/vertical-align-with-space)))
@@ -642,15 +633,16 @@
                    ("\\paragraph{%s}" . "\\paragraph*{%s}")
                    ("\\subparagraph{%s}" . "\\subparagraph*{%s}"))))
 
-  (setq org-src-fontify-natively t))
+  ;; (setq org-src-fontify-natively t)
+  )
 
 (setq org-journal-date-format "%a, %Y %b %d")
 
-(org-babel-do-load-languages
- 'org-babel-load-languages
- '((emacs-lisp . t)
-   (python . t)
-   (jupyter . t)))
+;; (org-babel-do-load-languages
+;;  'org-babel-load-languages
+;;  '((emacs-lisp . t)
+;;    (python . t)
+;;    (jupyter . t)))
 
 (use-package! org-ref
   :after org

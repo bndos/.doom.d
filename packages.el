@@ -18,7 +18,6 @@
 (package! meson-mode)
 (package! olivetti)
 ;; (package! matlab-mode)
-(package! webkit-color-picker)
 (package! copilot
   :recipe (:host github :repo "zerolfx/copilot.el" :files ("*.el" "dist")))
 (package! leetcode)
