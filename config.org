@@ -759,7 +759,6 @@ throws an error."
     (equal (+workspace-current-name) name)))
 #+END_SRC
 
-
 * remapping
 #+BEGIN_SRC emacs-lisp
 ;; remaping
