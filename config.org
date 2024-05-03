@@ -1,5 +1,6 @@
 * Appearance
 #+BEGIN_SRC emacs-lisp
+;;; -*- lexical-binding: t -*-
 (setq fancy-splash-image (concat doom-private-dir "doom.xpm"))
 
 (setq recentf-menu-filter 'recentf-show-basenames)
@@ -230,37 +231,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 
-;; (after! lsp-ui
-(use-package! lsp
-  :init
-  (setq lsp-use-plists "true")
-  (setq lsp-enable-file-watchers t)
-  (setq lsp-disabled-clients '(angular-ls))
-  (map! :map lsp-ui-mode-map :leader
-        "c p" #'lsp-ui-peek-find-references)
-  (map! :map lsp-ui-mode-map :leader
-        "c g" #'lsp-ui-doc-show)
-  (setq lsp-ui-sideline-enable nil)
-  ;; (setq lsp-ui-sideline-ignore-duplicate t)
-  ;; (setq lsp-ui-sideline-show-hover t)
-  ;; (setq lsp-ui-sideline-show-symbol t)
-  (setq lsp-ui-doc-enable nil)
-  (setq lsp-ui-doc-position 'at-point)
-  (setq lsp-ui-doc-show-with-mouse t)
-  (setq lsp-ui-doc-alignment 'frame)
-  (setq lsp-ui-doc-max-height 300)
-  (setq lsp-ui-doc-max-width 1000)
-  (setq lsp-lens-enable t)
-  (setq lsp-ui-doc-include-signature t)
-
-  (add-hook 'lsp-after-diagnostics-hook (lambda ()
-                                          (lsp-headerline-breadcrumb-mode)))
-  (put 'lsp-ui-doc--handle-mouse-movement 'isearch-scroll t)
-  ;; (after! lsp-clangd
-  ;;   (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
-  )
-
-
+(setq gc-cons-threshold (* 100 1024 1024))
 
 
 (defvar-local my/flycheck-local-cache nil)
@@ -282,11 +253,11 @@
             (when (derived-mode-p 'js-mode)
               (setq my/flycheck-local-cache '((lsp . ((next-checkers . (javascript-eslint)))))))))
 
-(add-hook 'lsp-managed-mode-hook
+(add-hook 'eglot-managed-mode-hook
           (lambda ()
             (when (derived-mode-p 'python-mode)
               (setq-default flycheck-disabled-checkers '(python-pylint python-mypy python-flake8))
-              (setq my/flycheck-local-cache '((lsp . ((next-checkers . '(warning . python-ruff)))))))))
+              (setq my/flycheck-local-cache '((eglot-check . ((next-checkers . (python-ruff)))))))))
 
 (map! :leader "[" #'flycheck-previous-error)
 (map! :leader "]" #'flycheck-next-error)
@@ -366,8 +337,8 @@
 #+BEGIN_SRC emacs-lisp
 ;; company
 (after! company
-  (setq company-idle-delay 0)
-  (setq company-minimum-prefix-length 1)
+  (setq company-idle-delay 0.05)
+  (setq company-minimum-prefix-length 2)
   (define-key company-mode-map (kbd "H-SPC") 'company-complete)
   (define-key company-active-map (kbd "<backtab>") 'counsel-company))
 #+END_SRC
@@ -411,24 +382,6 @@
   (setq leetcode-save-solutions t)
   (setq leetcode-directory "~/leetcode")
   (setq leetcode-prefer-language "python3"))
-#+END_SRC
-
-* lsp-pyright
-#+BEGIN_SRC emacs-lisp
-;; lsp-pyright
-(use-package pyright
-  :defer t
-  :init
-  (setq lsp-pyright-multi-root nil)
-  :config
-  (setq lsp-pyright-python-executable-cmd "python3")
-  (setq lsp-pyright-use-library-code-for-types t)
-  (setq lsp-pyright-disable-language-services nil)
-  (setq lsp-pyright-disable-organize-imports nil)
-  (setq lsp-pyright-auto-import-completions t)
-  (setq lsp-pyright-auto-search-paths t)
-  (setq lsp-pyright-diagnostic-mode "openFilesOnly")
-  )
 #+END_SRC
 
 * multiple cursors
