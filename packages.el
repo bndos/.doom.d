@@ -25,6 +25,7 @@
 (package! arxiv-mode)
 (package! pulsar)
 (package! lazy-ruff)
+(package! flymake-ruff)
 
 ;; To install a package directly from a remote git repo, you must specify a
 ;; `:recipe'. You'll find documentation on what `:recipe' accepts here:

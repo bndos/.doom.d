@@ -233,34 +233,13 @@
 
 (setq gc-cons-threshold (* 100 1024 1024))
 
+(use-package flymake-ruff
+  :ensure t
+  :hook
+  (eglot-managed-mode . flymake-ruff-load))
 
-(defvar-local my/flycheck-local-cache nil)
-
-(defun my/flycheck-checker-get (fn checker property)
-  (or (alist-get property (alist-get checker my/flycheck-local-cache))
-      (funcall fn checker property)))
-
-(advice-add 'flycheck-checker-get :around 'my/flycheck-checker-get)
-
-(add-hook 'lsp-managed-mode-hook
-          (lambda ()
-            (when (or (derived-mode-p 'typescript-mode)
-                      (string-equal "tsx" (file-name-extension buffer-file-name)))
-              (setq my/flycheck-local-cache '((lsp . ((next-checkers . (typescript-tslint)))))))))
-
-(add-hook 'lsp-managed-mode-hook
-          (lambda ()
-            (when (derived-mode-p 'js-mode)
-              (setq my/flycheck-local-cache '((lsp . ((next-checkers . (javascript-eslint)))))))))
-
-(add-hook 'eglot-managed-mode-hook
-          (lambda ()
-            (when (derived-mode-p 'python-mode)
-              (setq-default flycheck-disabled-checkers '(python-pylint python-mypy python-flake8))
-              (setq my/flycheck-local-cache '((eglot-check . ((next-checkers . (python-ruff)))))))))
-
-(map! :leader "[" #'flycheck-previous-error)
-(map! :leader "]" #'flycheck-next-error)
+(map! :leader "[" #'flymake-goto-prev-error)
+(map! :leader "]" #'flymake-goto-next-error)
 #+END_SRC
 
 * ruff
