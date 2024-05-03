@@ -365,7 +365,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; company
 (after! company
-  (setq company-idle-delay 0.1)
+  (setq company-idle-delay 0.2)
   (setq company-minimum-prefix-length 1)
   (define-key company-mode-map (kbd "H-SPC") 'company-complete)
   (define-key company-active-map (kbd "<backtab>") 'counsel-company))
