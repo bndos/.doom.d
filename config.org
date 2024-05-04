@@ -82,6 +82,7 @@
   ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   ;; '(ivy-minibuffer-match-face-4 :background "#ff79c6" :foreground "#000000")
   '(mc/cursor-bar-face :foreground "#ff79c6")
+  '(eglot-highlight-symbol-face :background "#331212" :inherit bold)
   '(doom-dashboard-banner :foreground "#fafaf3")
   ;; '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   ;; '(tree-sitter-hl-face:string :foreground "#434493")
@@ -131,13 +132,13 @@
   '(spaceline-evil-visual :background "#8be9fd" :foreground "#000000")
 
   '(region :background "#282222")
-  '(xref-match :foreground "#000000" :background "#8be9fd" :inherit bold)
+  '(xref-match :foreground "#000000" :background "#8be9fd")
 
-  '(highlight :background "#ff79c6" :foreground "#000000" :inherit bold)
+  '(highlight :background "#ff79c6" :foreground "#000000")
 
   '(company-tooltip :background "#101010")
-  '(company-tooltip-common-selection :background "#ff79c6" :foreground "#000000" :inherit bold)
-  '(company-tooltip-selection :background "#ff79c6" :foreground "#000000" :inherit bold)
+  '(company-tooltip-common-selection :background "#ff79c6" :foreground "#000000")
+  '(company-tooltip-selection :background "#ff79c6" :foreground "#000000")
 
   )
 
