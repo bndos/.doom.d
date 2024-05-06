@@ -37,9 +37,9 @@
              '(font . "Monaco-15"))
 
 
-(add-to-list 'default-frame-alist '(alpha-background . 75))
+(add-to-list 'default-frame-alist '(alpha-background . 85))
 
-(set-frame-parameter (selected-frame) 'alpha-background 0.8)
+(set-frame-parameter (selected-frame) 'alpha-background 0.85)
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 (setq-default header-line-format " ")
