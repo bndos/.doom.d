@@ -228,13 +228,20 @@
                           (magit-status buf-dir))))))
 #+END_SRC
 
-* lsp/flycheck
+* lsp/flymake
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 
+(setq corfu-auto-delay 0.02 corfu-auto-prefix 1)
+
 (setq gc-cons-threshold (* 100 1024 1024))
 
+;; (setq auto-save-default nil)
+;; (setq make-backup-files nil)
+;; (setq create-lockfiles nil)
+
 (use-package flymake-ruff
+  :defer t
   :ensure t
   :hook
   (eglot-managed-mode . flymake-ruff-load))
@@ -247,7 +254,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; ruff
 (use-package lazy-ruff
-  :ensure t
+  :defer t
   :hook (python-mode . lazy-ruff-mode)
   :config
   (after! python
@@ -340,6 +347,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; meson-mode
 (use-package! meson-mode
+  :defer t
   :mode "\\.build\\'"
   )
 #+END_SRC
@@ -369,6 +377,7 @@
 ;; multiple-cursors
 (blink-cursor-mode 1)
 (use-package! multiple-cursors
+  :defer t
   :bind
   (("H-."  . 'mc/mark-next-like-this)
    ("H-,"  . 'mc/mark-previous-like-this)
@@ -429,6 +438,7 @@
       (company-indent-or-complete-common nil)))
 
 (use-package! copilot
+  :defer t
   :hook
   (prog-mode . copilot-mode)
   (org-mode . copilot-mode)
@@ -452,6 +462,7 @@
 ;; gptel
 
 (use-package! gptel
+ :defer t
  :config
  (global-set-key (kbd "C-c c g") 'gptel-menu)
  (global-set-key (kbd "C-c c c") 'gptel)
@@ -490,10 +501,10 @@
     (side . left) (slot . 2) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)))
    ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container" display-buffer-in-side-window
-    (side . top) (slot . 3) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 4) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
 
    ("\\*\\(?:shell\\|vterm\\)\\*" display-buffer-in-side-window
-    (side . top) (slot . 4) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 5) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
 
    )
  )
@@ -579,11 +590,13 @@
 ;;    (jupyter . t)))
 
 (use-package! org-ref
+  :defer t
   :after org
   :init
   :config
   )
 (use-package! olivetti
+  :defer t
   :hook (org-mode . olivetti-mode))
 
 #+END_SRC
