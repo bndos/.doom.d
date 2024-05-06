@@ -232,7 +232,7 @@
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 
-(setq corfu-auto-delay 0.02 corfu-auto-prefix 1)
+(setq corfu-auto-delay 0.01 corfu-auto-prefix 1)
 
 (setq gc-cons-threshold (* 100 1024 1024))
 
