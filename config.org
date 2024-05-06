@@ -134,7 +134,7 @@
   '(spaceline-evil-visual :background "#8be9fd" :foreground "#000000")
 
   '(region :background "#282222")
-  '(xref-match :foreground "#000000" :background "#8be9fd")
+  '(xref-match :foreground "#000000" :background "#2b955d")
 
   '(highlight :background "#ff79c6" :foreground "#000000")
 
