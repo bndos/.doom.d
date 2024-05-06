@@ -1,6 +1,8 @@
 * Appearance
 #+BEGIN_SRC emacs-lisp
 ;;; -*- lexical-binding: t -*-
+(setq mac-command-modifier 'hyper)
+(setq mac-option-modifier 'meta)
 (setq fancy-splash-image (concat doom-private-dir "doom.xpm"))
 
 (setq recentf-menu-filter 'recentf-show-basenames)
@@ -20,19 +22,19 @@
 (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-challenger-deep)
-(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
-       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
-       doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 42))
+(setq! doom-font (font-spec :family "Monaco" :weight 'normal :size 14)
+       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 14)
+       doom-big-font (font-spec :family "Monaco" :weight 'normal :size 42))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'normal))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
 ;; set default height and width
-(add-to-list 'default-frame-alist '(height . 65))
-(add-to-list 'default-frame-alist '(width . 230))
+(add-to-list 'default-frame-alist '(height . 55))
+(add-to-list 'default-frame-alist '(width . 130))
 
 (add-to-list 'default-frame-alist
-             '(font . "Comic Mono-13"))
+             '(font . "Monaco-15"))
 
 
 (add-to-list 'default-frame-alist '(alpha-background . 75))
@@ -232,7 +234,20 @@
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 
-(setq corfu-auto-delay 0.01 corfu-auto-prefix 1)
+(after! corfu
+  (setq corfu-auto-delay 0.01 corfu-auto-prefix 1)
+  (map! :map corfu-mode-map
+        :i "H-@" #'completion-at-point
+        :i "H-SPC" #'completion-at-point
+        :i "C-SPC" #'set-mark-command
+        :n "C-SPC" #'set-mark-command
+        (:prefix "C-x"
+         :i "C-k" #'cape-dict
+         :i "C-f" #'cape-file
+         :i "s" #'cape-ispell
+         :i "C-n" #'cape-keyword
+         :i "C-s" #'dabbrev-completion))
+  )
 
 (setq gc-cons-threshold (* 100 1024 1024))
 
