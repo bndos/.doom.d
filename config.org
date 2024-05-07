@@ -22,9 +22,9 @@
 (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-challenger-deep)
-(setq! doom-font (font-spec :family "Monaco" :weight 'normal :size 14)
-       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 14)
-       doom-big-font (font-spec :family "Monaco" :weight 'normal :size 42))
+(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 22)
+       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 22)
+       doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 42))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'normal))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
@@ -34,7 +34,7 @@
 (add-to-list 'default-frame-alist '(width . 130))
 
 (add-to-list 'default-frame-alist
-             '(font . "Monaco-15"))
+             '(font . "Comic Mono-14"))
 
 
 (add-to-list 'default-frame-alist '(alpha-background . 85))
@@ -55,7 +55,7 @@
   (require 'doom-modeline)
   (doom-modeline-def-modeline 'main
     '(eldoc bar workspace-name window-number modals matches follow buffer-info remote-host buffer-position word-count parrot selection-info)
-    '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time "   "))
+    '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time "     "))
   )
 
 ;; (use-package! spaceline
@@ -604,12 +604,6 @@
 ;;    (python . t)
 ;;    (jupyter . t)))
 
-(use-package! org-ref
-  :defer t
-  :after org
-  :init
-  :config
-  )
 (use-package! olivetti
   :defer t
   :hook (org-mode . olivetti-mode))

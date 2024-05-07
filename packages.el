@@ -12,7 +12,7 @@
 (package! buffer-move)
 (package! multiple-cursors)
 (package! prettier-js)
-(package! org-ref)
+(package! citeproc-org)
 ;; (package! tree-sitter)
 ;; (package! tree-sitter-langs)
 (package! meson-mode)
