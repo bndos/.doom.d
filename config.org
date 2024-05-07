@@ -214,7 +214,6 @@
 #+BEGIN_SRC emacs-lisp
 ;; evil
 (setq evil-insert-state-map (make-sparse-keymap))
-(setq evil-respect-visual-line-mode t)
 (define-key evil-insert-state-map (kbd "<escape>") 'evil-normal-state)
 #+END_SRC
 
