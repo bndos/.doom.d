@@ -42,7 +42,7 @@
 (set-frame-parameter (selected-frame) 'alpha-background 0.85)
 ;; (set-frame-parameter nil 'alpha-background 80)
 
-(setq-default header-line-format " ")
+;; (setq-default header-line-format " ")
 (set-fringe-mode 35)
 (setq-default left-fringe-width  35)
 (setq-default right-fringe-width 35)
@@ -232,6 +232,11 @@
 * lsp/flymake
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
+
+(use-package! breadcrumb
+  :ensure t
+  :config
+  (breadcrumb-mode t))
 
 (after! corfu
   (setq corfu-auto-delay 0.01 corfu-auto-prefix 1)
