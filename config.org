@@ -37,6 +37,7 @@
              '(font . "Comic Mono-14"))
 
 
+(add-to-list 'default-frame-alist '(internal-border-width . 10))
 (add-to-list 'default-frame-alist '(alpha-background . 85))
 
 (set-frame-parameter (selected-frame) 'alpha-background 0.85)
@@ -57,19 +58,6 @@
     '(eldoc bar workspace-name window-number modals matches follow buffer-info remote-host buffer-position word-count parrot selection-info)
     '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time "     "))
   )
-
-;; (use-package! spaceline
-;;   :config
-;;   (spaceline-emacs-theme)
-;;   (setq powerline-default-separator 'bar)
-;;   (setq powerline-height 40)
-;;   ;; disable minor modes
-;;   (setq spaceline-minor-modes-p nil)
-;;   ;; spaceline-evil-state-faces
-;;   (setq spaceline-highlight-face-func 'spaceline-highlight-face-evil-state)
-;;   (spaceline-compile)
-;;   ;; spaceline-face-func
-;;   )
 
 (use-package pdf-view
   :hook (pdf-tools-enabled . pdf-view-midnight-minor-mode)
