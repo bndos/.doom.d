@@ -246,7 +246,7 @@
   (breadcrumb-mode t))
 
 (after! corfu
-  (setq corfu-auto-delay 0.01 corfu-auto-prefix 1)
+  (setq corfu-auto-delay 0 corfu-auto-prefix 1)
   (map! :map corfu-mode-map
         :i "H-@" #'completion-at-point
         :i "H-SPC" #'completion-at-point
