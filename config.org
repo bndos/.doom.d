@@ -755,6 +755,8 @@ throws an error."
 ;; open file externally
 (map! :leader "f o" #'counsel-find-file-extern)
 
+(map! :leader "f ." #'find-name-dired)
+
 ;; workspaces
 (map! :leader "TAB TAB" #'+workspace/other)
 (map! :leader "TAB '" #'+workspace/display)
