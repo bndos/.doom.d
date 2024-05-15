@@ -38,7 +38,8 @@
 ;; Theme
 ;; (setq doom-theme 'doom-snazzy)
 ;; (setq doom-theme 'doom-outrun-electric)
-(setq doom-theme 'doom-ephemeral)
+(setq doom-theme 'doom-tokyo-night)
+;; (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-challenger-deep)
 (setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
@@ -116,7 +117,7 @@
   '(mode-line-inactive :background "#000000" )
   ;; '(ivy-virtual :foreground "#444444" :italic nil)
   ;; '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
-  '(vertico-current :background "#270f25")
+  '(vertico-current :background "#573495")
   '(font-lock-comment-face :foreground "#545577")
   '(font-lock-variable-name-face :foreground "#f22d88")
   '(hl-line :background "#171717")
@@ -141,7 +142,7 @@
   '(spaceline-evil-visual :background "#8be9fd" :foreground "#000000")
 
   '(region :background "#282222")
-  '(xref-match :foreground "#000000" :background "#2b955d")
+  '(xref-match :foreground "#000000" :background "#2b458d")
 
   '(highlight :background "#ff79c6" :foreground "#000000")
 
@@ -236,10 +237,18 @@
                           (magit-status buf-dir))))))
 #+END_SRC
 
+* consult
+#+BEGIN_SRC emacs-lisp
+;; consult
+(setq consult-fontify-max-size 1024)
+#+END_SRC
+
+
 * lsp/flymake
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 
+(setq consult-fontify-max-size 1024)
 (use-package! breadcrumb
   :ensure t
   :config
@@ -260,7 +269,7 @@
          :i "C-s" #'dabbrev-completion))
   )
 
-(setq gc-cons-threshold (* 100 1024 1024))
+(setq gc-cons-threshold (* 100 2048 2048))
 
 ;; (setq auto-save-default nil)
 ;; (setq make-backup-files nil)
