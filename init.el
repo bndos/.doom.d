@@ -100,9 +100,7 @@
        (eval +overlay)     ; run code, run (also, repls)
        ;;gist              ; interacting with github gists
        lookup              ; navigate your code and its documentation
-       (lsp
-        +counsel-eglot
-        +eglot)
+       lsp
        magit             ; a git porcelain for Emacs
        ;;make              ; run make tasks from Emacs
        pass              ; password manager for nerds
@@ -188,7 +186,7 @@
        ;;solidity          ; do you need a blockchain? No.
        (swift +lsp)             ; who asked for emoji variables?
        ;;terra             ; Earth and Moon in alignment for performance.
-       (web +lsp)               ; the tubes
+       ;; (web +lsp)               ; the tubes
        yaml                ; JSON, but readable
 
        :email

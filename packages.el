@@ -11,7 +11,6 @@
 (package! solaire-mode :disable t)
 (package! buffer-move)
 (package! multiple-cursors)
-(package! prettier-js)
 (package! citeproc-org)
 ;; (package! tree-sitter)
 ;; (package! tree-sitter-langs)

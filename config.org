@@ -249,6 +249,35 @@
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 
+(use-package! lsp
+  :init
+  (setq lsp-use-plists "true")
+  (setq lsp-enable-file-watchers t)
+  (setq lsp-disabled-clients '(angular-ls))
+  (map! :map lsp-ui-mode-map :leader
+        "c p" #'lsp-ui-peek-find-references)
+  (map! :map lsp-ui-mode-map :leader
+        "c g" #'lsp-ui-doc-show)
+  (setq lsp-ui-sideline-enable nil)
+  ;; (setq lsp-ui-sideline-ignore-duplicate t)
+  ;; (setq lsp-ui-sideline-show-hover t)
+  ;; (setq lsp-ui-sideline-show-symbol t)
+  (setq lsp-ui-doc-enable nil)
+  (setq lsp-ui-doc-position 'at-point)
+  (setq lsp-ui-doc-show-with-mouse t)
+  (setq lsp-ui-doc-alignment 'frame)
+  (setq lsp-ui-doc-max-height 1000)
+  (setq lsp-ui-doc-max-width 1000)
+  (setq lsp-lens-enable t)
+  (setq lsp-ui-doc-include-signature t)
+
+  (put 'lsp-ui-doc--handle-mouse-movement 'isearch-scroll t)
+  ;; (after! lsp-clangd
+  ;;   (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
+  )
+
+
+
 (setq consult-fontify-max-size 1024)
 (use-package! breadcrumb
   :ensure t
@@ -329,12 +358,6 @@
   :defer t
   :bind (:map dart-mode-map
               ("C-M-x" . #'flutter-run-or-hot-reload)))
-#+END_SRC
-
-* prettier-js
-#+BEGIN_SRC emacs-lisp
-(add-hook 'js-mode-hook #'prettier-js-mode)
-(add-hook 'typescript-mode-hook #'prettier-js-mode)
 #+END_SRC
 
 * dap-mode
