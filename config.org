@@ -58,10 +58,10 @@
              '(font . "Comic Mono-14"))
 
 
-(add-to-list 'default-frame-alist '(internal-border-width . 10))
+(add-to-list 'default-frame-alist '(internal-border-width . 20))
 (add-to-list 'default-frame-alist '(alpha-background . 85))
 
-(set-frame-parameter (selected-frame) 'alpha-background 0.80)
+(set-frame-parameter (selected-frame) 'alpha-background 0.85)
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 ;; (setq-default header-line-format " ")
@@ -142,7 +142,7 @@
   '(spaceline-evil-emacs :foreground "#000000")
   '(spaceline-evil-visual :background "#8be9fd" :foreground "#000000")
 
-  '(region :background "#882222")
+  '(region :background "#3d1212")
   '(xref-match :foreground "#000000" :background "#2b458d")
 
   '(highlight :background "#ff79c6" :foreground "#000000")
@@ -248,35 +248,6 @@
 * lsp/flymake
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
-
-(use-package! lsp
-  :init
-  (setq lsp-use-plists "true")
-  (setq lsp-enable-file-watchers t)
-  (setq lsp-disabled-clients '(angular-ls))
-  (map! :map lsp-ui-mode-map :leader
-        "c p" #'lsp-ui-peek-find-references)
-  (map! :map lsp-ui-mode-map :leader
-        "c g" #'lsp-ui-doc-show)
-  (setq lsp-ui-sideline-enable nil)
-  ;; (setq lsp-ui-sideline-ignore-duplicate t)
-  ;; (setq lsp-ui-sideline-show-hover t)
-  ;; (setq lsp-ui-sideline-show-symbol t)
-  (setq lsp-ui-doc-enable nil)
-  (setq lsp-ui-doc-position 'at-point)
-  (setq lsp-ui-doc-show-with-mouse t)
-  (setq lsp-ui-doc-alignment 'frame)
-  (setq lsp-ui-doc-max-height 1000)
-  (setq lsp-ui-doc-max-width 1000)
-  (setq lsp-lens-enable t)
-  (setq lsp-ui-doc-include-signature t)
-
-  (put 'lsp-ui-doc--handle-mouse-movement 'isearch-scroll t)
-  ;; (after! lsp-clangd
-  ;;   (set-lsp-priority! 'clangd 1))  ; ccls has priority 0
-  )
-
-
 
 (setq consult-fontify-max-size 1024)
 (use-package! breadcrumb
