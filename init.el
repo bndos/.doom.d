@@ -27,8 +27,8 @@
        corfu
        ;;helm              ; the *other* search engine for love and life
        ;;ido               ; the other *other* search engine...
-       ;; ivy               ; a search engine for love and life
-       vertico
+       ivy               ; a search engine for love and life
+       ;; vertico
 
        :ui
        ;;deft              ; notational velocity for Emacs
@@ -99,9 +99,9 @@
        ;; ein               ; tame Jupyter notebooks with emacs
        (eval +overlay)     ; run code, run (also, repls)
        ;;gist              ; interacting with github gists
-       lookup              ; navigate your code and its documentation
+       ;; lookup              ; navigate your code and its documentation
        (lsp
-        +consult-eglot
+        +counsel-eglot
         +eglot)
        magit             ; a git porcelain for Emacs
        ;;make              ; run make tasks from Emacs
