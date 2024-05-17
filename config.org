@@ -1,5 +1,6 @@
 * Appearance
 #+BEGIN_SRC emacs-lisp
+;;; $DOOMDIR/config.el -*- lexical-binding: t; -*-
 (defun my-custom-banner ()
   (let* ((banner
           '(
@@ -50,8 +51,8 @@
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
 ;; set default height and width
-(add-to-list 'default-frame-alist '(height . 55))
-(add-to-list 'default-frame-alist '(width . 130))
+(add-to-list 'default-frame-alist '(height . 80))
+(add-to-list 'default-frame-alist '(width . 350))
 
 (add-to-list 'default-frame-alist
              '(font . "Comic Mono-14"))
@@ -60,7 +61,7 @@
 (add-to-list 'default-frame-alist '(internal-border-width . 10))
 (add-to-list 'default-frame-alist '(alpha-background . 85))
 
-(set-frame-parameter (selected-frame) 'alpha-background 0.85)
+(set-frame-parameter (selected-frame) 'alpha-background 0.80)
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 ;; (setq-default header-line-format " ")
@@ -120,7 +121,7 @@
   '(vertico-current :background "#573495")
   '(font-lock-comment-face :foreground "#545577")
   '(font-lock-variable-name-face :foreground "#f22d88")
-  '(hl-line :background "#171717")
+  '(hl-line :background "#272737")
   ;; '(region :background "#355461")
   '(lsp-ui-peek-highlight :background "#355461")
   '(lsp-ui-peek-list :background "#000000")
@@ -417,10 +418,10 @@
   (("H-."  . 'mc/mark-next-like-this)
    ("H-,"  . 'mc/mark-previous-like-this)
    ("C-\"" . 'mc/mark-all-like-this)
-
-   :map mc/keymap
    ("H->"     . 'mc/skip-to-next-like-this)
    ("H-<"     . 'mc/skip-to-previous-like-this)
+
+   :map mc/keymap
    ("H-x C-." . 'mc/unmark-next-like-this)
    ("H-x C-," . 'mc/unmark-previous-like-this)
    ("H-x C-:" . 'mc/mark-pop)
@@ -587,16 +588,16 @@
 
   (setq org-agenda-files '("~/Dropbox/agenda.org"))
   (setq org-latex-hyperref-template nil)
-  (add-to-list 'org-latex-packages-alist '("" "minted"))
+  ;; (add-to-list 'org-latex-packages-alist '("" "minted"))
   (setq org-latex-toc-command "\\tableofcontents \\clearpage")
-  (setq org-latex-listings 'minted)
-  (setq org-latex-minted-options
-        '(("breaklines" "true")
-          ("breakanywhere" "true")
-          ("linenos" "true")
-          ("gobble" "-8")
-          ("xleftmargin" "10pt")
-          ("bgcolor" "borlandbg")))
+  ;; (setq org-latex-listings 'minted)
+  ;; (setq org-latex-minted-options
+  ;;       '(("breaklines" "true")
+  ;;         ("breakanywhere" "true")
+  ;;         ("linenos" "true")
+  ;;         ("gobble" "-8")
+  ;;         ("xleftmargin" "10pt")
+  ;;         ("bgcolor" "borlandbg")))
 
   (setq org-latex-pdf-process '("latexmk -pdflatex=xelatex -shell-escape -pdf %f"))
   ;; (setq org-latex-pdf-process '("xelatex -shell-escape -interaction nonstopmode -output-directory %o %f"))
