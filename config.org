@@ -142,7 +142,7 @@
   '(spaceline-evil-emacs :foreground "#000000")
   '(spaceline-evil-visual :background "#8be9fd" :foreground "#000000")
 
-  '(region :background "#282222")
+  '(region :background "#882222")
   '(xref-match :foreground "#000000" :background "#2b458d")
 
   '(highlight :background "#ff79c6" :foreground "#000000")
