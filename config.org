@@ -59,9 +59,9 @@
 
 
 (add-to-list 'default-frame-alist '(internal-border-width . 20))
-(add-to-list 'default-frame-alist '(alpha-background . 85))
+(add-to-list 'default-frame-alist '(alpha-background . 95))
 
-(set-frame-parameter (selected-frame) 'alpha-background 0.85)
+(set-frame-parameter (selected-frame) 'alpha-background 0.95)
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 ;; (setq-default header-line-format " ")
@@ -249,7 +249,6 @@
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 
-(setq consult-fontify-max-size 1024)
 (use-package! breadcrumb
   :ensure t
   :config
@@ -270,11 +269,18 @@
          :i "C-s" #'dabbrev-completion))
   )
 
-(setq gc-cons-threshold (* 100 2048 2048))
+(setq gc-cons-threshold 100000000)
+(setq read-process-output-max (* 1024 1024))
 
 ;; (setq auto-save-default nil)
 ;; (setq make-backup-files nil)
 ;; (setq create-lockfiles nil)
+
+(fset #'jsonrpc--log-event #'ignore)
+(setq eglot-events-buffer-size 0)
+(setq eglot-sync-connect nil)
+(add-hook 'focus-out-hook 'garbage-collect)
+(setq eglot-connect-timeout nil)
 
 (use-package flymake-ruff
   :defer t

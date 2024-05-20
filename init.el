@@ -17,7 +17,7 @@
 (setq evil-respect-visual-line-mode t)
 (setq native-comp-deferred-compilation nil)
 (after! (doom-packages straight)
-  (setq straight--native-comp-available t))
+ (setq straight--native-comp-available t))
 (doom! :input
        ;;chinese
        ;;japanese
