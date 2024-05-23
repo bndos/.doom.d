@@ -601,7 +601,7 @@
   ;;         ("xleftmargin" "10pt")
   ;;         ("bgcolor" "borlandbg")))
 
-  (setq org-latex-pdf-process '("latexmk -pdflatex=xelatex -shell-escape -pdf %f"))
+  ;; (setq org-latex-pdf-process '("latexmk -pdflatex=xelatex -shell-escape -pdf %f"))
   ;; (setq org-latex-pdf-process '("xelatex -shell-escape -interaction nonstopmode -output-directory %o %f"))
   ;; (setq org-latex-pdf-process '("xetex -shell-escape -interaction nonstopmode %f"))
 
