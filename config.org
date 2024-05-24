@@ -269,8 +269,6 @@
          :i "C-s" #'dabbrev-completion))
   )
 
-(setq gc-cons-threshold 100000000)
-(setq read-process-output-max (* 1024 1024))
 
 ;; (setq auto-save-default nil)
 ;; (setq make-backup-files nil)
@@ -475,10 +473,9 @@
       (company-indent-or-complete-common nil)))
 
 (use-package! copilot
-  :defer t
   :hook
-  (prog-mode . copilot-mode)
-  (org-mode . copilot-mode)
+  (org-mode . my/copilot-activate-after-eglot)
+  (prog-mode . my/copilot-activate-after-eglot)
   :bind (("S-<tab>" . 'copilot-accept-completion-by-word)
          ("S-<return>" . 'copilot-accept-completion)
          :map copilot-completion-map
@@ -489,10 +486,14 @@
          ("C-<tab>" . 'copilot-accept-completion-by-word)
          ("H-<tab>" . 'copilot-accept-completion-by-line)
          )
-        (:map copilot-mode-map
-         ("S-<tab>" . 'copilot-accept-completion-by-word)
-         ))
-#+END_SRC
+  (:map copilot-mode-map
+        ("S-<tab>" . 'copilot-accept-completion-by-word)
+        )
+  :config
+  (defun my/copilot-activate-after-eglot ()
+    "Activate copilot-mode after eglot is initialized."
+    (run-at-time "2 sec" nil #'copilot-mode)))
+    #+END_SRC
 
 * gptel
 #+BEGIN_SRC emacs-lisp
