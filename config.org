@@ -323,6 +323,7 @@
         (delete-file temp-file))
       (forward-line (1- initial-line))
       (move-to-column initial-column)
+      (recenter)
       )
     )
   )
@@ -629,6 +630,8 @@
 
 (setq org-journal-date-format "%a, %Y %b %d")
 
+;; make org-roam directory ~/Dropbox/org-roam
+(setq org-roam-directory "~/Dropbox/org-roam")
 ;; (org-babel-do-load-languages
 ;;  'org-babel-load-languages
 ;;  '((emacs-lisp . t)
@@ -640,9 +643,6 @@
   :hook (org-mode . olivetti-mode))
 
 #+END_SRC
-
-#+RESULTS:
-| org-ref-org-menu | er/add-org-mode-expansions | (closure ((hook . org-mode-hook)) (&rest _) (progn (let ((tail '(after-change-major-mode-hook))) (while tail (let ((hook (car tail))) (let ((tail (list #'(lambda (&rest _) (if (derived-mode-p 'org-mode) (progn (setq tab-width 8))))))) (while tail (let ((func (car tail))) (add-hook hook func nil t) (setq tail (cdr tail))))) (setq tail (cdr tail)))))) (add-hook 'save-place-after-find-file-hook #'+org-make-last-point-visible-h nil t)) | +lookup--init-org-mode-handlers-h | (closure (t) (&rest _) (add-hook 'before-save-hook 'org-encrypt-entries nil t)) | (closure (org--rds reftex-docstruct-symbol org--single-lines-list-is-paragraph org-element-greater-elements org-agenda-restrict-end org-agenda-restrict-begin org-agenda-restrict visual-fill-column-width org-clock-history org-agenda-current-date org-with-time org-defdecode org-def org-read-date-inactive org-ans2 org-ans1 org-columns-current-fmt-compiled org-clock-current-task org-clock-effort org-agenda-skip-function org-agenda-skip-comment-trees org-agenda-archives-mode org-end-time-was-given org-time-was-given org-log-note-extra org-log-note-purpose org-log-post-message org-last-inserted-timestamp org-last-changed-timestamp org-entry-property-inherited-from org-state org-agenda-headline-snapshot-before-repeat org-agenda-buffer-name org-agenda-start-on-weekday org-agenda-buffer-tmp-name org-priority-regexp org-mode-abbrev-table org-mode-syntax-table org-element-cache-persistent org-tbl-menu org-org-menu org-struct-menu org-last-state org-id-track-globally org-clock-start-time texmathp-why remember-data-file org-agenda-tags-todo-honor-ignore-options calc-embedded-open-mode calc-embedded-open-formula calc-embedded-close-formula align-mode-rules-list org-emphasis-alist org-emphasis-regexp-components org-export-registered-backends org-babel-load-languages org-id-overriding-file-name org-indent-indentation-per-level org-element--timestamp-regexp org-element-cache-map-continue-from org-element-paragraph-separate org-agenda-buffer-name org-inlinetask-min-level t) nil (add-hook 'change-major-mode-hook 'org-fold-show-all 'append 'local)) | olivetti-mode | copilot-mode | #[0 \301\211\207 [imenu-create-index-function org-imenu-get-tree] 2] | doom-disable-show-paren-mode-h | doom-disable-show-trailing-whitespace-h | evil-org-mode | org-eldoc-load | toc-org-enable | #[0 \300\301\302\303\304$\207 [add-hook change-major-mode-hook org-babel-show-result-all append local] 5] | org-babel-result-hide-spec | org-babel-hide-all-hashes | writegood-mode | embrace-org-mode-hook | +corfu-add-cape-elisp-block-h | +literate-enable-recompile-h |
 
 * custom conf
 #+BEGIN_SRC emacs-lisp
