@@ -274,11 +274,11 @@
 ;; (setq make-backup-files nil)
 ;; (setq create-lockfiles nil)
 
-(fset #'jsonrpc--log-event #'ignore)
+;; (fset #'jsonrpc--log-event #'ignore)
 (setq eglot-events-buffer-size 0)
-(setq eglot-sync-connect nil)
-(add-hook 'focus-out-hook 'garbage-collect)
-(setq eglot-connect-timeout nil)
+;; (setq eglot-sync-connect nil)
+;; (add-hook 'focus-out-hook 'garbage-collect)
+;; (setq eglot-connect-timeout nil)
 
 (use-package flymake-ruff
   :defer t
