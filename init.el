@@ -15,9 +15,9 @@
 ;;      directory (for easy access to its source code).
 
 (setq evil-respect-visual-line-mode t)
-(setq native-comp-deferred-compilation nil)
-(after! (doom-packages straight)
- (setq straight--native-comp-available t))
+;; (setq native-comp-deferred-compilation nil)
+;; (after! (doom-packages straight)
+;;  (setq straight--native-comp-available t))
 (doom! :input
        ;;chinese
        ;;japanese
@@ -87,7 +87,8 @@
        :checkers
        (syntax
         +childframe
-        +flymake)              ; tasing you for every semicolon you forget
+        +flymake
+        )              ; tasing you for every semicolon you forget
        ;;(spell +flyspell) ; tasing you for misspelling mispelling
        grammar           ; tasing grammar mistake every you make
 
@@ -101,11 +102,12 @@
        (eval +overlay)     ; run code, run (also, repls)
        ;;gist              ; interacting with github gists
        lookup              ; navigate your code and its documentation
-       (lsp +eglot)
+       (lsp
+        +eglot)
        magit             ; a git porcelain for Emacs
        ;;make              ; run make tasks from Emacs
        pass              ; password manager for nerds
-       pdf               ; pdf enhancements
+       ;; pdf               ; pdf enhancements
        ;;prodigy           ; FIXME managing external services & code builders
        ;;rgb               ; creating color strings
        ;;taskrunner        ; taskrunner for all your projects
@@ -132,7 +134,7 @@
        ;;elm               ; care for a cup of TEA?
        emacs-lisp        ; drown in parentheses
        ;;erlang            ; an elegant language for a more civilized age
-       (ess +lsp +peek)               ; emacs speaks statistics
+       ;; (ess +lsp +peek)               ; emacs speaks statistics
        ;;faust             ; dsp, but you get to keep your soul
        ;;fsharp            ; ML stands for Microsoft's Language
        ;;fstar             ; (dependent) types and (monadic) effects and Z3
@@ -160,7 +162,7 @@
         +journal
         +roam2
         +dragndrop
-        +pomodoro
+        ;; +pomodoro
         +jupyter
         )               ; organize your plain life in plain text
        ;;php               ; perl's insecure younger brother

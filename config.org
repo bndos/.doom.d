@@ -65,9 +65,9 @@
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 ;; (setq-default header-line-format " ")
-(set-fringe-mode 35)
-(setq-default left-fringe-width  35)
-(setq-default right-fringe-width 35)
+;; (set-fringe-mode 35)
+;; (setq-default left-fringe-width  35)
+;; (setq-default right-fringe-width 35)
 (setq doom-themes-enable-bold t
       doom-themes-enable-italic t)
 
@@ -79,11 +79,6 @@
     '(eldoc bar workspace-name window-number modals matches follow buffer-info remote-host buffer-position word-count parrot selection-info)
     '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time "     "))
   )
-
-(use-package pdf-view
-  :hook (pdf-tools-enabled . pdf-view-midnight-minor-mode)
-  :config
-  (setq pdf-view-midnight-colors '("#FFFFFF" . "#000000")))
 
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
@@ -174,49 +169,34 @@
   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 #+END_SRC
 
-* pulsar
-#+BEGIN_SRC emacs-lisp
-;; pulsar
-
-(use-package! pulsar
-  :config
-  (setq pulsar-pulse nil)
-  (setq pulsar-delay 0.1)
-  (setq pulsar-iterations 1)
-  (setq pulsar-face 'pulsar-magenta)
-  (setq pulsar-highlight-face 'pulsar-yellow)
-
-  (pulsar-global-mode 1))
-#+END_SRC
-
 * git-gutter-fringe
 #+BEGIN_SRC emacs-lisp
-(after! git-gutter-fringe
-  (set-face-foreground 'git-gutter-fr:modified  "purple")
-  (add-to-list 'git-gutter:update-hooks 'after-save-hook)
-  
-  (fringe-helper-define 'git-gutter-fr:deleted nil
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "........"
-    "XXXXXXXX"
-    "XXXXXXXX"
-    "XXXXXXXX"
-    "XXXXXXXX"))
+;; (after! git-gutter-fringe
+;;   (set-face-foreground 'git-gutter-fr:modified  "purple")
+;;   (add-to-list 'git-gutter:update-hooks 'after-save-hook)
+
+;;   (fringe-helper-define 'git-gutter-fr:deleted nil
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "........"
+;;     "XXXXXXXX"
+;;     "XXXXXXXX"
+;;     "XXXXXXXX"
+;;     "XXXXXXXX"))
 #+END_SRC
 
 * evil
@@ -249,10 +229,10 @@
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 
-(use-package! breadcrumb
-  :ensure t
-  :config
-  (breadcrumb-mode t))
+;; (use-package! breadcrumb
+;;   :ensure t
+;;   :config
+;;   (breadcrumb-mode t))
 
 (after! corfu
   (setq corfu-auto-delay 0 corfu-auto-prefix 1)
@@ -275,7 +255,7 @@
 ;; (setq create-lockfiles nil)
 
 ;; (fset #'jsonrpc--log-event #'ignore)
-(setq eglot-events-buffer-size 0)
+;; (setq eglot-events-buffer-size 0)
 ;; (setq eglot-sync-connect nil)
 ;; (add-hook 'focus-out-hook 'garbage-collect)
 ;; (setq eglot-connect-timeout nil)
@@ -286,8 +266,11 @@
   :hook
   (eglot-managed-mode . flymake-ruff-load))
 
-(map! :leader "[" #'flymake-goto-prev-error)
-(map! :leader "]" #'flymake-goto-next-error)
+;; (map! :leader "[" #'flymake-goto-prev-error)
+;; (map! :leader "]" #'flymake-goto-next-error)
+
+(map! :leader "[" #'flycheck-previous-error)
+(map! :leader "]" #'flycheck-next-error)
 #+END_SRC
 
 * ruff
@@ -333,7 +316,9 @@
 (use-package! dart-mode
   :defer t
   :bind (:map dart-mode-map
-              ("C-M-x" . #'flutter-run-or-hot-reload)))
+              ("C-M-x" . #'flutter-run-or-hot-reload))
+  :config
+  (setq lsp-dart-flutter-widget-guides nil))
 #+END_SRC
 
 * dap-mode
@@ -358,11 +343,11 @@
 * company
 #+BEGIN_SRC emacs-lisp
 ;; company
-(after! company
-  (setq company-idle-delay 0.05)
-  (setq company-minimum-prefix-length 2)
-  (define-key company-mode-map (kbd "H-SPC") 'company-complete)
-  (define-key company-active-map (kbd "<backtab>") 'counsel-company))
+;; (after! company
+;;   (setq company-idle-delay 0.05)
+;;   (setq company-minimum-prefix-length 2)
+;;   (define-key company-mode-map (kbd "H-SPC") 'company-complete)
+;;   (define-key company-active-map (kbd "<backtab>") 'counsel-company))
 #+END_SRC
 
 * treemacs
@@ -396,15 +381,15 @@
 
 * leetcode
 #+BEGIN_SRC emacs-lisp
-;; leetcode
-(use-package! leetcode
-  :defer t
-  :config
-  (add-hook 'leetcode-solution-mode-hook
-          (lambda() (copilot-mode -1)))
-  (setq leetcode-save-solutions t)
-  (setq leetcode-directory "~/leetcode")
-  (setq leetcode-prefer-language "python3"))
+;; ;; leetcode
+;; (use-package! leetcode
+;;   :defer t
+;;   :config
+;;   (add-hook 'leetcode-solution-mode-hook
+;;           (lambda() (copilot-mode -1)))
+;;   (setq leetcode-save-solutions t)
+;;   (setq leetcode-directory "~/leetcode")
+;;   (setq leetcode-prefer-language "python3"))
 #+END_SRC
 
 * multiple cursors
@@ -473,9 +458,9 @@
       (company-indent-or-complete-common nil)))
 
 (use-package! copilot
-  :hook
-  (org-mode . my/copilot-activate-after-eglot)
-  (prog-mode . my/copilot-activate-after-eglot)
+  ;; :hook
+  ;; (org-mode . my/copilot-activate-after-eglot)
+  ;; (prog-mode . my/copilot-activate-after-eglot)
   :bind (("S-<tab>" . 'copilot-accept-completion-by-word)
          ("S-<return>" . 'copilot-accept-completion)
          :map copilot-completion-map
@@ -633,11 +618,11 @@
 
 ;; make org-roam directory ~/Dropbox/org-roam
 (setq org-roam-directory "~/Dropbox/org-roam")
-;; (org-babel-do-load-languages
-;;  'org-babel-load-languages
-;;  '((emacs-lisp . t)
-;;    (python . t)
-;;    (jupyter . t)))
+(org-babel-do-load-languages
+ 'org-babel-load-languages
+ '((emacs-lisp . t)
+   (python . t)
+   (jupyter . t)))
 
 (use-package! olivetti
   :defer t

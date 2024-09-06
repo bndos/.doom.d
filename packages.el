@@ -19,15 +19,17 @@
 ;; (package! matlab-mode)
 (package! copilot
   :recipe (:host github :repo "zerolfx/copilot.el" :files ("*.el" "dist")))
-(package! leetcode)
+;; (package! leetcode)
 (package! gptel)
-(package! arxiv-mode)
-(package! pulsar)
+;; (package! arxiv-mode)
+;; (package! pulsar)
 (package! lazy-ruff)
 (package! flymake-ruff)
 (package! breadcrumb)
 (package! engrave-faces)
-(unpin! consult)
+;; (unpin! consult)
+;; (package! jupyter)
+;; (package! jupyter :pin "16cbda79167b4e2f2c6b61b218658f0f660d97f9")
 
 ;; To install a package directly from a remote git repo, you must specify a
 ;; `:recipe'. You'll find documentation on what `:recipe' accepts here:
