@@ -27,6 +27,7 @@
 (package! flymake-ruff)
 (package! breadcrumb)
 (package! engrave-faces)
+(package! org-ref)
 ;; (unpin! consult)
 ;; (package! jupyter)
 ;; (package! jupyter :pin "16cbda79167b4e2f2c6b61b218658f0f660d97f9")
