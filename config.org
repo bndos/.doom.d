@@ -255,6 +255,10 @@
          :i "C-s" #'dabbrev-completion))
   )
 
+(use-package! eglot
+  :config
+  (setq eglot-extend-to-xref t))
+
 
 ;; (setq auto-save-default nil)
 ;; (setq make-backup-files nil)
