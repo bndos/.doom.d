@@ -43,9 +43,9 @@
 ;; (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-challenger-deep)
-(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
-       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
-       doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 50))
+(setq! doom-font (font-spec :family "Comic Shanns" :weight 'normal :size 26)
+       doom-variable-pitch-font (font-spec :family "Comic Shanns" :weight 'normal :size 26)
+       doom-big-font (font-spec :family "Comic Shanns" :weight 'normal :size 50))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'normal))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
@@ -55,7 +55,7 @@
 (add-to-list 'default-frame-alist '(width . 350))
 
 (add-to-list 'default-frame-alist
-             '(font . "Comic Mono-14"))
+             '(font . "Comic Shanns-14"))
 
 
 (add-to-list 'default-frame-alist '(internal-border-width . 20))
@@ -230,10 +230,10 @@
 #+BEGIN_SRC emacs-lisp
 ;; lsp/flycheck
 
-;; (use-package! breadcrumb
-;;   :ensure t
-;;   :config
-;;   (breadcrumb-mode t))
+(use-package! breadcrumb
+  :ensure t
+  :config
+  (breadcrumb-mode t))
 
 (after! corfu
   (setq corfu-auto-delay 0 corfu-auto-prefix 1)
@@ -538,10 +538,10 @@
     (side . left) (slot . 2) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)))
    ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container" display-buffer-in-side-window
-    (side . top) (slot . 4) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
+    (side . bottom) (slot . 4) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
 
    ("\\*\\(?:shell\\|vterm\\)\\*" display-buffer-in-side-window
-    (side . top) (slot . 5) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
+    (side . bottom) (slot . 5) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
 
    )
  )
