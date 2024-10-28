@@ -43,10 +43,10 @@
 ;; (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-challenger-deep)
-(setq! doom-font (font-spec :family "Comic Shanns" :weight 'normal :size 26)
-       doom-variable-pitch-font (font-spec :family "Comic Shanns" :weight 'normal :size 26)
-       doom-big-font (font-spec :family "Comic Shanns" :weight 'normal :size 50))
-(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'normal))
+(setq! doom-font (font-spec :family "Comic Shanns" :weight 'normal :size 27)
+       doom-variable-pitch-font (font-spec :family "Comic Shanns" :weight 'bold :size 27)
+       doom-big-font (font-spec :family "Comic Shanns" :weight 'bold :size 50))
+(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'bold))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
@@ -161,12 +161,22 @@
 
 (setq window-divider-default-bottom-width 0)
 
+;; (use-package! tree-sitter
+;;   :defer t
+;;   :config
+;;   (require 'tree-sitter-langs)
+;;   (global-tree-sitter-mode)
+;;   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
+
 (use-package! tree-sitter
-  :defer t
-  :config
-  (require 'tree-sitter-langs)
-  (global-tree-sitter-mode)
-  (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
+   :hook (prog-mode . turn-on-tree-sitter-mode)
+   :hook (tree-sitter-after-on . tree-sitter-hl-mode)
+   :config
+   (require 'tree-sitter-langs)
+   ;; This makes every node a link to a section of code
+   (setq tree-sitter-debug-jump-buttons t
+         ;; and this highlights the entire sub tree in your code
+         tree-sitter-debug-highlight-jump-region t))
 #+END_SRC
 
 * git-gutter-fringe
@@ -209,14 +219,14 @@
 * persp-mode
 #+BEGIN_SRC emacs-lisp
 
-(after! persp-mode
-  ;; side windows restore fix with persp-mode.el
-  (persp-def-buffer-save/load
-   :save-vars '(default-directory)
-   :load-function #'(lambda (savelist &rest _)
-                      (cl-destructuring-bind (buffer-name vars-list &rest _rest) (cdr savelist)
-                        (let ((buf-dir (alist-get 'default-directory vars-list)))
-                          (magit-status buf-dir))))))
+;; (after! persp-mode
+;;   ;; side windows restore fix with persp-mode.el
+;;   (persp-def-buffer-save/load
+;;    :save-vars '(default-directory)
+;;    :load-function #'(lambda (savelist &rest _)
+;;                       (cl-destructuring-bind (buffer-name vars-list &rest _rest) (cdr savelist)
+;;                         (let ((buf-dir (alist-get 'default-directory vars-list)))
+;;                           (magit-status buf-dir))))))
 #+END_SRC
 
 * consult
@@ -240,13 +250,13 @@
   (map! :map corfu-mode-map
         :i "H-@" #'completion-at-point
         :i "H-SPC" #'completion-at-point
-        :i "C-SPC" #'set-mark-command
-        :i "C-n" #'next-line
-        :i "C-p" #'previous-line
         :i "C-f" #'forward-char
         :i "H-n" #'+corfu/dabbrev-or-next
         :i "H-p" #'+corfu/dabbrev-or-last
+        :i "C-SPC" #'set-mark-command
         :n "C-SPC" #'set-mark-command
+        :i "C-n" #'next-line
+        :i "C-p" #'previous-line
         (:prefix "C-x"
          :i "C-k" #'cape-dict
          :i "C-f" #'cape-file
@@ -371,6 +381,13 @@
   (setq treemacs-is-never-other-window nil)
   )
 ;; lsp-treemacs
+#+END_SRC
+
+* cc/cuda
+#+BEGIN_SRC emacs-lisp
+;; cuda-mode is c++ mode
+(add-to-list 'auto-mode-alist '("\\.cu\\'" . c++-mode))
+(add-to-list 'auto-mode-alist '("\\.cuh\\'" . c++-mode))
 #+END_SRC
 
 * meson-mode

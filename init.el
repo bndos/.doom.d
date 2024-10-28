@@ -122,7 +122,7 @@
 
        :lang
        ;;agda              ; types of types of types of types...
-       (cc +lsp +peek)                ; C/C++/Obj-C madness
+       (cc +lsp +peek +tree-sitter)                ; C/C++/Obj-C madness
        ;;clojure           ; java with a lisp
        ;;common-lisp       ; if you've seen one lisp, you've seen them all
        ;;coq               ; proofs-as-programs
@@ -172,6 +172,7 @@
         +lsp
         +pyenv
         +peek
+        +tree-sitter
         +pyright)           ; beautiful is better than ugly
        ;;qt                ; the 'cutest' gui framework ever
        ;;racket            ; a DSL for DSLs
