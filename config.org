@@ -276,7 +276,79 @@
 (use-package! lsp-bridge
   :config
   (setq lsp-bridge-enable-log nil)
-  (global-lsp-bridge-mode))
+  (global-lsp-bridge-mode)
+
+
+  (map! :map lsp-bridge-mode-map
+        :n "g d" #'lsp-bridge-find-def
+        :n "g D" #'lsp-bridge-find-references
+        :n "g r" #'lsp-bridge-find-references
+        :leader "c r" #'lsp-bridge-rename)
+
+  ;; (defvar lsp-bridge-ref-mode-map
+  ;; (let ((map (make-sparse-keymap)))
+  ;;   (define-key map (kbd "C-a") 'lsp-bridge-ref-beginning-of-line)
+  ;;   (define-key map (kbd "<tab>") 'lsp-bridge-ref-jump-next-keyword)
+  ;;   (define-key map (kbd "<backtab>") 'lsp-bridge-ref-jump-prev-keyword)
+
+  ;;   (define-key map (kbd "j") 'lsp-bridge-ref-jump-next-keyword)
+  ;;   (define-key map (kbd "k") 'lsp-bridge-ref-jump-prev-keyword)
+  ;;   (define-key map (kbd "h") 'lsp-bridge-ref-jump-next-file)
+  ;;   (define-key map (kbd "l") 'lsp-bridge-ref-jump-prev-file)
+  ;;   (define-key map (kbd "i") 'lsp-bridge-ref-insert-current-line)
+
+  ;;   (define-key map (kbd "SPC") 'lsp-bridge-ref-open-file)
+  ;;   (define-key map (kbd "RET") 'lsp-bridge-ref-open-file-and-stay)
+  ;;   (define-key map (kbd "C-m") 'lsp-bridge-ref-open-file-and-stay)
+
+  ;;   (define-key map (kbd "e") 'lsp-bridge-ref-switch-to-edit-mode)
+
+  ;;   (define-key map (kbd "r") 'lsp-bridge-ref-replace-all-matches)
+
+  ;;   (define-key map (kbd "f") 'lsp-bridge-ref-filter-match-results)
+  ;;   (define-key map (kbd "F") 'lsp-bridge-ref-filter-mismatch-results)
+
+  ;;   (define-key map (kbd "x") 'lsp-bridge-ref-filter-match-files)
+  ;;   (define-key map (kbd "X") 'lsp-bridge-ref-filter-mismatch-files)
+  ;;   (define-key map (kbd "u") 'lsp-bridge-ref-unfilter)
+
+  ;;   (define-key map (kbd "D") 'lsp-bridge-ref-remove-line-from-results)
+
+  ;;   (define-key map (kbd "q") 'lsp-bridge-ref-quit)
+  ;;   map)
+  ;;
+  ;; add evil keys to lsp-bridge-ref-mode
+  (map! :map lsp-bridge-ref-mode-map
+        :n "C-a" 'lsp-bridge-ref-beginning-of-line
+        :n "<tab>" 'lsp-bridge-ref-jump-next-keyword
+        :n "<backtab>" 'lsp-bridge-ref-jump-prev-keyword
+
+        :n "j" 'lsp-bridge-ref-jump-next-keyword
+        :n "k" 'lsp-bridge-ref-jump-prev-keyword
+        :n "h" 'lsp-bridge-ref-jump-next-file
+        :n "l" 'lsp-bridge-ref-jump-prev-file
+        :n "i" 'lsp-bridge-ref-insert-current-line
+
+        :n "SPC" 'lsp-bridge-ref-open-file
+        :n "RET" 'lsp-bridge-ref-open-file-and-stay
+        :n "C-m" 'lsp-bridge-ref-open-file-and-stay
+
+        :n "e" 'lsp-bridge-ref-switch-to-edit-mode
+
+        :n "r" 'lsp-bridge-ref-replace-all-matches
+
+        :n "f" 'lsp-bridge-ref-filter-match-results
+        :n "F" 'lsp-bridge-ref-filter-mismatch-results
+
+        :n "x" 'lsp-bridge-ref-filter-match-files
+        :n "X" 'lsp-bridge-ref-filter-mismatch-files
+        :n "u" 'lsp-bridge-ref-unfilter
+
+        :n "D" 'lsp-bridge-ref-remove-line-from-results
+
+        :n "q" 'lsp-bridge-ref-quit)
+
+  )
 
 ;; (setq auto-save-default nil)
 ;; (setq make-backup-files nil)
