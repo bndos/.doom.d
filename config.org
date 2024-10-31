@@ -38,14 +38,15 @@
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
 ;; (setq doom-theme 'doom-snazzy)
-;; (setq doom-theme 'doom-outrun-electric)
-(setq doom-theme 'doom-tokyo-night)
+(setq doom-theme 'doom-outrun-electric)
+;; (setq doom-theme 'doom-tokyo-night)
 ;; (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
+;; (setq doom-theme 'doom-feather-dark)
 ;; (setq doom-theme 'doom-challenger-deep)
-(setq! doom-font (font-spec :family "Comic Shanns" :weight 'normal :size 27)
-       doom-variable-pitch-font (font-spec :family "Comic Shanns" :weight 'bold :size 27)
-       doom-big-font (font-spec :family "Comic Shanns" :weight 'bold :size 50))
+(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 26)
+       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 26)
+       doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 50))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'bold))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
@@ -55,13 +56,13 @@
 (add-to-list 'default-frame-alist '(width . 350))
 
 (add-to-list 'default-frame-alist
-             '(font . "Comic Shanns-14"))
+             '(font . "Comic Mono-14"))
 
 
 (add-to-list 'default-frame-alist '(internal-border-width . 20))
-(add-to-list 'default-frame-alist '(alpha-background . 97))
+(add-to-list 'default-frame-alist '(alpha-background . 93))
 
-(set-frame-parameter (selected-frame) 'alpha-background 0.97)
+(set-frame-parameter (selected-frame) 'alpha-background 0.93)
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 ;; (setq-default header-line-format " ")
@@ -91,7 +92,9 @@
   '(eglot-highlight-symbol-face :background "#331212" :inherit bold)
   '(doom-dashboard-banner :foreground "#fafaf3")
   ;; '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
-  ;; '(tree-sitter-hl-face:string :foreground "#434493")
+  ;; '(tree-sitter-hl-face:type.builtin :foreground "#ffffff")
+  '(tree-sitter-hl-face:constant :foreground "#ffffff")
+  '(tree-sitter-hl-face:string :foreground "#93b4e3")
   '(header-line :background "#000000")
   '(ein:basecell-input-area-face :background "#0f0f0f")
   '(markdown-code-face :inherit default)
@@ -168,15 +171,16 @@
 ;;   (global-tree-sitter-mode)
 ;;   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 
-(use-package! tree-sitter
-   :hook (prog-mode . turn-on-tree-sitter-mode)
-   :hook (tree-sitter-after-on . tree-sitter-hl-mode)
-   :config
-   (require 'tree-sitter-langs)
-   ;; This makes every node a link to a section of code
-   (setq tree-sitter-debug-jump-buttons t
-         ;; and this highlights the entire sub tree in your code
-         tree-sitter-debug-highlight-jump-region t))
+;; (use-package! tree-sitter
+;;    ;; :hook (prog-mode . turn-on-tree-sitter-mode)
+;;    ;; :hook (tree-sitter-after-on . tree-sitter-hl-mode)
+;;    :config
+;;    (require 'tree-sitter-langs)
+;;    ;; This makes every node a link to a section of code
+;;    (setq tree-sitter-debug-jump-buttons t
+;;          ;; and this highlights the entire sub tree in your code
+;;          tree-sitter-debug-highlight-jump-region t))
+
 #+END_SRC
 
 * git-gutter-fringe
@@ -245,30 +249,34 @@
   :config
   (breadcrumb-mode t))
 
-(after! corfu
-  (setq corfu-auto-delay 0 corfu-auto-prefix 1)
-  (map! :map corfu-mode-map
-        :i "H-@" #'completion-at-point
-        :i "H-SPC" #'completion-at-point
-        :i "C-f" #'forward-char
-        :i "H-n" #'+corfu/dabbrev-or-next
-        :i "H-p" #'+corfu/dabbrev-or-last
-        :i "C-SPC" #'set-mark-command
-        :n "C-SPC" #'set-mark-command
-        :i "C-n" #'next-line
-        :i "C-p" #'previous-line
-        (:prefix "C-x"
-         :i "C-k" #'cape-dict
-         :i "C-f" #'cape-file
-         :i "s" #'cape-ispell
-         :i "C-n" #'cape-keyword
-         :i "C-s" #'dabbrev-completion))
-  )
+;; (after! corfu
+;;   (setq corfu-auto-delay 0 corfu-auto-prefix 1)
+;;   (map! :map corfu-mode-map
+;;         :i "H-@" #'completion-at-point
+;;         :i "H-SPC" #'completion-at-point
+;;         :i "C-f" #'forward-char
+;;         :i "H-n" #'+corfu/dabbrev-or-next
+;;         :i "H-p" #'+corfu/dabbrev-or-last
+;;         :i "C-SPC" #'set-mark-command
+;;         :n "C-SPC" #'set-mark-command
+;;         :i "C-n" #'next-line
+;;         :i "C-p" #'previous-line
+;;         (:prefix "C-x"
+;;          :i "C-k" #'cape-dict
+;;          :i "C-f" #'cape-file
+;;          :i "s" #'cape-ispell
+;;          :i "C-n" #'cape-keyword
+;;          :i "C-s" #'dabbrev-completion))
+;;   )
 
-(use-package! eglot
+;; (use-package! eglot
+;;   :config
+;;   (setq eglot-extend-to-xref t))
+
+(use-package! lsp-bridge
   :config
-  (setq eglot-extend-to-xref t))
-
+  (setq lsp-bridge-enable-log nil)
+  (global-lsp-bridge-mode))
 
 ;; (setq auto-save-default nil)
 ;; (setq make-backup-files nil)
@@ -280,14 +288,19 @@
 ;; (add-hook 'focus-out-hook 'garbage-collect)
 ;; (setq eglot-connect-timeout nil)
 
-(use-package flymake-ruff
-  :defer t
-  :ensure t
-  :hook
-  (eglot-managed-mode . flymake-ruff-load))
+;; (use-package flymake-ruff
+;;   :defer t
+;;   :ensure t
+;;   :hook
+;;   (eglot-managed-mode . flymake-ruff-load))
 
-(map! :leader "[" #'flymake-goto-prev-error)
-(map! :leader "]" #'flymake-goto-next-error)
+;; (map! :leader "[" #'flymake-goto-prev-error)
+;; (map! :leader "]" #'flymake-goto-next-error)
+
+(map! :leader "]" #'lsp-bridge-diagnostic-jump-next)
+(map! :leader "[" #'lsp-bridge-diagnostic-jump-prev)
+
+;; (setq flymake-no-changes-timeout nil)
 
 ;; (map! :leader "[" #'flycheck-previous-error)
 ;; (map! :leader "]" #'flycheck-next-error)
@@ -298,7 +311,7 @@
 ;; ruff
 (use-package lazy-ruff
   :defer t
-  :hook (python-mode . lazy-ruff-mode)
+  ;; :hook (python-mode . lazy-ruff-mode)
   :config
   (after! python
     (map! :map python-mode-map
@@ -325,6 +338,8 @@
       (forward-line (1- initial-line))
       (move-to-column initial-column)
       (recenter)
+      ;;set marker there
+      (set-marker lazy-ruff-last-point (point))
       )
     )
   )

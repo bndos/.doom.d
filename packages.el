@@ -28,6 +28,15 @@
 (package! breadcrumb)
 (package! engrave-faces)
 (package! org-ref)
+(when (package! lsp-bridge
+        :recipe (:host github
+                 :repo "manateelazycat/lsp-bridge"
+                 :branch "master"
+                 :files ("*.el" "*.py" "acm" "core" "langserver" "multiserver" "resources")
+                 ;; do not perform byte compilation or native compilation for lsp-bridge
+                 :build (:not compile)))
+  (package! markdown-mode)
+  (package! yasnippet))
 ;; (unpin! consult)
 ;; (package! jupyter)
 ;; (package! jupyter :pin "16cbda79167b4e2f2c6b61b218658f0f660d97f9")
