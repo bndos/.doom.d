@@ -95,6 +95,7 @@
   ;; '(tree-sitter-hl-face:type.builtin :foreground "#ffffff")
   '(tree-sitter-hl-face:constant :foreground "#ffffff")
   '(tree-sitter-hl-face:string :foreground "#93b4e3")
+  '(lsp-bridge-inlay-hint-face :foreground "#444444")
   '(header-line :background "#000000")
   '(ein:basecell-input-area-face :background "#0f0f0f")
   '(markdown-code-face :inherit default)
@@ -242,40 +243,38 @@
 
 * lsp/flymake
 #+BEGIN_SRC emacs-lisp
-;; lsp/flycheck
-
 (use-package! breadcrumb
   :ensure t
   :config
   (breadcrumb-mode t))
 
-;; (after! corfu
-;;   (setq corfu-auto-delay 0 corfu-auto-prefix 1)
-;;   (map! :map corfu-mode-map
-;;         :i "H-@" #'completion-at-point
-;;         :i "H-SPC" #'completion-at-point
-;;         :i "C-f" #'forward-char
-;;         :i "H-n" #'+corfu/dabbrev-or-next
-;;         :i "H-p" #'+corfu/dabbrev-or-last
-;;         :i "C-SPC" #'set-mark-command
-;;         :n "C-SPC" #'set-mark-command
-;;         :i "C-n" #'next-line
-;;         :i "C-p" #'previous-line
-;;         (:prefix "C-x"
-;;          :i "C-k" #'cape-dict
-;;          :i "C-f" #'cape-file
-;;          :i "s" #'cape-ispell
-;;          :i "C-n" #'cape-keyword
-;;          :i "C-s" #'dabbrev-completion))
-;;   )
-
-;; (use-package! eglot
-;;   :config
-;;   (setq eglot-extend-to-xref t))
+(use-package! symbol-overlay
+  :hook
+  (prog-mode . symbol-overlay-mode)
+  )
 
 (use-package! lsp-bridge
   :config
+
   (setq lsp-bridge-enable-log nil)
+  (setq lsp-bridge-flash-region-delay 2)
+  (setq lsp-bridge-enable-completion-in-string t)
+  (setq lsp-bridge-enable-hover-diagnostic nil)
+
+
+  (setq lsp-bridge-completion-in-string-file-types '("dart" "python"))
+  ;; add evil keys to lsp-bridge-ref-mode
+  (setq lsp-bridge-enable-inlay-hint nil)
+  (setq lsp-bridge-semantic-tokens-mode nil)
+  (setq lsp-bridge-ref-open-file-in-request-window t)
+  (setq lsp-bridge-ref-delete-other-windows nil)
+
+  (defun lsp-bridge-ref-open-file-and-stay ()
+    (interactive)
+    (lsp-bridge-ref-quit)
+    (lsp-bridge-ref-open-file t))
+
+
   (global-lsp-bridge-mode)
 
 
@@ -283,42 +282,11 @@
         :n "g d" #'lsp-bridge-find-def
         :n "g D" #'lsp-bridge-find-references
         :n "g r" #'lsp-bridge-find-references
-        :leader "c r" #'lsp-bridge-rename)
+        :leader "c r" #'lsp-bridge-rename
+        :leader "c a" #'lsp-bridge-code-action
+        :leader "c f" #'lsp-bridge-code-format
+        )
 
-  ;; (defvar lsp-bridge-ref-mode-map
-  ;; (let ((map (make-sparse-keymap)))
-  ;;   (define-key map (kbd "C-a") 'lsp-bridge-ref-beginning-of-line)
-  ;;   (define-key map (kbd "<tab>") 'lsp-bridge-ref-jump-next-keyword)
-  ;;   (define-key map (kbd "<backtab>") 'lsp-bridge-ref-jump-prev-keyword)
-
-  ;;   (define-key map (kbd "j") 'lsp-bridge-ref-jump-next-keyword)
-  ;;   (define-key map (kbd "k") 'lsp-bridge-ref-jump-prev-keyword)
-  ;;   (define-key map (kbd "h") 'lsp-bridge-ref-jump-next-file)
-  ;;   (define-key map (kbd "l") 'lsp-bridge-ref-jump-prev-file)
-  ;;   (define-key map (kbd "i") 'lsp-bridge-ref-insert-current-line)
-
-  ;;   (define-key map (kbd "SPC") 'lsp-bridge-ref-open-file)
-  ;;   (define-key map (kbd "RET") 'lsp-bridge-ref-open-file-and-stay)
-  ;;   (define-key map (kbd "C-m") 'lsp-bridge-ref-open-file-and-stay)
-
-  ;;   (define-key map (kbd "e") 'lsp-bridge-ref-switch-to-edit-mode)
-
-  ;;   (define-key map (kbd "r") 'lsp-bridge-ref-replace-all-matches)
-
-  ;;   (define-key map (kbd "f") 'lsp-bridge-ref-filter-match-results)
-  ;;   (define-key map (kbd "F") 'lsp-bridge-ref-filter-mismatch-results)
-
-  ;;   (define-key map (kbd "x") 'lsp-bridge-ref-filter-match-files)
-  ;;   (define-key map (kbd "X") 'lsp-bridge-ref-filter-mismatch-files)
-  ;;   (define-key map (kbd "u") 'lsp-bridge-ref-unfilter)
-
-  ;;   (define-key map (kbd "D") 'lsp-bridge-ref-remove-line-from-results)
-
-  ;;   (define-key map (kbd "q") 'lsp-bridge-ref-quit)
-  ;;   map)
-  ;;
-  ;; add evil keys to lsp-bridge-ref-mode
-  (setq lsp-bridge-enable-inlay-hint t)
   (map! :map lsp-bridge-ref-mode-map
         :n "C-a" 'lsp-bridge-ref-beginning-of-line
         :n "<tab>" 'lsp-bridge-ref-jump-next-keyword
@@ -349,34 +317,15 @@
 
         :n "q" 'lsp-bridge-ref-quit)
 
-  )
+  (map! :leader "]" #'lsp-bridge-diagnostic-jump-next)
+  (map! :leader "[" #'lsp-bridge-diagnostic-jump-prev)
 
-;; (setq auto-save-default nil)
-;; (setq make-backup-files nil)
-;; (setq create-lockfiles nil)
+  (defun lsp-bridge-diagnostic-hide-overlays ()
+    (when lsp-bridge-diagnostic-overlays
+      (dolist (diagnostic-overlay lsp-bridge-diagnostic-overlays)
+        (delete-overlay diagnostic-overlay)))
 
-;; (fset #'jsonrpc--log-event #'ignore)
-;; (setq eglot-events-buffer-size 0)
-;; (setq eglot-sync-connect nil)
-;; (add-hook 'focus-out-hook 'garbage-collect)
-;; (setq eglot-connect-timeout nil)
-
-;; (use-package flymake-ruff
-;;   :defer t
-;;   :ensure t
-;;   :hook
-;;   (eglot-managed-mode . flymake-ruff-load))
-
-;; (map! :leader "[" #'flymake-goto-prev-error)
-;; (map! :leader "]" #'flymake-goto-next-error)
-
-(map! :leader "]" #'lsp-bridge-diagnostic-jump-next)
-(map! :leader "[" #'lsp-bridge-diagnostic-jump-prev)
-
-;; (setq flymake-no-changes-timeout nil)
-
-;; (map! :leader "[" #'flycheck-previous-error)
-;; (map! :leader "]" #'flycheck-next-error)
+    (setq-local lsp-bridge-diagnostic-overlays '())))
 #+END_SRC
 
 * ruff
@@ -391,28 +340,23 @@
           "C-c f" 'lazy-ruff-lint-format-buffer)
     )
   (defun lazy-ruff-lint-format-buffer ()
-    "Format the current Python buffer using `ruff` before saving."
+    "Format the current Python buffer using ruff before saving."
     (interactive)
-    (let ((initial-line (line-number-at-pos))
-          (initial-column (current-column)))
-      (unless (derived-mode-p 'python-mode 'python-base-mode)
-        (user-error "Only python buffers can be linted with ruff"))
-      (let ((temp-file (make-temp-file "ruff-tmp" nil ".py")))
-        ;; Write buffer to temporary file, format it, and replace buffer contents.
-        (write-region nil nil temp-file)
-        (if lazy-ruff-only-format-buffer
-            (shell-command-to-string (format "%s %s" lazy-ruff-format-command temp-file))
-          (shell-command-to-string (format "%s %s" lazy-ruff-check-command temp-file))
-          (shell-command-to-string (format "%s %s" lazy-ruff-format-command temp-file)))
-        (erase-buffer)
-        (insert-file-contents temp-file)
-        ;; Clean up temporary file.
-        (delete-file temp-file))
-      (forward-line (1- initial-line))
-      (move-to-column initial-column)
-      (recenter)
-      ;;set marker there
-      (set-marker lazy-ruff-last-point (point))
+    (unless (derived-mode-p 'python-mode 'python-base-mode)
+      (user-error "Only python buffers can be linted with ruff"))
+    (let ((temp-file (make-temp-file "ruff-tmp" nil ".py")))
+      ;; Write buffer to temporary file, format it, and replace buffer contents.
+      (write-region nil nil temp-file)
+      (lazy-ruff-run-commands temp-file
+                              (eq lazy-ruff-only-format-buffer t)
+                              (eq lazy-ruff-only-check-buffer t))
+
+      (let ((tmp-buf (generate-new-buffer " *temp*")))
+        (with-current-buffer tmp-buf (insert-file-contents temp-file))
+        (replace-buffer-contents tmp-buf)
+        (kill-buffer tmp-buf))
+      ;; Clean up temporary file.
+      (delete-file temp-file)
       )
     )
   )

@@ -28,6 +28,7 @@
 (package! breadcrumb)
 (package! engrave-faces)
 (package! org-ref)
+(package! symbol-overlay)
 (when (package! lsp-bridge
         :recipe (:host github
                  :repo "manateelazycat/lsp-bridge"
