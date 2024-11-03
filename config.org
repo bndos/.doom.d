@@ -259,39 +259,98 @@
   (setq lsp-bridge-enable-log nil)
   (setq lsp-bridge-flash-region-delay 2)
   (setq lsp-bridge-enable-completion-in-string t)
-  (setq lsp-bridge-enable-hover-diagnostic nil)
-  (setq lsp-bridge-diagnostic-max-number 10)
+  (setq lsp-bridge-enable-hover-diagnostic t)
 
 
   (setq lsp-bridge-completion-in-string-file-types '("dart" "python"))
   ;; add evil keys to lsp-bridge-ref-mode
-  (setq lsp-bridge-enable-inlay-hint nil)
-  (setq lsp-bridge-semantic-tokens-mode nil)
+  (setq lsp-bridge-enable-inlay-hint t)
+  (setq lsp-bridge-semantic-tokens-mode t)
   (setq lsp-bridge-ref-open-file-in-request-window t)
+  (setq lsp-bridge-ref-kill-temp-buffer-p nil)
   (setq lsp-bridge-ref-delete-other-windows nil)
+  (add-to-list 'lsp-bridge-single-lang-server-mode-list '((cuda-mode) . lsp-bridge-c-lsp-server))
+
+  (defun lsp-bridge-ref-open-file (&optional stay quit)
+    (interactive)
+    (let* ((match-file (lsp-bridge-ref-get-match-file))
+           (match-line (lsp-bridge-ref-get-match-line))
+           (match-column (lsp-bridge-ref-get-match-column))
+           (match-buffer (lsp-bridge-ref-get-match-buffer match-file))
+           in-org-link-content-p
+           ref-buffer-window)
+      (if quit
+          (lsp-bridge-ref-quit))
+      (save-excursion
+        (let ((inhibit-message t))
+          ;; Try fill variables when in org file.
+          (unless quit
+            (lsp-bridge-ref-move-to-column match-column))
+          (setq in-org-link-content-p
+                (and (lsp-bridge-ref-is-org-file match-file)
+                     (lsp-bridge-ref-in-org-link-content-p)))
+          ;; Open file in other window.
+          ;; Note, don't use find-file-other-window', it will failed if path is tramp path that start with /sudo:root
+          (if (and lsp-bridge-ref-open-file-in-request-window
+                   ;; check if the window which requested search has beed deleted.
+                   (window-valid-p lsp-bridge-ref-request-search-window))
+              (select-window lsp-bridge-ref-request-search-window)
+            (other-window 1))
+          (if (and (not lsp-bridge-enable-with-tramp)
+                   (string-match-p lsp-bridge-remote-file-pattern match-file))
+              (progn
+                (setq lsp-bridge-remote-file-window (selected-window))
+                (setq lsp-bridge-ref-open-remote-file-go-back-to-ref-window (not stay))
+                (lsp-bridge-call-async "open_remote_file" match-file
+                                       (list :line (1- match-line) :character match-column))
+                (cl-return))
+            (find-file match-file)
+            ;; Add to temp list if file's buffer is not exist.
+            (unless match-buffer
+              (add-to-list 'lsp-bridge-ref-temp-visit-buffers (current-buffer)))
+            ;; Jump to match point.
+            ;; We use ignore-errors' to make sure cursor will back to lsp-bridge-ref buffer
+            ;; even target line is not exists in search file (such as delete by user).
+            (ignore-errors
+              (lsp-bridge-ref-move-to-point match-line match-column)
+              (when (lsp-bridge-ref-is-org-file match-file)
+                ;; Expand org block if current file is *.org file.
+                (org-reveal)
+                ;; Jump to link beginning if keyword in content area.
+                (when in-org-link-content-p
+                  (search-backward-regexp "\\[\\[" (line-beginning-position) t))
+                ))))
+        ;; Flash match line.
+        (lsp-bridge-ref-flash-line))
+      (unless stay
+        (lsp-bridge-switch-to-ref-window))
+      ;; Ajust column position.
+      (unless quit
+        (lsp-bridge-ref-move-to-column match-column))
+      ))
 
   (defun lsp-bridge-ref-open-file-and-stay ()
     (interactive)
-    (lsp-bridge-ref-quit)
-    (lsp-bridge-ref-open-file t))
+    ;; (lsp-bridge-ref-quit)
+    (lsp-bridge-ref-open-file t t))
 
 
   (global-lsp-bridge-mode)
+
 
   (defun lsp-bridge-diagnostic-hide-tooltip ()
     (interactive)
     (acm-frame-hide-frame lsp-bridge-diagnostic-frame)
     (doom/escape))
 
-
   (map! :map lsp-bridge-mode-map
         :n "g d" #'lsp-bridge-find-def
         :n "g D" #'lsp-bridge-find-references
         :n "g r" #'lsp-bridge-find-references
         :n "C-g" #'lsp-bridge-diagnostic-hide-tooltip
+        :i "C-g" #'lsp-bridge-diagnostic-hide-tooltip
         :leader "c r" #'lsp-bridge-rename
         :leader "c a" #'lsp-bridge-code-action
-        :leader "c f" #'lsp-bridge-code-format
         )
 
   (map! :map lsp-bridge-ref-mode-map
@@ -325,14 +384,7 @@
         :n "q" 'lsp-bridge-ref-quit)
 
   (map! :leader "]" #'lsp-bridge-diagnostic-jump-next)
-  (map! :leader "[" #'lsp-bridge-diagnostic-jump-prev)
-
-  (defun lsp-bridge-diagnostic-hide-overlays ()
-    (when lsp-bridge-diagnostic-overlays
-      (dolist (diagnostic-overlay lsp-bridge-diagnostic-overlays)
-        (delete-overlay diagnostic-overlay)))
-
-    (setq-local lsp-bridge-diagnostic-overlays '())))
+  (map! :leader "[" #'lsp-bridge-diagnostic-jump-prev))
 #+END_SRC
 
 * ruff
@@ -418,6 +470,7 @@
   ;; (treemacs-tag-follow-mode 1)
   (map! :leader "o s" #'lsp-treemacs-symbols)
   (setq treemacs-is-never-other-window nil)
+  (setq treemacs-width-is-initially-locked  nil)
   )
 ;; lsp-treemacs
 #+END_SRC
@@ -701,7 +754,10 @@
 
 (use-package! olivetti
   :defer t
-  :hook (org-mode . olivetti-mode))
+  :hook (org-mode . olivetti-mode)
+  :config
+  (setq olivetti-body-width 140)
+  )
 
 #+END_SRC
 
@@ -733,7 +789,7 @@
 (defun open-term ()
   "Lists the contents of the current directory."
   (interactive)
-  (call-process "st" nil 0 nil))
+  (call-process "kitty" nil 0 nil))
 
 (defun open-terminal-in-project-root ()
   "Open default terminal in the project root."
