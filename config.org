@@ -276,8 +276,8 @@
   ;; (setq lsp-bridge-enable-inlay-hint t)
   (setq lsp-bridge-semantic-tokens-mode t)
   (setq lsp-bridge-ref-open-file-in-request-window t)
-  (setq lsp-bridge-ref-kill-temp-buffer-p t)
-  (setq lsp-bridge-ref-delete-other-windows t)
+  (setq lsp-bridge-ref-kill-temp-buffer-p nil)
+  (setq lsp-bridge-ref-delete-other-windows nil)
   (add-to-list 'lsp-bridge-single-lang-server-mode-list '((cuda-mode) . lsp-bridge-c-lsp-server))
 
   (defun lsp-bridge-ref-quit-and-focus (&optional restore)
@@ -363,6 +363,9 @@
     ;; (lsp-bridge-ref-quit)
     (lsp-bridge-ref-open-file t t))
 
+  (defun lsp-bridge-quit-restore ()
+    (interactive)
+    (lsp-bridge-ref-quit t))
 
   (global-lsp-bridge-mode)
 
@@ -410,7 +413,7 @@
 
         :n "D" 'lsp-bridge-ref-remove-line-from-results
 
-        :n "q" 'lsp-bridge-ref-quit)
+        :n "q" 'lsp-bridge-quit-restore)
 
   (map! :leader "]" #'lsp-bridge-diagnostic-jump-next)
   (map! :leader "[" #'lsp-bridge-diagnostic-jump-prev))
