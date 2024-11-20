@@ -276,9 +276,29 @@
   ;; (setq lsp-bridge-enable-inlay-hint t)
   (setq lsp-bridge-semantic-tokens-mode t)
   (setq lsp-bridge-ref-open-file-in-request-window t)
-  (setq lsp-bridge-ref-kill-temp-buffer-p nil)
+  (setq lsp-bridge-ref-kill-temp-buffer-p t)
   (setq lsp-bridge-ref-delete-other-windows t)
   (add-to-list 'lsp-bridge-single-lang-server-mode-list '((cuda-mode) . lsp-bridge-c-lsp-server))
+
+  (defun lsp-bridge-ref-quit-and-focus (&optional restore)
+    (interactive)
+    ;; Kill temp buffer open by lsp-bridge-ref.
+    (when lsp-bridge-ref-kill-temp-buffer-p
+      (dolist (temp-buffer lsp-bridge-ref-temp-visit-buffers)
+        (kill-buffer temp-buffer)))
+    (setq lsp-bridge-ref-temp-visit-buffers nil)
+    ;; Kill search buffer.
+    (kill-buffer lsp-bridge-ref-buffer)
+    (when lsp-bridge-ref-window-configuration-before-search
+      ;; Restore window configuration before search if we delete-other-window before search.
+      ;; Or if we need to restore. e.g. we are inserting current line.
+      (delete-window)
+      (if (window-valid-p lsp-bridge-ref-request-search-window)
+          (select-window lsp-bridge-ref-request-search-window))
+      (setq lsp-bridge-ref-window-configuration-before-search nil)
+      (setq lsp-bridge-ref-buffer-point-before-search nil))
+    ;; clear saved window which requested search.
+    (setq lsp-bridge-ref-request-search-window nil))
 
   (defun lsp-bridge-ref-open-file (&optional stay quit)
     (interactive)
@@ -289,7 +309,7 @@
            in-org-link-content-p
            ref-buffer-window)
       (if quit
-          (lsp-bridge-ref-quit))
+          (lsp-bridge-ref-quit-and-focus))
       (save-excursion
         (let ((inhibit-message t))
           ;; Try fill variables when in org file.
