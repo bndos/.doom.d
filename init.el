@@ -160,7 +160,7 @@
        ;;ocaml             ; an objective camel
        (org
         +journal
-        +roam2
+        ;; +roam2
         +dragndrop
         ;; +pomodoro
         +jupyter

@@ -44,8 +44,8 @@
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-feather-dark)
 ;; (setq doom-theme 'doom-challenger-deep)
-(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 26)
-       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 26)
+(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
+       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
        doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 50))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'bold))
 
@@ -56,7 +56,7 @@
 (add-to-list 'default-frame-alist '(width . 350))
 
 (add-to-list 'default-frame-alist
-             '(font . "Comic Mono-14"))
+             '(font . "Comic Mono-13"))
 
 
 (add-to-list 'default-frame-alist '(internal-border-width . 20))
@@ -254,6 +254,15 @@
   )
 
 (use-package! lsp-bridge
+  :custom
+  ;; (acm-enable-yas nil)
+  ;; (acm-enable-icon nil)
+  ;; (acm-enable-tabnine nil)
+  ;; (acm-enable-codeium nil)
+  ;; (acm-enable-capf t)
+  ;; (acm-enable-search-file-words nil)
+  ;; (acm-doc-frame-max-lines 25)
+  (lsp-bridge-python-lsp-server "basedpyright")
   :config
 
   (setq lsp-bridge-enable-log nil)
@@ -264,11 +273,11 @@
 
   (setq lsp-bridge-completion-in-string-file-types '("dart" "python"))
   ;; add evil keys to lsp-bridge-ref-mode
-  (setq lsp-bridge-enable-inlay-hint t)
+  ;; (setq lsp-bridge-enable-inlay-hint t)
   (setq lsp-bridge-semantic-tokens-mode t)
   (setq lsp-bridge-ref-open-file-in-request-window t)
   (setq lsp-bridge-ref-kill-temp-buffer-p nil)
-  (setq lsp-bridge-ref-delete-other-windows nil)
+  (setq lsp-bridge-ref-delete-other-windows t)
   (add-to-list 'lsp-bridge-single-lang-server-mode-list '((cuda-mode) . lsp-bridge-c-lsp-server))
 
   (defun lsp-bridge-ref-open-file (&optional stay quit)
@@ -756,7 +765,7 @@
   :defer t
   :hook (org-mode . olivetti-mode)
   :config
-  (setq olivetti-body-width 140)
+  (setq olivetti-body-width 170)
   )
 
 #+END_SRC
