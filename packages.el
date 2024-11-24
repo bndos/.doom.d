@@ -28,7 +28,6 @@
 (package! breadcrumb)
 (package! engrave-faces)
 (package! org-ref)
-(package! symbol-overlay)
 (package! eglot-booster
         :recipe (:host github
                  :repo "jdtsmith/eglot-booster"

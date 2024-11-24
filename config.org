@@ -38,8 +38,8 @@
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
 ;; (setq doom-theme 'doom-snazzy)
-(setq doom-theme 'doom-outrun-electric)
-;; (setq doom-theme 'doom-tokyo-night)
+;; (setq doom-theme 'doom-outrun-electric)
+(setq doom-theme 'doom-tokyo-night)
 ;; (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-feather-dark)
@@ -118,7 +118,8 @@
   ;; '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
   '(vertico-current :background "#573495")
   '(font-lock-comment-face :foreground "#545577")
-  '(font-lock-variable-name-face :foreground "#f22d88")
+  '(font-lock-variable-name-face :foreground "#fe5dee")
+  '(font-lock-string-face :foreground "#35a389")
   '(hl-line :background "#272737")
   ;; '(region :background "#355461")
   '(lsp-ui-peek-highlight :background "#355461")
@@ -248,11 +249,6 @@
   :config
   (breadcrumb-mode t))
 
-(use-package! symbol-overlay
-  :hook
-  (prog-mode . symbol-overlay-mode)
-  )
-
 (use-package! eglot-booster
 	:after eglot
 	:config	(eglot-booster-mode))
@@ -278,6 +274,8 @@
   )
 
 (use-package! eglot
+  :hook
+  (sh-mode . eglot-ensure)
   :config
   (setq eglot-extend-to-xref t))
 
