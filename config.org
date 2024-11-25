@@ -279,8 +279,13 @@
   :config
   (setq eglot-extend-to-xref t))
 
-(map! :leader "[" #'flymake-goto-prev-error)
-(map! :leader "]" #'flymake-goto-next-error)
+(use-package! flymake
+  :config
+  (map! :leader "[" #'flymake-goto-prev-error)
+  (map! :leader "]" #'flymake-goto-next-error)
+  (setq flymake-start-on-flymake-mode t)
+  (setq flymake-no-changes-timeout nil)
+)
 #+END_SRC
 
 * ruff
