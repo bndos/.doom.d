@@ -1,0 +1,18 @@
+[language-server]
+clangd = { command = "clangd", args = ["--background-index"] }
+
+[[language]]
+name = "c"
+file-types = ["c"] # TODO: ["h"]
+language-servers = [ "clangd" ]
+
+[[language]]
+name = "cpp"
+file-types = ["cc", "hh", "c++", "cpp", "hpp", "h", "ipp", "tpp", "cxx", "hxx", "ixx", "txx", "ino", "C", "H", "cu", "cuh", "cppm", "h++", "ii", "inl", { glob = ".hpp.in" }, { glob = ".h.in" }]
+roots = ["compile_commands.json"]
+language-servers = [ "clangd" ]
+
+[[language]]
+name = "yaml"
+file-types = ["yml", "yaml", { glob = ".prettierrc" }, { glob = ".clangd" }, { glob = ".clang-format" }]
+language-servers = [ "yaml-language-server", "ansible-language-server" ]
