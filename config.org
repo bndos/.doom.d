@@ -220,6 +220,19 @@
 ;; evil
 (setq evil-insert-state-map (make-sparse-keymap))
 (define-key evil-insert-state-map (kbd "<escape>") 'evil-normal-state)
+
+(defun my-evilem-motion-previous-line ()
+  (interactive)
+  (better-jumper-set-jump)
+  (evilem-motion-previous-line))
+
+(defun my-evilem-motion-next-line ()
+  (interactive)
+  (better-jumper-set-jump)
+  (evilem-motion-next-line))
+
+(map! :n "g s k" 'my-evilem-motion-previous-line
+      :n "g s j" 'my-evilem-motion-next-line)
 #+END_SRC
 
 * persp-mode
@@ -282,11 +295,35 @@
 (use-package lsp-copilot
   ;; :load-path "/path/to/lsp-copilot"
   :config
+  (defun my-lsp-copilot-find-definition ()
+    "Find definition with lsp-copilot and set an Evil jump point."
+    (interactive)
+    (better-jumper-set-jump)
+    (lsp-copilot-find-definition))
+
+  (defun my-lsp-copilot-find-declaration ()
+    "Find declaration with lsp-copilot and set an Evil jump point."
+    (interactive)
+    (better-jumper-set-jump)
+    (lsp-copilot-find-declaration))
+
+  (defun my-lsp-copilot-find-references ()
+    "Find references with lsp-copilot and set an Evil jump point."
+    (interactive)
+    (better-jumper-set-jump)
+    (lsp-copilot-find-references))
+
+  (defun my-lsp-copilot-find-implementations ()
+    "Find implementations with lsp-copilot and set an Evil jump point."
+    (interactive)
+    (better-jumper-set-jump)
+    (lsp-copilot-find-implementations))
+
   (map! :map lsp-copilot-mode-map
-        :n "g d" #'lsp-copilot-find-definition
-        :n "g D" #'lsp-copilot-find-declaration
-        :n "g r" #'lsp-copilot-find-references
-        :n "g i" #'lsp-copilot-find-implementations
+        :n "g d" #'my-lsp-copilot-find-definition
+        :n "g D" #'my-lsp-copilot-find-declaration
+        :n "g r" #'my-lsp-copilot-find-references
+        :n "g i" #'my-lsp-copilot-find-implementations
         :leader "c r" #'lsp-copilot-rename
         :leader "c a" #'lsp-copilot-execute-command
         :leader "c d" #'lsp-copilot-describe-thing-at-point
