@@ -249,12 +249,10 @@
   :config
   (breadcrumb-mode t))
 
-(use-package! eglot-booster
-	:after eglot
-	:config	(eglot-booster-mode))
-
 (after! corfu
   (setq corfu-auto-delay 0 corfu-auto-prefix 1)
+  ;; (setq corfu-auto-delay 0)
+  (setq corfu-popupinfo-delay '(0.1 . 0.1))
   (map! :map corfu-mode-map
         :i "H-@" #'completion-at-point
         :i "H-SPC" #'completion-at-point
@@ -273,19 +271,49 @@
          :i "C-s" #'dabbrev-completion))
   )
 
-(use-package! eglot
-  :hook
-  (sh-mode . eglot-ensure)
+(use-package! flycheck
   :config
-  (setq eglot-extend-to-xref t))
-
-(use-package! flymake
-  :config
-  (map! :leader "[" #'flymake-goto-prev-error)
-  (map! :leader "]" #'flymake-goto-next-error)
-  (setq flymake-start-on-flymake-mode t)
-  (setq flymake-no-changes-timeout nil)
+  (map! :leader "[" #'flycheck-previous-error)
+  (map! :leader "]" #'flycheck-next-error)
+  ;; (setq flymake-start-on-flymake-mode t)
+  ;; (setq flymake-no-changes-timeout nil)
 )
+
+(use-package lsp-copilot
+  ;; :load-path "/path/to/lsp-copilot"
+  :config
+  (map! :map lsp-copilot-mode-map
+        :n "g d" #'lsp-copilot-find-definition
+        :n "g D" #'lsp-copilot-find-declaration
+        :n "g r" #'lsp-copilot-find-references
+        :n "g i" #'lsp-copilot-find-implementations
+        :leader "c r" #'lsp-copilot-rename
+        :leader "c a" #'lsp-copilot-execute-command
+        :leader "c d" #'lsp-copilot-describe-thing-at-point
+        :leader "c x" #'lsp-copilot-show-project-diagnostics
+        )
+
+  (add-hook! '(
+               tsx-ts-mode-hook
+               js-ts-mode-hook
+               typescript-mode-hook
+               typescript-ts-mode-hook
+               rjsx-mode-hook
+               less-css-mode-hook
+               web-mode-hook
+               python-ts-mode-hook
+               python-mode-hook
+               rust-mode-hook
+               c-mode-hook
+               c++-mode-hook
+               go-mode-hook
+               bash-ts-mode-hook
+               rustic-mode-hook
+               rust-ts-mode-hook
+               toml-ts-mode-hook
+               conf-toml-mode-hook
+               bash-ts-mode-hook
+               ) #'lsp-copilot-mode))
 #+END_SRC
 
 * ruff

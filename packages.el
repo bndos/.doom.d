@@ -28,11 +28,14 @@
 (package! breadcrumb)
 (package! engrave-faces)
 (package! org-ref)
-(package! eglot-booster
-        :recipe (:host github
-                 :repo "jdtsmith/eglot-booster"
-                 :branch "main"
-                 :build (compile)))
+(package! lsp-copilot :recipe (:host github :repo "jadestrong/lsp-copilot"
+                :files ("lsp-copilot.el" "lsp-copilot")
+                :pre-build (("cargo" "build" "--release") ("cp" "./target/release/lsp-copilot" "./"))))
+;; (package! eglot-booster
+;;         :recipe (:host github
+;;                  :repo "jdtsmith/eglot-booster"
+;;                  :branch "main"
+;;                  :build (compile)))
 ;; (when (package! lsp-bridge
 ;;         :recipe (:host github
 ;;                  :repo "manateelazycat/lsp-bridge"

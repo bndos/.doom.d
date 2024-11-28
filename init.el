@@ -86,8 +86,8 @@
 
        :checkers
        (syntax
-       ;;  +childframe
-        +flymake
+        +childframe
+        ;; +flymake
         )              ; tasing you for every semicolon you forget
        ;;(spell +flyspell) ; tasing you for misspelling mispelling
        grammar           ; tasing grammar mistake every you make
@@ -102,8 +102,8 @@
        (eval +overlay)     ; run code, run (also, repls)
        ;;gist              ; interacting with github gists
        lookup              ; navigate your code and its documentation
-       (lsp
-        +eglot)
+       ;; (lsp
+       ;;  +eglot)
        magit             ; a git porcelain for Emacs
        ;;make              ; run make tasks from Emacs
        pass              ; password manager for nerds
@@ -122,9 +122,10 @@
 
        :lang
        ;;agda              ; types of types of types of types...
-       (cc
+       ;; (cc
         ;; +tree-sitter
-        +lsp)                ; C/C++/Obj-C madness
+        ;; +lsp
+        ;; )                ; C/C++/Obj-C madness
        ;;clojure           ; java with a lisp
        ;;common-lisp       ; if you've seen one lisp, you've seen them all
        ;;coq               ; proofs-as-programs
@@ -142,7 +143,7 @@
        ;;fstar             ; (dependent) types and (monadic) effects and Z3
        ;;gdscript          ; the language you waited for
        (go
-        +lsp
+        ;; +lsp
         ;; +tree-sitter
         )         ; the hipster dialect
        (haskell +dante)  ; a language that's lazier than I am
@@ -174,7 +175,7 @@
        ;;plantuml          ; diagrams for confusing people more
        ;;purescript        ; javascript, but functional
        (python
-        +lsp
+        ;; +lsp
         ;; +tree-sitter
         )           ; beautiful is better than ugly
        ;;qt                ; the 'cutest' gui framework ever
@@ -183,7 +184,9 @@
        ;;rest              ; Emacs as a REST client
        ;;rst               ; ReST in peace
        ;;(ruby +rails)     ; 1.step {|i| p "Ruby is #{i.even? ? 'love' : 'life'}"}
-       (rust +lsp)              ; Fe2O3.unwrap().unwrap().unwrap().unwrap()
+       (rust
+        ;; +lsp
+        )              ; Fe2O3.unwrap().unwrap().unwrap().unwrap()
        ;;scala             ; java, but good
        ;;scheme            ; a fully conniving family of lisps
        sh                ; she sells {ba,z,fi}sh shells on the C xor
