@@ -325,7 +325,7 @@
         :n "g r" #'my-lsp-copilot-find-references
         :n "g i" #'my-lsp-copilot-find-implementations
         :leader "c r" #'lsp-copilot-rename
-        :leader "c a" #'lsp-copilot-execute-command
+        :leader "c a" #'lsp-copilot-execute-code-action
         :leader "c d" #'lsp-copilot-describe-thing-at-point
         :leader "c x" #'lsp-copilot-show-project-diagnostics
         )
