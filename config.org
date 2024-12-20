@@ -185,36 +185,6 @@
 
 #+END_SRC
 
-* git-gutter-fringe
-#+BEGIN_SRC emacs-lisp
-;; (after! git-gutter-fringe
-;;   (set-face-foreground 'git-gutter-fr:modified  "purple")
-;;   (add-to-list 'git-gutter:update-hooks 'after-save-hook)
-
-;;   (fringe-helper-define 'git-gutter-fr:deleted nil
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "........"
-;;     "XXXXXXXX"
-;;     "XXXXXXXX"
-;;     "XXXXXXXX"
-;;     "XXXXXXXX"))
-#+END_SRC
-
 * evil
 #+BEGIN_SRC emacs-lisp
 ;; evil
@@ -291,6 +261,11 @@
   ;; (setq flymake-start-on-flymake-mode t)
   ;; (setq flymake-no-changes-timeout nil)
 )
+
+(use-package! symbol-overlay
+  :hook
+  (prog-mode . symbol-overlay-mode)
+  )
 
 (use-package lsp-copilot
   ;; :load-path "/path/to/lsp-copilot"
@@ -462,19 +437,6 @@
 ;; smartparens
 (after! smartparens
   (define-key smartparens-mode-map (kbd "M-<backspace>") 'sp-backward-unwrap-sexp))
-#+END_SRC
-
-* leetcode
-#+BEGIN_SRC emacs-lisp
-;; ;; leetcode
-;; (use-package! leetcode
-;;   :defer t
-;;   :config
-;;   (add-hook 'leetcode-solution-mode-hook
-;;           (lambda() (copilot-mode -1)))
-;;   (setq leetcode-save-solutions t)
-;;   (setq leetcode-directory "~/leetcode")
-;;   (setq leetcode-prefer-language "python3"))
 #+END_SRC
 
 * multiple cursors
