@@ -373,18 +373,6 @@
   (setq lsp-dart-flutter-widget-guides nil))
 #+END_SRC
 
-* dap-mode
-#+BEGIN_SRC emacs-lisp
-;; dap-mode
-(after! dap-mode
-  (require 'dap-gdb-lldb)
-  (dap-gdb-lldb-setup)
-  (setq dap-output-buffer-filter '("stdout"))
-  (map! :leader "d d" #'dap-debug)
-  (map! :leader "d b" #'dap-breakpoint-toggle)
-  (map! :leader "d h" #'dap-hydra))
-#+END_SRC
-
 * go-mode
 #+BEGIN_SRC emacs-lisp
 ;; go-mode
@@ -821,6 +809,7 @@ throws an error."
    (gui-get-primary-selection)))
 
 (map! :n "*p" 'get-primary)
+(map! :n "." #'repeat)
 
 ;; open file externally
 (map! :leader "f o" #'counsel-find-file-extern)
