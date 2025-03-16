@@ -770,6 +770,11 @@ throws an error."
 (global-set-key (kbd "H-/") 'winner-undo)
 (global-set-key (kbd "H-?") 'winner-redo)
 
+(map! :leader "w <" '(lambda () (interactive) (shrink-window-horizontally 10)))
+(map! :leader "w >" '(lambda () (interactive) (enlarge-window-horizontally 10)))
+(map! :leader "w +" '(lambda () (interactive) (enlarge-window 10)))
+(map! :leader "w -" '(lambda () (interactive) (shrink-window 10)))
+
 ;; Pull from PRIMARY (same as middle mouse click)
 (defun get-primary ()
   (interactive)
