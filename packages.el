@@ -31,7 +31,6 @@
 (package! lsp-proxy :recipe (:host github :repo "jadestrong/lsp-proxy"
                 :files ("lsp-proxy.el" "lsp-proxy")
                 :pre-build (("cargo" "build" "--release") ("cp" "./target/release/lsp-proxy" "./"))))
-(package! symbol-overlay)
 
 ;; (package! eglot-booster
 ;;         :recipe (:host github
