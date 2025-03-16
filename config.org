@@ -205,19 +205,6 @@
       :n "g s j" 'my-evilem-motion-next-line)
 #+END_SRC
 
-* persp-mode
-#+BEGIN_SRC emacs-lisp
-
-;; (after! persp-mode
-;;   ;; side windows restore fix with persp-mode.el
-;;   (persp-def-buffer-save/load
-;;    :save-vars '(default-directory)
-;;    :load-function #'(lambda (savelist &rest _)
-;;                       (cl-destructuring-bind (buffer-name vars-list &rest _rest) (cdr savelist)
-;;                         (let ((buf-dir (alist-get 'default-directory vars-list)))
-;;                           (magit-status buf-dir))))))
-#+END_SRC
-
 * consult
 #+BEGIN_SRC emacs-lisp
 ;; consult
@@ -267,42 +254,42 @@
   (prog-mode . symbol-overlay-mode)
   )
 
-(use-package lsp-copilot
-  ;; :load-path "/path/to/lsp-copilot"
+(use-package lsp-proxy
+  ;; :load-path "/path/to/lsp-proxy"
   :config
-  (defun my-lsp-copilot-find-definition ()
-    "Find definition with lsp-copilot and set an Evil jump point."
+  (defun my-lsp-proxy-find-definition ()
+    "Find definition with lsp-proxy and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
-    (lsp-copilot-find-definition))
+    (lsp-proxy-find-definition))
 
-  (defun my-lsp-copilot-find-declaration ()
-    "Find declaration with lsp-copilot and set an Evil jump point."
+  (defun my-lsp-proxy-find-declaration ()
+    "Find declaration with lsp-proxy and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
-    (lsp-copilot-find-declaration))
+    (lsp-proxy-find-declaration))
 
-  (defun my-lsp-copilot-find-references ()
-    "Find references with lsp-copilot and set an Evil jump point."
+  (defun my-lsp-proxy-find-references ()
+    "Find references with lsp-proxy and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
-    (lsp-copilot-find-references))
+    (lsp-proxy-find-references))
 
-  (defun my-lsp-copilot-find-implementations ()
-    "Find implementations with lsp-copilot and set an Evil jump point."
+  (defun my-lsp-proxy-find-implementations ()
+    "Find implementations with lsp-proxy and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
-    (lsp-copilot-find-implementations))
+    (lsp-proxy-find-implementations))
 
-  (map! :map lsp-copilot-mode-map
-        :n "g d" #'my-lsp-copilot-find-definition
-        :n "g D" #'my-lsp-copilot-find-declaration
-        :n "g r" #'my-lsp-copilot-find-references
-        :n "g i" #'my-lsp-copilot-find-implementations
-        :leader "c r" #'lsp-copilot-rename
-        :leader "c a" #'lsp-copilot-execute-code-action
-        :leader "c d" #'lsp-copilot-describe-thing-at-point
-        :leader "c x" #'lsp-copilot-show-project-diagnostics
+  (map! :map lsp-proxy-mode-map
+        :n "g d" #'my-lsp-proxy-find-definition
+        :n "g D" #'my-lsp-proxy-find-declaration
+        :n "g r" #'my-lsp-proxy-find-references
+        :n "g i" #'my-lsp-proxy-find-implementations
+        :leader "c r" #'lsp-proxy-rename
+        :leader "c a" #'lsp-proxy-execute-code-action
+        :leader "c d" #'lsp-proxy-describe-thing-at-point
+        :leader "c x" #'lsp-proxy-show-project-diagnostics
         )
 
   (add-hook! '(
@@ -325,7 +312,7 @@
                toml-ts-mode-hook
                conf-toml-mode-hook
                bash-ts-mode-hook
-               ) #'lsp-copilot-mode))
+               ) #'lsp-proxy-mode))
 #+END_SRC
 
 * ruff
