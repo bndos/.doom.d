@@ -221,25 +221,10 @@
   (breadcrumb-mode t))
 
 (after! corfu
-  (setq corfu-auto-delay 0 corfu-auto-prefix 1)
-  ;; (setq corfu-auto-delay 0)
-  (setq corfu-popupinfo-delay '(0.1 . 0.1))
-  (map! :map corfu-mode-map
-        :i "H-@" #'completion-at-point
-        :i "H-SPC" #'completion-at-point
-        :i "C-SPC" #'set-mark-command
-        :i "C-n" #'next-line
-        :i "C-p" #'previous-line
-        :i "C-f" #'forward-char
-        :i "H-n" #'+corfu/dabbrev-or-next
-        :i "H-p" #'+corfu/dabbrev-or-last
-        :n "C-SPC" #'set-mark-command
-        (:prefix "C-x"
-         :i "C-k" #'cape-dict
-         :i "C-f" #'cape-file
-         :i "s" #'cape-ispell
-         :i "C-n" #'cape-keyword
-         :i "C-s" #'dabbrev-completion))
+  (setq company-idle-delay 0)
+  ;; If you encounter issues when typing Vue directives (e.g., v-), you can try setting it to 1. I'm not sure if it's a problem with Volar.
+  (setq company-minimum-prefix-length 2)
+  (setq company-tooltip-idle-delay 0)
   )
 
 (use-package! flycheck
@@ -248,7 +233,7 @@
   (map! :leader "]" #'flycheck-next-error)
   ;; (setq flymake-start-on-flymake-mode t)
   ;; (setq flymake-no-changes-timeout nil)
-)
+  )
 
 (use-package lsp-proxy
   ;; :load-path "/path/to/lsp-proxy"
