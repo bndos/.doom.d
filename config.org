@@ -220,7 +220,7 @@
   :config
   (breadcrumb-mode t))
 
-(after! corfu
+(after! company
   (setq company-idle-delay 0)
   ;; If you encounter issues when typing Vue directives (e.g., v-), you can try setting it to 1. I'm not sure if it's a problem with Volar.
   (setq company-minimum-prefix-length 2)
