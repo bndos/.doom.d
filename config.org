@@ -783,8 +783,9 @@ throws an error."
   (insert
    (gui-get-primary-selection)))
 
+(map! :v "+y" 'clipboard-kill-ring-save)
 (map! :n "*p" 'get-primary)
-(map! :n "." #'repeat)
+(map! :n "." #'evil-repeat)
 
 ;; open file externally
 (map! :leader "f o" #'counsel-find-file-extern)
