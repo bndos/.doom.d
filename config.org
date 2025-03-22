@@ -227,6 +227,10 @@
   (setq company-tooltip-idle-delay 0)
   )
 
+(use-package! eglot-booster
+	:after eglot
+	:config	(eglot-booster-mode))
+
 (use-package! flycheck
   :config
   (map! :leader "[" #'flycheck-previous-error)
@@ -235,65 +239,46 @@
   ;; (setq flymake-no-changes-timeout nil)
   )
 
-(use-package lsp-proxy
+;; 8e5983a
+(use-package eglot
   ;; :load-path "/path/to/lsp-proxy"
   :config
   (defun my-lsp-proxy-find-definition ()
     "Find definition with lsp-proxy and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
-    (lsp-proxy-find-definition))
+    (xref-find-definitions (thing-at-point 'symbol)))
 
   (defun my-lsp-proxy-find-declaration ()
     "Find declaration with lsp-proxy and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
-    (lsp-proxy-find-declaration))
+    (eglot-find-declaration))
 
   (defun my-lsp-proxy-find-references ()
     "Find references with lsp-proxy and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
-    (lsp-proxy-find-references))
+    (xref-find-references))
 
   (defun my-lsp-proxy-find-implementations ()
     "Find implementations with lsp-proxy and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
-    (lsp-proxy-find-implementations))
+    (eglot-find-implementation))
 
-  (map! :map lsp-proxy-mode-map
+  (map! :map eglot-mode-map
         :n "g d" #'my-lsp-proxy-find-definition
         :n "g D" #'my-lsp-proxy-find-declaration
         :n "g r" #'my-lsp-proxy-find-references
         :n "g i" #'my-lsp-proxy-find-implementations
-        :leader "c r" #'lsp-proxy-rename
-        :leader "c a" #'lsp-proxy-execute-code-action
-        :leader "c d" #'lsp-proxy-describe-thing-at-point
-        :leader "c x" #'lsp-proxy-show-project-diagnostics
+        ;; :leader "c r" #'lsp-proxy-rename
+        ;; :leader "c a" #'lsp-proxy-execute-code-action
+        ;; :leader "c d" #'lsp-proxy-describe-thing-at-point
+        ;; :leader "c x" #'lsp-proxy-show-project-diagnostics
         )
 
-  (add-hook! '(
-               tsx-ts-mode-hook
-               js-ts-mode-hook
-               typescript-mode-hook
-               typescript-ts-mode-hook
-               rjsx-mode-hook
-               less-css-mode-hook
-               web-mode-hook
-               python-ts-mode-hook
-               python-mode-hook
-               rust-mode-hook
-               c-mode-hook
-               c++-mode-hook
-               go-mode-hook
-               bash-ts-mode-hook
-               rustic-mode-hook
-               rust-ts-mode-hook
-               toml-ts-mode-hook
-               conf-toml-mode-hook
-               bash-ts-mode-hook
-               ) #'lsp-proxy-mode))
+  )
 #+END_SRC
 
 * ruff
