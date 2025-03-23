@@ -742,6 +742,10 @@ throws an error."
 * remapping
 #+BEGIN_SRC emacs-lisp
 ;; remaping
+(use-package! xclip
+  :config
+  (xclip-mode 1)
+  )
 
 ;; windows
 (global-set-key (kbd "H-h") 'windmove-left)

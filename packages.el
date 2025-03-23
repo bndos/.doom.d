@@ -32,6 +32,7 @@
 ;;                 :files ("lsp-proxy.el" "lsp-proxy")
 ;;                 :pre-build (("cargo" "build" "--release") ("cp" "./target/release/lsp-proxy" "./"))))
 
+(package! xclip)
 (package! eglot-booster
         :recipe (:host github
                  :repo "jdtsmith/eglot-booster"
