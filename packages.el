@@ -38,6 +38,7 @@
                  :repo "jdtsmith/eglot-booster"
                  :branch "main"
                  :build (compile)))
+(package! treesit-auto)
 ;; (when (package! lsp-bridge
 ;;         :recipe (:host github
 ;;                  :repo "manateelazycat/lsp-bridge"

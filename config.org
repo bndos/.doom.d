@@ -174,16 +174,37 @@
 ;;   (global-tree-sitter-mode)
 ;;   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 
-;; (use-package! tree-sitter
-;;    ;; :hook (prog-mode . turn-on-tree-sitter-mode)
-;;    ;; :hook (tree-sitter-after-on . tree-sitter-hl-mode)
-;;    :config
-;;    (require 'tree-sitter-langs)
-;;    ;; This makes every node a link to a section of code
-;;    (setq tree-sitter-debug-jump-buttons t
-;;          ;; and this highlights the entire sub tree in your code
-;;          tree-sitter-debug-highlight-jump-region t))
+(when (treesit-available-p)
+  (add-to-list 'major-mode-remap-alist '(js2-mode . js-ts-mode))
+  (add-to-list 'major-mode-remap-alist '(typescript-mode . typescript-ts-mode))
+  (add-to-list 'major-mode-remap-alist '(json-mode . json-ts-mode)))
 
+(setq major-mode-remap-alist
+      '((bash-mode . bash-ts-mode)
+        (js2-mode . js-ts-mode)
+        (typescript-mode . typescript-ts-mode)
+        (json-mode . json-ts-mode)))
+
+(use-package! treesit-auto
+  :custom
+  (treesit-auto-install 'prompt)
+  )
+
+(use-package! typescript-ts-mode
+  :mode (("\\.ts\\'" . typescript-ts-mode)
+         ("\\.tsx\\'" . tsx-ts-mode)
+         ("\\.jsx\\'" . typescript-ts-mode)
+         )
+  :config
+  (setq typescript-ts-mode-indent-offset 4)
+  (add-hook! '(typescript-ts-mode-hook tsx-ts-mode-hook) 'eglot-ensure))
+
+(after! treesit
+  (setq treesit-language-source-alist
+        '((typescript "https://github.com/tree-sitter/tree-sitter-typescript" "v0.20.3" "typescript/src")
+          (haskell "https://github.com/tree-sitter/tree-sitter-haskell")
+          (agda "https://github.com/tree-sitter/tree-sitter-agda")
+          (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src" nil nil))))
 #+END_SRC
 
 * evil
@@ -278,7 +299,22 @@
         ;; :leader "c x" #'lsp-proxy-show-project-diagnostics
         )
 
-  )
+  (add-hook! '(
+               tsx-ts-mode-hook
+               js-ts-mode-hook
+               typescript-mode-hook
+               typescript-ts-mode-hook
+               rjsx-mode-hook
+               rust-mode-hook
+               c-mode-hook
+               c++-mode-hook
+               bash-ts-mode-hook
+               rustic-mode-hook
+               rust-ts-mode-hook
+               toml-ts-mode-hook
+               conf-toml-mode-hook
+               bash-ts-mode-hook
+               ) #'(lambda () (add-hook 'before-save-hook #'eglot-format nil t))))
 #+END_SRC
 
 * ruff
