@@ -249,14 +249,13 @@
   )
 
 (after! dap-mode
-  ;; Customize pending breakpoints
   (custom-set-faces
    '(dap-ui-pending-breakpoint-face
-     ((((background dark)) (:background "#191b1a" :foreground "#ffffff" :weight bold))
-      (t (:foreground "#4a6b82" :weight bold))))
+     ((((background dark)) (:background "#191b1a" :weight bold))
+      (t (:weight bold))))
 
    '(dap-ui-verified-breakpoint-face
-     ((((background dark)) (:background "#3a3b3a" :foreground "#ffffff" :weight bold))
+     ((((background dark)) (:background "#3a3b3a" :weight bold))
       (t (:foreground "#4a6b82" :weight bold))))
 
    '(dap-ui-marker-face
@@ -277,28 +276,7 @@
   (dap-ui-mode 1)
   (dap-tooltip-mode 1)
   (tooltip-mode 1)
-  (dap-ui-controls-mode 1)
-  (defun my/dap-ui--breakpoint-visuals (breakpoint breakpoint-dap)
-    "Customize visuals for a BREAKPOINT."
-    (list :face (if (and breakpoint-dap (gethash "verified" breakpoint-dap))
-                    'dap-ui-verified-breakpoint-face
-                  'dap-ui-pending-breakpoint-face)
-          :char (if (and breakpoint-dap (gethash "verified" breakpoint-dap))
-                    "*" ;; Verified breakpoint
-                  "x")  ;; Pending breakpoint
-          :priority (+ dap-ui-overlay-priority 1)))
-
-  (advice-add 'dap-ui--breakpoint-visuals :override #'my/dap-ui--breakpoint-visuals)
-  (defun my/dap-ui--set-debug-marker (file point)
-    "Set debug marker for DEBUG-SESSION in FILE at POINT."
-    (dap-ui--clear-marker-overlay)
-    (setq-local dap-ui--cursor-overlay
-                (dap-ui--make-overlay-at
-                 file point
-                 (list :face 'dap-ui-marker-face
-                       :char "=>"  ;; Current line marker
-                       :priority (+ dap-ui-overlay-priority 2)))))
-  (advice-add 'dap-ui--set-debug-marker :override #'my/dap-ui--set-debug-marker))
+  (dap-ui-controls-mode 1))
 
 (defun debugging-mode ()
   (interactive)
