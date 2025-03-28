@@ -249,8 +249,8 @@
   )
 
 (use-package! eglot-booster
-	:after eglot
-	:config	(eglot-booster-mode))
+  :after eglot
+  :config	(eglot-booster-mode))
 
 (use-package! flycheck
   :config
@@ -299,22 +299,24 @@
         ;; :leader "c x" #'lsp-proxy-show-project-diagnostics
         )
 
-  (add-hook! '(
-               tsx-ts-mode-hook
-               js-ts-mode-hook
-               typescript-mode-hook
-               typescript-ts-mode-hook
-               rjsx-mode-hook
-               rust-mode-hook
-               c-mode-hook
-               c++-mode-hook
-               bash-ts-mode-hook
-               rustic-mode-hook
-               rust-ts-mode-hook
-               toml-ts-mode-hook
-               conf-toml-mode-hook
-               bash-ts-mode-hook
-               ) #'(lambda () (add-hook 'before-save-hook #'eglot-format nil t))))
+  (defun eglot-format-if-needed ()
+    "Run eglot-format if the major mode is in the allowed list."
+    (when (member major-mode '(tsx-ts-mode
+                               js-ts-mode
+                               typescript-mode
+                               typescript-ts-mode
+                               rjsx-mode
+                               rust-mode
+                               c-mode
+                               c++-mode
+                               bash-ts-mode
+                               rustic-mode
+                               rust-ts-mode
+                               toml-ts-mode
+                               conf-toml-mode))
+      (eglot-format)))
+
+  (add-hook 'before-save-hook #'eglot-format-if-needed))
 #+END_SRC
 
 * ruff
