@@ -248,6 +248,36 @@
   (setq company-tooltip-idle-delay 0)
   )
 
+(after! dap-mode
+  (require 'dap-python)
+  (require 'dap-dlv-go)
+  (require 'dap-chrome)
+  (dap-chrome-setup)
+  (require 'dap-node)
+  (dap-node-setup)
+  (setq dap-python-debugger 'debugpy)
+  (add-hook! +dap-running-session-mode
+    (set-window-buffer nil (current-buffer)))
+  (setq dap-auto-configure-features '(locals controls tooltip breakpoints repl))
+  (dap-ui-mode 1)
+  (dap-tooltip-mode 1)
+  (tooltip-mode 1)
+  (dap-ui-controls-mode 1)
+  )
+(defun debugging-mode ()
+  (interactive)
+  (dap-auto-configure-mode)
+  (dap-hydra)
+  )
+(defun stop-debugging-mode ()
+  (interactive)
+  (dap-delete-all-sessions)
+  (dap-mode 0)
+  (dap-ui-mode 0)
+  (dap-ui-controls-mode 0)
+  (delete-other-windows) ;; hide all the dap UI. I might want to delete the buffers as well.
+  )
+
 (use-package! eglot-booster
   :after eglot
   :config	(eglot-booster-mode))
