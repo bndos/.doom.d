@@ -66,9 +66,9 @@
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 ;; (setq-default header-line-format " ")
-;; (set-fringe-mode 35)
-;; (setq-default left-fringe-width  35)
-;; (setq-default right-fringe-width 35)
+(set-fringe-mode 35)
+(setq-default left-fringe-width  35)
+(setq-default right-fringe-width 35)
 (setq doom-themes-enable-bold t
       doom-themes-enable-italic t)
 
@@ -249,6 +249,21 @@
   )
 
 (after! dap-mode
+  ;; Customize pending breakpoints
+  (custom-set-faces
+   '(dap-ui-pending-breakpoint-face
+     ((((background dark)) (:background "#191b1a" :foreground "#ffffff" :weight bold))
+      (t (:foreground "#4a6b82" :weight bold))))
+
+   '(dap-ui-verified-breakpoint-face
+     ((((background dark)) (:background "#3a3b3a" :foreground "#ffffff" :weight bold))
+      (t (:foreground "#4a6b82" :weight bold))))
+
+   '(dap-ui-marker-face
+     ((((background dark)) (:background "#ff79c6" :foreground "#000000" :weight bold))
+      (t (:background "#ff79c6" :foreground "#000000" :weight bold))))
+   )
+
   (require 'dap-python)
   (require 'dap-dlv-go)
   (require 'dap-chrome)
@@ -263,7 +278,28 @@
   (dap-tooltip-mode 1)
   (tooltip-mode 1)
   (dap-ui-controls-mode 1)
-  )
+  (defun my/dap-ui--breakpoint-visuals (breakpoint breakpoint-dap)
+    "Customize visuals for a BREAKPOINT."
+    (list :face (if (and breakpoint-dap (gethash "verified" breakpoint-dap))
+                    'dap-ui-verified-breakpoint-face
+                  'dap-ui-pending-breakpoint-face)
+          :char (if (and breakpoint-dap (gethash "verified" breakpoint-dap))
+                    "*" ;; Verified breakpoint
+                  "x")  ;; Pending breakpoint
+          :priority (+ dap-ui-overlay-priority 1)))
+
+  (advice-add 'dap-ui--breakpoint-visuals :override #'my/dap-ui--breakpoint-visuals)
+  (defun my/dap-ui--set-debug-marker (file point)
+    "Set debug marker for DEBUG-SESSION in FILE at POINT."
+    (dap-ui--clear-marker-overlay)
+    (setq-local dap-ui--cursor-overlay
+                (dap-ui--make-overlay-at
+                 file point
+                 (list :face 'dap-ui-marker-face
+                       :char "=>"  ;; Current line marker
+                       :priority (+ dap-ui-overlay-priority 2)))))
+  (advice-add 'dap-ui--set-debug-marker :override #'my/dap-ui--set-debug-marker))
+
 (defun debugging-mode ()
   (interactive)
   (dap-auto-configure-mode)
