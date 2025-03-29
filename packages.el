@@ -39,6 +39,7 @@
                  :branch "main"
                  :build (compile)))
 (package! treesit-auto)
+(package! dape)
 ;; (when (package! lsp-bridge
 ;;         :recipe (:host github
 ;;                  :repo "manateelazycat/lsp-bridge"

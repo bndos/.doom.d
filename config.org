@@ -248,49 +248,49 @@
   (setq company-tooltip-idle-delay 0)
   )
 
-(after! dap-mode
-  (custom-set-faces
-   '(dap-ui-pending-breakpoint-face
-     ((((background dark)) (:background "#191b1a" :weight bold))
-      (t (:weight bold))))
+(use-package dape
+  :preface
+  ;; By default dape shares the same keybinding prefix as `gud'
+  ;; If you do not want to use any prefix, set it to nil.
+  ;; (setq dape-key-prefix "\C-x\C-a")
 
-   '(dap-ui-verified-breakpoint-face
-     ((((background dark)) (:background "#3a3b3a" :weight bold))
-      (t (:foreground "#4a6b82" :weight bold))))
+  :hook
+  ;; Save breakpoints on quit
+  (kill-emacs . dape-breakpoint-save)
+  ;; Load breakpoints on startup
+  (after-init . dape-breakpoint-load)
 
-   '(dap-ui-marker-face
-     ((((background dark)) (:background "#ff79c6" :foreground "#000000" :weight bold))
-      (t (:background "#ff79c6" :foreground "#000000" :weight bold))))
-   )
+  :config
+  ;; Turn on global bindings for setting breakpoints with mouse
+  (dape-breakpoint-global-mode)
 
-  (require 'dap-python)
-  (require 'dap-dlv-go)
-  (require 'dap-chrome)
-  (dap-chrome-setup)
-  (require 'dap-node)
-  (dap-node-setup)
-  (setq dap-python-debugger 'debugpy)
-  (add-hook! +dap-running-session-mode
-    (set-window-buffer nil (current-buffer)))
-  (setq dap-auto-configure-features '(locals controls tooltip breakpoints repl))
-  (dap-ui-mode 1)
-  (dap-tooltip-mode 1)
-  (tooltip-mode 1)
-  (dap-ui-controls-mode 1))
+  ;; Info buffers to the right
+  ;; (setq dape-buffer-window-arrangement 'right)
 
-(defun debugging-mode ()
-  (interactive)
-  (dap-auto-configure-mode)
-  (dap-hydra)
+  ;; Info buffers like gud (gdb-mi)
+  (setq dape-buffer-window-arrangement 'gud)
+  (setq dape-info-hide-mode-line nil)
+
+  ;; Pulse source line (performance hit)
+  (add-hook 'dape-display-source-hook 'pulse-momentary-highlight-one-line)
+
+  ;; Showing inlay hints
+  (setq dape-inlay-hints t)
+
+  ;; Save buffers on startup, useful for interpreted languages
+  (add-hook 'dape-start-hook (lambda () (save-some-buffers t t)))
+
+  ;; Kill compile buffer on build success
+  ;; (add-hook 'dape-compile-hook 'kill-buffer)
+
+  ;; Projectile users
+  (setq dape-cwd-function 'projectile-project-root)
   )
-(defun stop-debugging-mode ()
-  (interactive)
-  (dap-delete-all-sessions)
-  (dap-mode 0)
-  (dap-ui-mode 0)
-  (dap-ui-controls-mode 0)
-  (delete-other-windows) ;; hide all the dap UI. I might want to delete the buffers as well.
-  )
+
+;; Enable repeat mode for more ergonomic `dape' use
+(use-package repeat
+  :config
+  (repeat-mode))
 
 (use-package! eglot-booster
   :after eglot
