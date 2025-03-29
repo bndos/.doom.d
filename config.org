@@ -91,6 +91,8 @@
   '(mc/cursor-bar-face :foreground "#ff79c6")
   '(eglot-highlight-symbol-face :background "#331212" :inherit bold)
   '(lsp-proxy-highlight-symbol-face :background "#331212" :inherit bold)
+  '(pulse-highlight-face :background "#331212" :inherit bold)
+  '(pulse-highlight-start-face :background "#331212" :inherit bold)
   '(doom-dashboard-banner :foreground "#fafaf3")
   ;; '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   ;; '(tree-sitter-hl-face:type.builtin :foreground "#ffffff")
