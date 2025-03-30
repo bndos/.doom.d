@@ -287,7 +287,37 @@
 
   ;; Projectile users
   (setq dape-cwd-function 'projectile-project-root)
-  )
+
+
+  ;; Inject envrc env or process environment to debugger
+  (defun my-envrc->plist ()
+    "Return envrc environment as a plist with keyword keys.
+Falls back to `process-environment` if envrc export fails."
+    (let* ((raw-env
+            (cond
+             ((fboundp 'envrc--export)
+              (cdr (ignore-errors (envrc--export (projectile-project-root)))))
+             (t nil)))
+           (env-source (or raw-env
+                           (mapcar (lambda (s)
+                                     (let ((split (split-string s "=" t)))
+                                       (cons (car split) (mapconcat #'identity (cdr split) "="))))
+                                   process-environment))))
+      (seq-mapcat
+       (lambda (pair)
+         (let ((key (car pair))
+               (val (cdr pair)))
+           (when (and (stringp key) (stringp val))
+             (list (intern (concat ":" key)) val))))
+       env-source)))
+
+  (defun my-dape-inject-envrc (orig-fn config &rest args)
+    (let* ((envrc-env (my-envrc->plist))
+           (merged-env (append envrc-env (plist-get config :env)))
+           (new-config (plist-put config :env merged-env)))
+      (apply orig-fn new-config args)))
+
+  (advice-add 'dape :around #'my-dape-inject-envrc))
 
 ;; Enable repeat mode for more ergonomic `dape' use
 (use-package repeat
