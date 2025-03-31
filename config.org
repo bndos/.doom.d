@@ -340,6 +340,8 @@ Falls back to `process-environment` if envrc export fails."
 (use-package eglot
   ;; :load-path "/path/to/lsp-proxy"
   :config
+  (setq-default eglot-workspace-configuration
+                '((:gopls . ((gofumpt . t)))))
   (defun my-lsp-proxy-find-definition ()
     "Find definition with lsp-proxy and set an Evil jump point."
     (interactive)
@@ -388,6 +390,8 @@ Falls back to `process-environment` if envrc export fails."
                                bash-ts-mode
                                rustic-mode
                                rust-ts-mode
+                               go-mode
+                               go-ts-mode
                                toml-ts-mode
                                conf-toml-mode))
       (eglot-format)))
