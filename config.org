@@ -259,6 +259,7 @@
   :hook
   ;; Save breakpoints on quit
   (kill-emacs . dape-breakpoint-save)
+  (setq dape-request-timeout 60)
   ;; Load breakpoints on startup
   (after-init . dape-breakpoint-load)
 
