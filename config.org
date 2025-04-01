@@ -259,13 +259,13 @@
   :hook
   ;; Save breakpoints on quit
   (kill-emacs . dape-breakpoint-save)
-  (setq dape-request-timeout 60)
   ;; Load breakpoints on startup
   (after-init . dape-breakpoint-load)
 
   :config
   ;; Turn on global bindings for setting breakpoints with mouse
   (dape-breakpoint-global-mode)
+  (setq dape-request-timeout 60)
 
   ;; Info buffers to the right
   ;; (setq dape-buffer-window-arrangement 'right)
