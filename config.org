@@ -68,9 +68,9 @@
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 ;; (setq-default header-line-format " ")
-(set-fringe-mode 10)
-(setq-default left-fringe-width  10)
-(setq-default right-fringe-width 10)
+;; (set-fringe-mode 10)
+;; (setq-default left-fringe-width  10)
+;; (setq-default right-fringe-width 10)
 (setq doom-themes-enable-bold t
       doom-themes-enable-italic t)
 
@@ -403,10 +403,10 @@ Falls back to `process-environment` if envrc export fails."
                                rustic-mode
                                rust-ts-mode
                                ;;go-mode
-                               go-ts-mode
+                               ;; go-ts-mode
                                toml-ts-mode
                                conf-toml-mode))
-      (eglot-format)))
+      (+format/region-or-buffer)))
 
   (add-hook 'before-save-hook #'eglot-format-if-needed))
 
