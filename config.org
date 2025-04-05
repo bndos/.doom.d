@@ -1,6 +1,8 @@
+;; this seems to work fine for go and python since lsp proxy does not work well with venvs:
 * Appearance
 #+BEGIN_SRC emacs-lisp
 ;;; $DOOMDIR/config.el -*- lexical-binding: t; -*-
+(setq mac-command-modifier 'hyper)
 (defun my-custom-banner ()
   (let* ((banner
           '(
@@ -44,10 +46,10 @@
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-feather-dark)
 ;; (setq doom-theme 'doom-challenger-deep)
-(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
-       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
-       doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 50))
-(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'bold))
+;; (setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
+;;        doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
+;;        doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 50))
+;; (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'bold))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
@@ -55,8 +57,8 @@
 (add-to-list 'default-frame-alist '(height . 80))
 (add-to-list 'default-frame-alist '(width . 350))
 
-(add-to-list 'default-frame-alist
-             '(font . "Comic Mono-13"))
+;; (add-to-list 'default-frame-alist
+;;              '(font . "Comic Mono-13"))
 
 
 (add-to-list 'default-frame-alist '(internal-border-width . 20))
@@ -66,15 +68,15 @@
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 ;; (setq-default header-line-format " ")
-(set-fringe-mode 35)
-(setq-default left-fringe-width  35)
-(setq-default right-fringe-width 35)
+(set-fringe-mode 10)
+(setq-default left-fringe-width  10)
+(setq-default right-fringe-width 10)
 (setq doom-themes-enable-bold t
       doom-themes-enable-italic t)
 
 (after! doom-modeline
   (setq doom-modeline-buffer-file-name-style 'file-name)
-  (setq-default doom-modeline-height 45)
+  (setq-default doom-modeline-height 15)
   (require 'doom-modeline)
   (doom-modeline-def-modeline 'main
     '(eldoc bar workspace-name window-number modals matches follow buffer-info remote-host buffer-position word-count parrot selection-info)
@@ -339,43 +341,43 @@ Falls back to `process-environment` if envrc export fails."
 
 ;; 8e5983a
 (use-package eglot
-  ;; :load-path "/path/to/lsp-proxy"
+  ;; :load-path "/path/to/eglot"
   :config
   (setq-default eglot-workspace-configuration
                 '((:gopls . ((gofumpt . t)))))
-  (defun my-lsp-proxy-find-definition ()
-    "Find definition with lsp-proxy and set an Evil jump point."
+  (defun my-eglot-find-definition ()
+    "Find definition with eglot and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
     (xref-find-definitions (thing-at-point 'symbol)))
 
-  (defun my-lsp-proxy-find-declaration ()
-    "Find declaration with lsp-proxy and set an Evil jump point."
+  (defun my-eglot-find-declaration ()
+    "Find declaration with eglot and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
     (eglot-find-declaration))
 
-  (defun my-lsp-proxy-find-references ()
-    "Find references with lsp-proxy and set an Evil jump point."
+  (defun my-eglot-find-references ()
+    "Find references with eglot and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
     (xref-find-references (thing-at-point 'symbol)))
 
-  (defun my-lsp-proxy-find-implementations ()
-    "Find implementations with lsp-proxy and set an Evil jump point."
+  (defun my-eglot-find-implementations ()
+    "Find implementations with eglot and set an Evil jump point."
     (interactive)
     (better-jumper-set-jump)
     (eglot-find-implementation))
 
   (map! :map eglot-mode-map
-        :n "g d" #'my-lsp-proxy-find-definition
-        :n "g D" #'my-lsp-proxy-find-declaration
-        :n "g r" #'my-lsp-proxy-find-references
-        :n "g i" #'my-lsp-proxy-find-implementations
-        ;; :leader "c r" #'lsp-proxy-rename
-        ;; :leader "c a" #'lsp-proxy-execute-code-action
-        ;; :leader "c d" #'lsp-proxy-describe-thing-at-point
-        ;; :leader "c x" #'lsp-proxy-show-project-diagnostics
+        :n "g d" #'my-eglot-find-definition
+        :n "g D" #'my-eglot-find-declaration
+        :n "g r" #'my-eglot-find-references
+        :n "g i" #'my-eglot-find-implementations
+        ;; :leader "c r" #'eglot-rename
+        ;; :leader "c a" #'eglot-execute-code-action
+        ;; :leader "c d" #'eglot-describe-thing-at-point
+        ;; :leader "c x" #'eglot-show-project-diagnostics
         )
 
   (defun eglot-format-if-needed ()
@@ -391,13 +393,60 @@ Falls back to `process-environment` if envrc export fails."
                                bash-ts-mode
                                rustic-mode
                                rust-ts-mode
-                               go-mode
+                               ;;go-mode
                                go-ts-mode
                                toml-ts-mode
                                conf-toml-mode))
       (eglot-format)))
 
   (add-hook 'before-save-hook #'eglot-format-if-needed))
+
+(use-package lsp-proxy
+  ;; :load-path "/path/to/lsp-proxy"
+  :config
+  (defun my-lsp-proxy-find-definition ()
+    "Find definition with lsp-proxy and set an Evil jump point."
+    (interactive)
+    (better-jumper-set-jump)
+    (lsp-proxy-find-definition))
+
+  (defun my-lsp-proxy-find-declaration ()
+    "Find declaration with lsp-proxy and set an Evil jump point."
+    (interactive)
+    (better-jumper-set-jump)
+    (lsp-proxy-find-declaration))
+
+  (defun my-lsp-proxy-find-references ()
+    "Find references with lsp-proxy and set an Evil jump point."
+    (interactive)
+    (better-jumper-set-jump)
+    (lsp-proxy-find-references))
+
+  (defun my-lsp-proxy-find-implementations ()
+    "Find implementations with lsp-proxy and set an Evil jump point."
+    (interactive)
+    (better-jumper-set-jump)
+    (lsp-proxy-find-implementations))
+
+  (map! :map lsp-proxy-mode-map
+        :n "g d" #'my-lsp-proxy-find-definition
+        :n "g D" #'my-lsp-proxy-find-declaration
+        :n "g r" #'my-lsp-proxy-find-references
+        :n "g i" #'my-lsp-proxy-find-implementations
+        :leader "c r" #'lsp-proxy-rename
+        :leader "c a" #'lsp-proxy-execute-code-action
+        :leader "c d" #'lsp-proxy-describe-thing-at-point
+        :leader "c x" #'lsp-proxy-show-project-diagnostics
+        )
+
+
+  (setq lsp-proxy-diagnostics-provider :flycheck)
+  (add-hook 'lsp-proxy-mode-hook
+            (lambda ()
+              (setq-local flycheck-checker 'lsp-proxy)))
+  (add-hook! '(
+               go-mode-hook
+               ) #'lsp-proxy-mode))
 #+END_SRC
 
 * ruff
@@ -449,6 +498,7 @@ Falls back to `process-environment` if envrc export fails."
 #+BEGIN_SRC emacs-lisp
 ;; go-mode
 (after! go-mode
+  (setq gofmt-command "gofumpt")
   (add-hook 'before-save-hook 'gofmt-before-save))
 #+END_SRC
 
@@ -555,6 +605,15 @@ Falls back to `process-environment` if envrc export fails."
   (setq dirvish-hide-details t)
   (setq dirvish-side-window-parameters
         '((no-delete-other-windows . t)))
+  )
+#+END_SRC
+
+* vertico
+#+BEGIN_SRC emacs-lisp
+;; vertico
+(after! verticoo
+  (setq vertico-cycle nil)
+  (marginalia-mode)
   )
 #+END_SRC
 
