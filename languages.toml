@@ -348,3 +348,26 @@ file-types = [
   { glob = "Gymfile" },
 ]
 language-servers = [ "solargraph" ]
+
+[language-server.gopls]
+command = "gopls"
+
+[language-server.gopls.config.hints]
+assignVariableTypes = true
+compositeLiteralFields = true
+constantValues = true
+functionTypeParameters = true
+parameterNames = true
+rangeVariableTypes = true
+
+[language-server.golangci-lint-lsp]
+command = "golangci-lint-langserver"
+
+[language-server.golangci-lint-lsp.config]
+command = ["golangci-lint", "run", "--output.json.path=stdout", "--show-stats=false", "--issues-exit-code=1"]
+
+[[language]]
+name = "go"
+file-types = ["go"]
+roots = ["go.work", "go.mod"]
+language-servers = [ "gopls"]
