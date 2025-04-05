@@ -363,6 +363,14 @@ Falls back to `process-environment` if envrc export fails."
     (better-jumper-set-jump)
     (xref-find-references (thing-at-point 'symbol)))
 
+  (defun my-eglot-code-actions ()
+    "Find references with eglot and set an Evil jump point."
+    (interactive)
+    (better-jumper-set-jump)
+    (let ((beg (if (use-region-p) (region-beginning) (point)))
+          (end (if (use-region-p) (region-end) (point))))
+      (eglot-code-actions beg end nil t)))
+
   (defun my-eglot-find-implementations ()
     "Find implementations with eglot and set an Evil jump point."
     (interactive)
@@ -374,9 +382,10 @@ Falls back to `process-environment` if envrc export fails."
         :n "g D" #'my-eglot-find-declaration
         :n "g r" #'my-eglot-find-references
         :n "g i" #'my-eglot-find-implementations
-        ;; :leader "c r" #'eglot-rename
-        ;; :leader "c a" #'eglot-execute-code-action
-        ;; :leader "c d" #'eglot-describe-thing-at-point
+        :localleader
+        "c r" #'eglot-rename
+        "c a" #'my-eglot-code-actions
+        "c d" #'eglot-describe-thing-at-point
         ;; :leader "c x" #'eglot-show-project-diagnostics
         )
 
@@ -433,10 +442,11 @@ Falls back to `process-environment` if envrc export fails."
         :n "g D" #'my-lsp-proxy-find-declaration
         :n "g r" #'my-lsp-proxy-find-references
         :n "g i" #'my-lsp-proxy-find-implementations
-        :leader "c r" #'lsp-proxy-rename
-        :leader "c a" #'lsp-proxy-execute-code-action
-        :leader "c d" #'lsp-proxy-describe-thing-at-point
-        :leader "c x" #'lsp-proxy-show-project-diagnostics
+        :localleader
+        "c r" #'lsp-proxy-rename
+        "c a" #'lsp-proxy-execute-code-action
+        "c d" #'lsp-proxy-describe-thing-at-point
+        "c x" #'lsp-proxy-show-project-diagnostics
         )
 
 
