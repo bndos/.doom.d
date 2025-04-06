@@ -343,6 +343,7 @@ Falls back to `process-environment` if envrc export fails."
 (use-package eglot
   ;; :load-path "/path/to/eglot"
   :config
+  (setq eglot-code-action-indications '(eldoc-hint))
   (setq-default eglot-workspace-configuration
                 '((:gopls . ((gofumpt . t)))))
   (defun my-eglot-find-definition ()
