@@ -1,4 +1,3 @@
-;; this seems to work fine for go and python since lsp proxy does not work well with venvs:
 * Appearance
 #+BEGIN_SRC emacs-lisp
 ;;; $DOOMDIR/config.el -*- lexical-binding: t; -*-
@@ -201,7 +200,8 @@
          )
   :config
   (setq typescript-ts-mode-indent-offset 4)
-  (add-hook! '(typescript-ts-mode-hook tsx-ts-mode-hook) 'eglot-ensure))
+  ;; (add-hook! '(typescript-ts-mode-hook tsx-ts-mode-hook) 'eglot-ensure)
+  )
 
 (after! treesit
   (setq treesit-language-source-alist
@@ -346,49 +346,6 @@ Falls back to `process-environment` if envrc export fails."
   (setq eglot-code-action-indications '(eldoc-hint))
   (setq-default eglot-workspace-configuration
                 '((:gopls . ((gofumpt . t)))))
-  (defun my-eglot-find-definition ()
-    "Find definition with eglot and set an Evil jump point."
-    (interactive)
-    (better-jumper-set-jump)
-    (xref-find-definitions (thing-at-point 'symbol)))
-
-  (defun my-eglot-find-declaration ()
-    "Find declaration with eglot and set an Evil jump point."
-    (interactive)
-    (better-jumper-set-jump)
-    (eglot-find-declaration))
-
-  (defun my-eglot-find-references ()
-    "Find references with eglot and set an Evil jump point."
-    (interactive)
-    (better-jumper-set-jump)
-    (xref-find-references (thing-at-point 'symbol)))
-
-  (defun my-eglot-code-actions ()
-    "Find references with eglot and set an Evil jump point."
-    (interactive)
-    (better-jumper-set-jump)
-    (let ((beg (if (use-region-p) (region-beginning) (point)))
-          (end (if (use-region-p) (region-end) (point))))
-      (eglot-code-actions beg end nil t)))
-
-  (defun my-eglot-find-implementations ()
-    "Find implementations with eglot and set an Evil jump point."
-    (interactive)
-    (better-jumper-set-jump)
-    (eglot-find-implementation))
-
-  (map! :map eglot-mode-map
-        :n "g d" #'my-eglot-find-definition
-        :n "g D" #'my-eglot-find-declaration
-        :n "g r" #'my-eglot-find-references
-        :n "g i" #'my-eglot-find-implementations
-        :localleader
-        "c r" #'eglot-rename
-        "c a" #'my-eglot-code-actions
-        "c d" #'eglot-describe-thing-at-point
-        ;; :leader "c x" #'eglot-show-project-diagnostics
-        )
 
   (defun eglot-format-if-needed ()
     "Run eglot-format if the major mode is in the allowed list."
@@ -414,41 +371,6 @@ Falls back to `process-environment` if envrc export fails."
 (use-package lsp-proxy
   ;; :load-path "/path/to/lsp-proxy"
   :config
-  (defun my-lsp-proxy-find-definition ()
-    "Find definition with lsp-proxy and set an Evil jump point."
-    (interactive)
-    (better-jumper-set-jump)
-    (lsp-proxy-find-definition))
-
-  (defun my-lsp-proxy-find-declaration ()
-    "Find declaration with lsp-proxy and set an Evil jump point."
-    (interactive)
-    (better-jumper-set-jump)
-    (lsp-proxy-find-declaration))
-
-  (defun my-lsp-proxy-find-references ()
-    "Find references with lsp-proxy and set an Evil jump point."
-    (interactive)
-    (better-jumper-set-jump)
-    (lsp-proxy-find-references))
-
-  (defun my-lsp-proxy-find-implementations ()
-    "Find implementations with lsp-proxy and set an Evil jump point."
-    (interactive)
-    (better-jumper-set-jump)
-    (lsp-proxy-find-implementations))
-
-  (map! :map lsp-proxy-mode-map
-        :n "g d" #'my-lsp-proxy-find-definition
-        :n "g D" #'my-lsp-proxy-find-declaration
-        :n "g r" #'my-lsp-proxy-find-references
-        :n "g i" #'my-lsp-proxy-find-implementations
-        :localleader
-        "c r" #'lsp-proxy-rename
-        "c a" #'lsp-proxy-execute-code-action
-        "c d" #'lsp-proxy-describe-thing-at-point
-        "c x" #'lsp-proxy-show-project-diagnostics
-        )
 
 
   (setq lsp-proxy-diagnostics-provider :flycheck)
@@ -456,8 +378,126 @@ Falls back to `process-environment` if envrc export fails."
             (lambda ()
               (setq-local flycheck-checker 'lsp-proxy)))
   (add-hook! '(
+               tsx-ts-mode-hook
+               js-ts-mode-hook
+               typescript-mode-hook
+               typescript-ts-mode-hook
+               rjsx-mode-hook
+               less-css-mode-hook
+               web-mode-hook
                go-mode-hook
                ) #'lsp-proxy-mode))
+
+(defun my-lsp-find-definition ()
+  "Go to definition with either lsp-proxy or Eglot, setting a jump point."
+  (interactive)
+  (better-jumper-set-jump)
+  (cond
+   ((bound-and-true-p lsp-proxy-mode)
+    (lsp-proxy-find-definition))
+   ((bound-and-true-p eglot--managed-mode)
+    (xref-find-definitions (thing-at-point 'symbol)))
+   (t
+    (message "No LSP backend active in this buffer."))))
+
+(defun my-lsp-find-declaration ()
+  "Go to declaration with either lsp-proxy or Eglot, setting a jump point."
+  (interactive)
+  (better-jumper-set-jump)
+  (cond
+   ((bound-and-true-p lsp-proxy-mode)
+    (call-interactively 'lsp-proxy-find-declaration))
+   ((bound-and-true-p eglot--managed-mode)
+    (call-interactively 'eglot-find-declaration))
+   (t
+    (message "No LSP backend active in this buffer."))))
+
+(defun my-lsp-find-references ()
+  "Find references with either lsp-proxy or Eglot, setting a jump point."
+  (interactive)
+  (better-jumper-set-jump)
+  (cond
+   ((bound-and-true-p lsp-proxy-mode)
+    (call-interactively 'lsp-proxy-find-references))
+   ((bound-and-true-p eglot--managed-mode)
+    (call-interactively 'xref-find-references))
+   (t
+    (message "No LSP backend active in this buffer."))))
+
+(defun my-lsp-find-implementations ()
+  "Find implementations with either lsp-proxy or Eglot, setting a jump point."
+  (interactive)
+  (better-jumper-set-jump)
+  (cond
+   ((bound-and-true-p lsp-proxy-mode)
+    (call-interactively 'lsp-proxy-find-implementations))
+   ((bound-and-true-p eglot--managed-mode)
+    (call-interactively 'eglot-find-implementation))
+   (t
+    (message "No LSP backend active in this buffer."))))
+
+(defun my-lsp-code-actions ()
+  "Run code actions with either lsp-proxy or Eglot, setting a jump point.
+If there is a region, use it for the code actions; otherwise use point."
+  (interactive)
+  (better-jumper-set-jump)
+  (cond
+   ((bound-and-true-p lsp-proxy-mode)
+    (call-interactively 'lsp-proxy-execute-code-action))
+   ((bound-and-true-p eglot--managed-mode)
+    (call-interactively 'eglot-code-actions))
+   (t
+    (message "No LSP backend active in this buffer."))))
+
+(defun my-lsp-rename ()
+  "Rename symbol with either lsp-proxy or Eglot."
+  (interactive)
+  (cond
+   ((bound-and-true-p lsp-proxy-mode)
+    (call-interactively 'lsp-proxy-rename))
+   ((bound-and-true-p eglot--managed-mode)
+    (call-interactively 'eglot-rename))
+   (t
+    (message "No LSP backend active in this buffer."))))
+
+(defun my-lsp-describe-thing-at-point ()
+  "Describe symbol at point with either lsp-proxy or Eglot."
+  (interactive)
+  (cond
+   ((bound-and-true-p lsp-proxy-mode)
+    (lsp-proxy-describe-thing-at-point))
+   ((bound-and-true-p eglot--managed-mode)
+    (eglot-describe-thing-at-point))
+   (t
+    (message "No LSP backend active in this buffer."))))
+
+(defun my-lsp-show-project-diagnostics ()
+  "Show project diagnostics with either lsp-proxy or Eglot."
+  (interactive)
+  (cond
+   ((bound-and-true-p lsp-proxy-mode)
+    (lsp-proxy-show-project-diagnostics))
+   ;; Eglot’s “show-project-diagnostics” function may need an update or
+   ;; is commented out in your config. Uncomment if you want it:
+   ((fboundp 'eglot-show-project-diagnostics)
+    (eglot-show-project-diagnostics))
+   (t
+    (message "No LSP backend active in this buffer, or Eglot has no diagnostics function."))))
+
+;; ---------------------------------------
+;; GLOBAL KEYBINDINGS (use only once)
+;; ---------------------------------------
+;; Normal mode 'g' keys:
+(map! :n "g d" #'my-lsp-find-definition
+      :n "g D" #'my-lsp-find-declaration
+      :n "g r" #'my-lsp-find-references
+      :n "g i" #'my-lsp-find-implementations)
+
+(map! :leader
+      "c r" #'my-lsp-rename
+      "c a" #'my-lsp-code-actions
+      "c d" #'my-lsp-describe-thing-at-point
+      "c x" #'my-lsp-show-project-diagnostics)
 #+END_SRC
 
 * ruff
