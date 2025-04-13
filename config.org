@@ -208,6 +208,7 @@
         '((typescript "https://github.com/tree-sitter/tree-sitter-typescript" "v0.20.3" "typescript/src")
           (haskell "https://github.com/tree-sitter/tree-sitter-haskell")
           (agda "https://github.com/tree-sitter/tree-sitter-agda")
+          (go "https://github.com/tree-sitter/tree-sitter-go")
           (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src" nil nil))))
 #+END_SRC
 
@@ -266,6 +267,48 @@
 
   :config
   ;; Turn on global bindings for setting breakpoints with mouse
+  (setq treesit-go-tests-query (treesit-query-compile 'go
+                                                      '((function_declaration
+                                                         name: (identifier) @testname
+                                                         parameters: (parameter_list :anchor (parameter_declaration type: (pointer_type) @type :anchor))
+                                                         (:match "*testing.\\(T\\|M\\)" @type) (:match "^Test.+$" @testname)) @parent)))
+  (defun jake/query-go-test-nodes ()
+    (when (treesit-ready-p 'go)
+      (treesit-query-capture (treesit-buffer-root-node) treesit-go-tests-query)))
+
+  (defun jake/completing-read-go-tests ()
+    (let* ((test-matches (jake/query-go-test-nodes))
+           (test-name-matches (cl-remove-if-not (lambda (match) (eq (car match) 'testname)) test-matches))
+           (test-names (mapcar (lambda (match) (treesit-node-text (cdr match))) test-name-matches)))
+      (completing-read "Test:" test-names nil t)))
+
+
+  (defun jake/dape--select-go-test-args ()
+    (when-let* ((test-name (jake/completing-read-go-tests))
+                (test-regexp (concat "^" test-name "$")))
+      (if test-name
+          `["-test.run" ,test-regexp]
+        (error "No test selected"))))
+
+  (defun jake/file-relative-dir ()
+    "Return the file directory relative to dape's cwd. This is used by Delve debugger."
+    (concat "./" (file-relative-name default-directory (funcall dape-cwd-fn))))
+
+  ;; inside your dape-config
+  (add-to-list 'dape-configs
+               `(go-test
+                 modes (go-mode go-ts-mode)
+                 command "dlv"
+                 command-cwd dape-cwd-fn
+                 command-args ("dap" "--listen" "127.0.0.1:55878")
+                 host "127.0.0.1"
+                 port 55878
+                 :type "go"
+                 :name "debug test"
+                 :request "launch"
+                 :mode "test"
+                 :cwd dape-cwd-fn
+                 :program jake/file-relative-dir))
   (dape-breakpoint-global-mode)
   (setq dape-request-timeout 60)
 
@@ -740,7 +783,7 @@ If there is a region, use it for the code actions; otherwise use point."
     (side . right) (slot . 0) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)))
 
-   ("^magit:\\|^magit-diff" display-buffer-in-side-window
+   ("^\\*magit:\\|^magit-diff" display-buffer-in-side-window
     (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
     (preserve-size . (t . nil)))
 
