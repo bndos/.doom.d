@@ -52,6 +52,7 @@
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
 
+(setq compilation-max-output-line-length nil)
 ;; set default height and width
 (add-to-list 'default-frame-alist '(height . 80))
 (add-to-list 'default-frame-alist '(width . 350))
