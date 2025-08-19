@@ -31,6 +31,35 @@
 (global-visual-line-mode t)
 (setq warning-minimum-level :emergency)
 
+(defun my-dpi ()
+  (let* ((attrs (car (display-monitor-attributes-list)))
+         (size (assoc 'mm-size attrs))
+         (sizex (cadr size))
+         (res (cdr (assoc 'geometry attrs)))
+         (resx (- (caddr res) (car res)))
+         dpi)
+    (catch 'exit
+      ;; in terminal
+      (unless sizex
+        (throw 'exit 10))
+      ;; on big screen
+      (when (> sizex 1000)
+        (throw 'exit 10))
+      ;; DPI
+      (* (/ (float resx) sizex) 25.4))))
+
+(defun my-preferred-font-size ()
+  (let ( (dpi (my-dpi)) )
+  (cond
+    ((< dpi 110) 20)
+    ((< dpi 130) 20)
+    ((< dpi 160) 20)
+    ((< dpi 192) 20)
+    ((< dpi 210) 28)
+    ((< dpi 240) 29)
+    (t 30))))
+
+(defvar my-preferred-font-size (my-preferred-font-size))
 ;; Color on compile buffer
 (require 'ansi-color)
 (defun my/ansi-colorize-buffer ()
@@ -45,12 +74,13 @@
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-feather-dark)
 ;; (setq doom-theme 'doom-challenger-deep)
-;; (setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
-;;        doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size 24)
-;;        doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 50))
-;; (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'bold))
+(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size my-preferred-font-size)
+       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size my-preferred-font-size)
+       doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 50))
+(setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'bold))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
+
 
 (setq compilation-max-output-line-length nil)
 ;; set default height and width
