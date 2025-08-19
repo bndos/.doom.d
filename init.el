@@ -54,7 +54,7 @@
        vc-gutter         ; vcs diff in the fringe
        ;; vi-tilde-fringe   ; fringe tildes to mark beyond EOB
        ;;window-select     ; visually switch windows
-       workspaces        ; tab emulation, persistence & separate workspaces
+       ;; workspaces        ; tab emulation, persistence & separate workspaces
        ;;zen               ; distraction-free coding or writing
 
        :editor
@@ -104,7 +104,7 @@
        lookup              ; navigate your code and its documentation
        (lsp
         +eglot)
-       magit             ; a git porcelain for Emacs
+       (magit +forge)             ; a git porcelain for Emacs
        ;;make              ; run make tasks from Emacs
        pass              ; password manager for nerds
        ;; pdf               ; pdf enhancements
@@ -113,7 +113,7 @@
        ;;taskrunner        ; taskrunner for all your projects
        (terraform +lsp)         ; infrastructure as code
        ;;tmux              ; an API for interacting with tmux
-       tree-sitter
+       ;; tree-sitter
        ;;upload            ; map local to remote projects via ssh/ftp
 
        :os
@@ -150,7 +150,7 @@
        ;;hy                ; readability of scheme w/ speed of python
        ;;idris             ; a language you can depend on
        ;;json              ; At least it ain't XML
-       (java) ; the poster child for carpal tunnel syndrome
+       ;; (java) ; the poster child for carpal tunnel syndrome
        (javascript)        ; all(hope(abandon(ye(who(enter(here))))))
        (typescript)        ; all(hope(abandon(ye(who(enter(here))))))
        ;; (julia +lsp)             ; a better, faster MATLAB

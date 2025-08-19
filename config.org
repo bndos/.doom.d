@@ -157,6 +157,8 @@
   '(font-lock-string-face :foreground "#35a389")
   '(hl-line :background "#272737")
   ;; '(region :background "#355461")
+  '(tab-bar-tab :weight bold :foreground "#ff79c6" :background "#232123")
+
   '(lsp-ui-peek-highlight :background "#355461")
   '(lsp-ui-peek-list :background "#000000")
   '(lsp-ui-peek-peek :background "#131318")
@@ -208,6 +210,7 @@
 ;;   (global-tree-sitter-mode)
 ;;   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 
+(setq compilation-max-output-line-length nil)
 (when (treesit-available-p)
   (add-to-list 'major-mode-remap-alist '(js2-mode . js-ts-mode))
   (add-to-list 'major-mode-remap-alist '(typescript-mode . typescript-ts-mode))
@@ -229,6 +232,7 @@
          ("\\.tsx\\'" . tsx-ts-mode)
          ("\\.jsx\\'" . typescript-ts-mode)
          )
+
   :config
   (setq typescript-ts-mode-indent-offset 4)
   ;; (add-hook! '(typescript-ts-mode-hook tsx-ts-mode-hook) 'eglot-ensure)
@@ -399,7 +403,10 @@ Falls back to `process-environment` if envrc export fails."
 ;; Enable repeat mode for more ergonomic `dape' use
 (use-package repeat
   :config
-  (repeat-mode))
+  ;; (repeat-mode)
+  ;; only on dape-mode
+  (add-hook 'dape-mode-hook #'repeat-mode)
+  )
 
 (use-package! eglot-booster
   :after eglot
@@ -434,7 +441,7 @@ Falls back to `process-environment` if envrc export fails."
                                bash-ts-mode
                                rustic-mode
                                rust-ts-mode
-                               ;;go-mode
+                               ;; go-mode
                                ;; go-ts-mode
                                toml-ts-mode
                                conf-toml-mode))
@@ -445,7 +452,8 @@ Falls back to `process-environment` if envrc export fails."
 (use-package lsp-proxy
   ;; :load-path "/path/to/lsp-proxy"
   :config
-
+  (setq lsp-proxy-user-languages-config
+        (expand-file-name "~/.config/doom/languages.toml"))
 
   (setq lsp-proxy-diagnostics-provider :flycheck)
   (add-hook 'lsp-proxy-mode-hook
@@ -472,7 +480,7 @@ Falls back to `process-environment` if envrc export fails."
    ((bound-and-true-p eglot--managed-mode)
     (xref-find-definitions (thing-at-point 'symbol)))
    (t
-    (message "No LSP backend active in this buffer."))))
+    (call-interactively '+lookup/definition))))
 
 (defun my-lsp-find-declaration ()
   "Go to declaration with either lsp-proxy or Eglot, setting a jump point."
@@ -496,7 +504,7 @@ Falls back to `process-environment` if envrc export fails."
    ((bound-and-true-p eglot--managed-mode)
     (call-interactively 'xref-find-references))
    (t
-    (message "No LSP backend active in this buffer."))))
+    (call-interactively '+lookup/references))))
 
 (defun my-lsp-find-implementations ()
   "Find implementations with either lsp-proxy or Eglot, setting a jump point."
@@ -507,6 +515,18 @@ Falls back to `process-environment` if envrc export fails."
     (call-interactively 'lsp-proxy-find-implementations))
    ((bound-and-true-p eglot--managed-mode)
     (call-interactively 'eglot-find-implementation))
+   (t
+    (message "No LSP backend active in this buffer."))))
+
+(defun my-lsp-rename ()
+  "Find implementations with either lsp-proxy or Eglot, setting a jump point."
+  (interactive)
+  (better-jumper-set-jump)
+  (cond
+   ((bound-and-true-p lsp-proxy-mode)
+    (call-interactively 'lsp-proxy-rename))
+   ((bound-and-true-p eglot--managed-mode)
+    (call-interactively 'eglot-rename))
    (t
     (message "No LSP backend active in this buffer."))))
 
@@ -571,6 +591,7 @@ If there is a region, use it for the code actions; otherwise use point."
       "c r" #'my-lsp-rename
       "c a" #'my-lsp-code-actions
       "c d" #'my-lsp-describe-thing-at-point
+      "c r" #'my-lsp-rename
       "c x" #'my-lsp-show-project-diagnostics)
 #+END_SRC
 
@@ -1019,28 +1040,141 @@ If there is a region, use it for the code actions; otherwise use point."
 * workspaces
 #+BEGIN_SRC emacs-lisp
 ;; workspaces
-;; Replace function in $HOME/.config/emacs/modules/ui/workspaces/autoload/workspaces.el
-(defun +workspace-switch (name &optional auto-create-p)
-  "Switch to another workspace named NAME (a string).
 
-If AUTO-CREATE-P is non-nil, create the workspace if it doesn't exist, otherwise
-throws an error."
-  (unless (+workspace-exists-p name)
-    (if auto-create-p
-        (+workspace-new name)
-      (error "%s is not an available workspace" name)))
-  (let ((old-name (+workspace-current-name)))
-    (unless (equal old-name name)
-      (setq +workspace--last
-            (or (and (not (string= old-name persp-nil-name))
-                     old-name)
-                +workspaces-main))
-      (unless (+workspace-exists-p "main")
-        (+workspace-new "main"))
-      (persp-switch "main")
-      (persp-frame-switch name))
-    (equal (+workspace-current-name) name)))
+(use-package! tabspaces
+  ;; use this next line only if you also use straight, otherwise ignore it.
+  :hook (after-init . tabspaces-mode) ;; use this only if you want the minor-mode loaded at startup.
+  :commands (tabspaces-switch-or-create-workspace
+             tabspaces-open-or-create-project-and-workspace)
+  :custom
+  (tabspaces-use-filtered-buffers-as-default t)
+  (tabspaces-default-tab "Default")
+  (tabspaces-remove-to-default t)
+  (tabspaces-include-buffers '("*scratch*"))
+  ;; sessions
+  (tabspaces-session t)
+  (tabspaces-session-auto-restore t)
+  (tab-bar-new-tab-choice "*scratch*"))
 
+;; --- MRU + hide-visible for tabspaces switcher (no Consult needed)
+(require 'seq)
+
+(defun my/tabspaces--workspace-mru (&optional hide-visible)
+  "Return workspace-local buffers in MRU order.
+If HIDE-VISIBLE is non-nil, omit buffers currently shown; if that
+would yield no candidates, fall back to showing them."
+  (let* ((pred (when (fboundp 'tabspaces--local-buffer-p)
+                 #'tabspaces--local-buffer-p))
+         ;; MRU: Emacs maintains (buffer-list) in most-recently-selected order
+         (mru (seq-filter
+               (lambda (b)
+                 (and
+                  (buffer-live-p b)
+                  ;; --- exclude minibuffer buffers ---
+                  (not (minibufferp b))
+                  (let ((bn (buffer-name b)))
+                    (not (and bn (string-prefix-p " *Minibuf-" bn))))
+                  ;; --- keep only buffers belonging to this tabspace ---
+                  (if pred (funcall pred b) t)))
+               (buffer-list)))
+         (visible (and hide-visible
+                       ;; default excludes the minibuffer window already
+                       (mapcar #'window-buffer (window-list (selected-frame)))))
+         (filtered (if hide-visible
+                       (seq-remove (lambda (b) (memq b visible)) mru)
+                     mru)))
+    (if (and hide-visible (null filtered))
+        mru
+      filtered)))
+
+(defun my/tabspaces-switch-to-buffer-mru ()
+  "Switch to a workspace-local buffer in MRU order.
+Hide already visible buffers unless that would leave no candidates."
+  (interactive)
+  (let* ((bufs  (my/tabspaces--workspace-mru 'hide-visible))
+         (cands (mapcar #'buffer-name bufs)))
+    (if (null cands)
+        (user-error "No workspace-local buffers found")
+      (let* ((default (car cands))
+             (name (completing-read "Switch to buffer (workspace MRU): "
+                                    cands nil t nil 'buffer-name-history default)))
+        (when (and name (> (length name) 0))
+          (switch-to-buffer name))))))
+
+(with-eval-after-load 'tabspaces
+  ;; Replace tabspaces' buffer switcher so your existing
+  ;; (tabspaces-use-filtered-buffers-as-default t) remap keeps working.
+  (ignore-errors
+    (advice-remove 'tabspaces-switch-to-buffer #'my/tabspaces-switch-to-buffer-mru))
+  (advice-add 'tabspaces-switch-to-buffer :override #'my/tabspaces-switch-to-buffer-mru))
+
+(defvar my/tabspaces--last nil
+  "Previously active tabspace name (for quick toggle).")
+
+(defun my/tabspaces-current-name ()
+  "Current tabspace name via tabspaces internals."
+  (when (fboundp 'tabspaces--current-tab-name)
+    (tabspaces--current-tab-name)))
+
+(defun my/tabspaces--switch (name)
+  "Switch/create workspace NAME and remember the previous one."
+  (let ((old (my/tabspaces-current-name)))
+    (tabspaces-switch-or-create-workspace name)
+    (setq my/tabspaces--last old)))
+
+(defun my/tabspaces-toggle-last ()
+  "Toggle to the previously active tabspace."
+  (interactive)
+  (let ((here (my/tabspaces-current-name))
+        (there my/tabspaces--last))
+    (cond
+     ((and there (not (equal here there)))
+      (my/tabspaces--switch there))
+     (t (user-error "No previous workspace to toggle to")))))
+
+(defun my/tabspaces-list-and-switch ()
+  "List existing tabspaces and switch (no creation)."
+  (interactive)
+  (let* ((choices (and (fboundp 'tabspaces--list-tabspaces)
+                       (tabspaces--list-tabspaces)))
+         (target (completing-read "Switch workspace: " choices nil t)))
+    (my/tabspaces--switch target)))
+
+(defun my/tabspaces-new ()
+  "Create/switch to a tabspace by prompted name."
+  (interactive)
+  (let ((name (read-string "New workspace name: ")))
+    (my/tabspaces--switch name)))
+
+(defun my/tabspaces-rename-workspace ()
+  "Rename the current tabspace (wrapper around tab-bar rename)."
+  (interactive)
+  (let* ((old (my/tabspaces-current-name))
+         (new (read-string (format "Rename workspace (%s) to: " old) nil nil old)))
+    ;; Tabspaces doesn’t ship a rename command; use tab-bar’s rename under the hood.
+    ;; See discussion in issue tracker recommending tab-bar-rename.
+    (when (and new (not (string-empty-p new)))
+      (tab-bar-rename-tab new))))
+
+;; Keep `my/tabspaces--last` accurate when users switch via tabspaces commands.
+(dolist (fn '(tabspaces-switch-or-create-workspace
+              tabspaces-open-or-create-project-and-workspace))
+  (advice-add fn :around
+              (lambda (orig &rest args)
+                (let ((old (my/tabspaces-current-name)))
+                  (prog1 (apply orig args)
+                    (setq my/tabspaces--last old))))))
+
+;; ---------- Doom keybindings ----------
+(map! :leader
+      (:prefix ("TAB" . "workspace")
+       :desc "Toggle previous workspace" "TAB" #'my/tabspaces-toggle-last
+       :desc "New workspace (prompt)"    "n"   #'my/tabspaces-new
+       :desc "Delete workspace"          "d"   #'tabspaces-close-workspace
+       :desc "Rename workspace"          "r"   #'my/tabspaces-rename-workspace
+       :desc "List/switch workspaces"    "."   #'my/tabspaces-list-and-switch
+       ;; optional: direct switch/create (tabspaces prompt)
+       :desc "Switch/Create workspace"   "s"   #'tabspaces-switch-or-create-workspace))
 #+END_SRC
 
 * remapping
@@ -1086,8 +1220,8 @@ throws an error."
 (map! :leader "f ." #'find-name-dired)
 
 ;; workspaces
-(map! :leader "TAB TAB" #'+workspace/other)
-(map! :leader "TAB '" #'+workspace/display)
+;; (map! :leader "TAB TAB" #'+workspace/other)
+;; (map! :leader "TAB '" #'+workspace/display)
 
 ;; tangling
 (map! :leader "m b t" #'org-babel-tangle)
