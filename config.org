@@ -157,8 +157,9 @@
   '(font-lock-string-face :foreground "#35a389")
   '(hl-line :background "#272737")
   ;; '(region :background "#355461")
-  '(tab-bar-tab :weight bold :foreground "#ff79c6" :background "#232123")
-  '(tab-bar :height 1.1)
+  '(tab-bar-tab :weight bold :foreground "#ff79c6" :background "#000000")
+  '(tab-bar-tab-inactive :weight normal :foreground "#ffffff" :background "#000000")
+  '(tab-bar :height 1.1 :background "#000000")
 
   '(lsp-ui-peek-highlight :background "#355461")
   '(lsp-ui-peek-list :background "#000000")
