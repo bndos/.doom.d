@@ -158,6 +158,7 @@
   '(hl-line :background "#272737")
   ;; '(region :background "#355461")
   '(tab-bar-tab :weight bold :foreground "#ff79c6" :background "#232123")
+  '(tab-bar :height 1.1)
 
   '(lsp-ui-peek-highlight :background "#355461")
   '(lsp-ui-peek-list :background "#000000")
