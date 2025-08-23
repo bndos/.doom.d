@@ -1118,12 +1118,6 @@ Hide already visible buffers unless that would leave no candidates."
          (target (completing-read "Switch workspace: " choices nil t)))
     (my/tabspaces--switch target)))
 
-(defun my/tabspaces-new ()
-  "Create/switch to a tabspace by prompted name."
-  (interactive)
-  (let ((name (read-string "New workspace name: ")))
-    (my/tabspaces--switch name)))
-
 (defun my/tabspaces-rename-workspace ()
   "Rename the current tabspace (wrapper around tab-bar rename)."
   (interactive)
@@ -1142,6 +1136,43 @@ Hide already visible buffers unless that would leave no candidates."
                 (let ((old (my/tabspaces-current-name)))
                   (prog1 (apply orig args)
                     (setq my/tabspaces--last old))))))
+
+(defun my/tabspaces--unique-name (base)
+  "Return a unique workspace name starting with BASE."
+  (let* ((existing (and (fboundp 'tabspaces--list-tabspaces)
+                        (tabspaces--list-tabspaces)))
+         (i 1)
+         (name base))
+    (while (and existing (member name existing))
+      (setq name (format "%s-%d" base i)
+            i (1+ i)))
+    name))
+
+(defun my/tabspaces-new ()
+  "Create a new tabspace.
+If a Projectile project is selected, name it after the project and switch there.
+If the user presses RET or Projectile isn't available, make a scratch workspace."
+  (interactive)
+  (let* ((has-proj (require 'projectile nil t))
+         (projects (and has-proj (projectile-relevant-known-projects)))
+         (choice (and projects
+                      (completing-read
+                       "New workspace from project (RET for scratch): "
+                       projects nil ;; predicate
+                       nil          ;; require-match = nil so RET yields \"\"
+                       nil 'projectile-project-history))))
+    (cond
+     ;; Project chosen → workspace named after project, then switch project
+     ((and choice (not (string-empty-p choice)))
+      (let* ((proj choice)
+             (ws-name (file-name-nondirectory (directory-file-name proj))))
+        (my/tabspaces--switch ws-name)
+        (projectile-switch-project-by-name proj)))
+     ;; No project picked → scratch workspace
+     (t
+      (let ((ws-name (my/tabspaces--unique-name "scratch")))
+        (my/tabspaces--switch ws-name)
+        (switch-to-buffer (get-buffer-create "*scratch*")))))))
 
 ;; ---------- Doom keybindings ----------
 (map! :leader
