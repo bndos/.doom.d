@@ -275,7 +275,6 @@
 (setq consult-fontify-max-size 1024)
 #+END_SRC
 
-
 * lsp/flymake
 #+BEGIN_SRC emacs-lisp
 (use-package! breadcrumb
@@ -1037,6 +1036,8 @@ If there is a region, use it for the code actions; otherwise use point."
         (rename-buffer new-cbuf-name)))))
 
 (map! :leader "c n" #'my-make-room-for-new-compilation-buffer)
+
+(setq bookmark-default-file "~/.config/doom/bookmarks")
 #+END_SRC
 
 * workspaces

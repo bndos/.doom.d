@@ -20,7 +20,7 @@
 (package! copilot
   :recipe (:host github :repo "copilot-emacs/copilot.el" :files ("*.el")))
 ;; (package! leetcode)
-(package! gptel)
+(package! gptel :pin "2a2b7f97bb8217f5bde64cb4b8dd1b0f793b74f2")
 (package! pr-review)
 ;; (package! arxiv-mode)
 ;; (package! pulsar)
@@ -29,7 +29,7 @@
 (package! breadcrumb)
 (package! engrave-faces)
 (package! org-ref)
-(package! lsp-proxy :pin "8f1b56ca703b8765c849c0c68ede25e60e73072b" :recipe (:host github :repo "jadestrong/lsp-proxy"
+(package! lsp-proxy :recipe (:host github :repo "jadestrong/lsp-proxy"
                 :files ("lsp-proxy.el" "emacs-lsp-proxy")
                 :pre-build (("cargo" "build" "--release") ("cp" "./target/release/emacs-lsp-proxy" "./"))))
 (package! tabspaces)
