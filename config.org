@@ -421,35 +421,6 @@ Falls back to `process-environment` if envrc export fails."
   ;; (setq flymake-no-changes-timeout nil)
   )
 
-;; 8e5983a
-(use-package eglot
-  ;; :load-path "/path/to/eglot"
-  :config
-  (setq eglot-code-action-indications '(eldoc-hint))
-  (setq-default eglot-workspace-configuration
-                '((:gopls . ((gofumpt . t)))))
-
-  (defun eglot-format-if-needed ()
-    "Run eglot-format if the major mode is in the allowed list."
-    (when (member major-mode '(tsx-ts-mode
-                               js-ts-mode
-                               typescript-mode
-                               typescript-ts-mode
-                               rjsx-mode
-                               rust-mode
-                               c-mode
-                               c++-mode
-                               bash-ts-mode
-                               rustic-mode
-                               rust-ts-mode
-                               ;; go-mode
-                               ;; go-ts-mode
-                               toml-ts-mode
-                               conf-toml-mode))
-      (+format/region-or-buffer)))
-
-  (add-hook 'before-save-hook #'eglot-format-if-needed))
-
 (use-package lsp-proxy
   ;; :load-path "/path/to/lsp-proxy"
   :config
@@ -469,6 +440,10 @@ Falls back to `process-environment` if envrc export fails."
                less-css-mode-hook
                web-mode-hook
                go-mode-hook
+               python-mode-hook
+               rust-mode-hook
+               c-mode-hook
+               c++-mode-hook
                ) #'lsp-proxy-mode))
 
 (defun my-lsp-find-definition ()
@@ -1173,7 +1148,7 @@ Hide already visible buffers unless that would leave no candidates."
       (:prefix ("TAB" . "workspace")
        :desc "Toggle previous workspace" "TAB" #'my/tabspaces-toggle-last
        :desc "New workspace (prompt)"    "n"   #'my/tabspaces-new
-       :desc "Delete workspace"          "d"   #'tabspaces-close-workspace
+       :desc "Delete workspace"          "d"   #'tabspaces-kill-buffers-close-workspace
        :desc "Rename workspace"          "r"   #'my/tabspaces-rename-workspace
        :desc "List/switch workspaces"    "."   #'my/tabspaces-list-and-switch
        ;; optional: direct switch/create (tabspaces prompt)
