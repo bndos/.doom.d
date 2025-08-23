@@ -1027,12 +1027,12 @@ If there is a region, use it for the code actions; otherwise use point."
   :custom
   (tabspaces-use-filtered-buffers-as-default t)
   (tabspaces-default-tab "Default")
-  (tabspaces-remove-to-default t)
+  ;; (tabspaces-remove-to-default t)
   (tabspaces-include-buffers '("*scratch*"))
   ;; sessions
   (tabspaces-session t)
-  (tabspaces-session-auto-restore t)
-  (tab-bar-new-tab-choice "*scratch*"))
+  ;; (tabspaces-session-auto-restore t)
+  (tab-bar-new-tab-choice "*doom*"))
 
 ;; --- MRU + hide-visible for tabspaces switcher (no Consult needed)
 (require 'seq)
