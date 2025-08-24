@@ -34,11 +34,6 @@
                 :pre-build (("cargo" "build" "--release") ("cp" "./target/release/emacs-lsp-proxy" "./"))))
 (package! tabspaces)
 (package! xclip)
-(package! eglot-booster
-        :recipe (:host github
-                 :repo "jdtsmith/eglot-booster"
-                 :branch "main"
-                 :build (compile)))
 (package! treesit-auto)
 (package! dape)
 ;; (when (package! lsp-bridge

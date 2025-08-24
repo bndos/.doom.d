@@ -409,10 +409,6 @@ Falls back to `process-environment` if envrc export fails."
   (add-hook 'dape-mode-hook #'repeat-mode)
   )
 
-(use-package! eglot-booster
-  :after eglot
-  :config	(eglot-booster-mode))
-
 (use-package! flycheck
   :config
   (map! :leader "[" #'flycheck-previous-error)
@@ -926,7 +922,9 @@ If there is a region, use it for the code actions; otherwise use point."
 
 (use-package! olivetti
   :defer t
-  :hook (org-mode . olivetti-mode)
+  :hook
+  (org-mode . olivetti-mode)
+  (markdown-mode . olivetti-mode)
   :config
   (setq olivetti-body-width 170)
   )
@@ -1021,10 +1019,28 @@ If there is a region, use it for the code actions; otherwise use point."
 
 (use-package! tabspaces
   ;; use this next line only if you also use straight, otherwise ignore it.
-  :hook (after-init . tabspaces-mode) ;; use this only if you want the minor-mode loaded at startup.
+  ;; :hook (after-init . tabspaces-mode) ;; use this only if you want the minor-mode loaded at startup.
   :commands (tabspaces-switch-or-create-workspace
              tabspaces-open-or-create-project-and-workspace)
   :custom
+  (defun my--tabspace-setup ()
+    "Set up tabspace at startup."
+    ;; Add *Messages* and *splash* to Tab \`Home\'
+    (tabspaces-mode 1)
+    (progn
+      (tab-bar-rename-tab "Home")
+      (when (get-buffer "*Messages*")
+        (set-frame-parameter nil
+                             'buffer-list
+                             (cons (get-buffer "*Messages*")
+                                   (frame-parameter nil 'buffer-list))))
+      (when (get-buffer "*splash*")
+        (set-frame-parameter nil
+                             'buffer-list
+                             (cons (get-buffer "*splash*")
+                                   (frame-parameter nil 'buffer-list))))))
+
+  (add-hook 'after-init-hook #'my--tabspace-setup)
   (tabspaces-use-filtered-buffers-as-default t)
   (tabspaces-default-tab "Default")
   ;; (tabspaces-remove-to-default t)
@@ -1035,56 +1051,44 @@ If there is a region, use it for the code actions; otherwise use point."
   (tab-bar-new-tab-choice "*doom*"))
 
 ;; --- MRU + hide-visible for tabspaces switcher (no Consult needed)
+(require 'consult)
 (require 'seq)
 
-(defun my/tabspaces--workspace-mru (&optional hide-visible)
-  "Return workspace-local buffers in MRU order.
-If HIDE-VISIBLE is non-nil, omit buffers currently shown; if that
-would yield no candidates, fall back to showing them."
-  (let* ((pred (when (fboundp 'tabspaces--local-buffer-p)
-                 #'tabspaces--local-buffer-p))
-         ;; MRU: Emacs maintains (buffer-list) in most-recently-selected order
-         (mru (seq-filter
-               (lambda (b)
-                 (and
-                  (buffer-live-p b)
-                  ;; --- exclude minibuffer buffers ---
-                  (not (minibufferp b))
-                  (let ((bn (buffer-name b)))
-                    (not (and bn (string-prefix-p " *Minibuf-" bn))))
-                  ;; --- keep only buffers belonging to this tabspace ---
-                  (if pred (funcall pred b) t)))
-               (buffer-list)))
-         (visible (and hide-visible
-                       ;; default excludes the minibuffer window already
-                       (mapcar #'window-buffer (window-list (selected-frame)))))
-         (filtered (if hide-visible
-                       (seq-remove (lambda (b) (memq b visible)) mru)
-                     mru)))
-    (if (and hide-visible (null filtered))
-        mru
-      filtered)))
+(defun my/tabspaces--workspace-p (b)
+  "Return non-nil if buffer B belongs to the current tabspace."
+  (and (buffer-live-p b)
+       (not (minibufferp b))
+       (let ((bn (buffer-name b)))
+         (not (and bn (string-prefix-p " *Minibuf-" bn))))
+       (if (fboundp 'tabspaces--local-buffer-p)
+           (tabspaces--local-buffer-p b)
+         t)))
 
-(defun my/tabspaces-switch-to-buffer-mru ()
-  "Switch to a workspace-local buffer in MRU order.
-Hide already visible buffers unless that would leave no candidates."
+(defvar my/consult-source-tabspace
+  `(:name     "Tabspace Buffers (MRU)"
+    :narrow   ?t
+    :category buffer
+    :state    ,#'consult--buffer-state
+    :history  buffer-name-history
+    ;; Items are produced from the real MRU `buffer-list`, filtered to tabspace.
+    ;; `:sort` is handled by Consult; using `:sort 'visibility` gives
+    ;; the nice "recent + currently visible demoted" behavior.
+    :items    ,(lambda ()
+                 (consult--buffer-query
+                  :sort 'visibility
+                  :predicate #'my/tabspaces--workspace-p
+                  :as #'buffer-name))))
+
+(defun my/consult-buffer-tabspace ()
+  "Consult-powered buffer switcher limited to the current tabspace."
   (interactive)
-  (let* ((bufs  (my/tabspaces--workspace-mru 'hide-visible))
-         (cands (mapcar #'buffer-name bufs)))
-    (if (null cands)
-        (user-error "No workspace-local buffers found")
-      (let* ((default (car cands))
-             (name (completing-read "Switch to buffer (workspace MRU): "
-                                    cands nil t nil 'buffer-name-history default)))
-        (when (and name (> (length name) 0))
-          (switch-to-buffer name))))))
+  (consult-buffer (list my/consult-source-tabspace)))
 
+;; Wire it into tabspaces so your existing remap keeps working.
 (with-eval-after-load 'tabspaces
-  ;; Replace tabspaces' buffer switcher so your existing
-  ;; (tabspaces-use-filtered-buffers-as-default t) remap keeps working.
   (ignore-errors
-    (advice-remove 'tabspaces-switch-to-buffer #'my/tabspaces-switch-to-buffer-mru))
-  (advice-add 'tabspaces-switch-to-buffer :override #'my/tabspaces-switch-to-buffer-mru))
+    (advice-remove 'tabspaces-switch-to-buffer #'my/consult-buffer-tabspace))
+  (advice-add 'tabspaces-switch-to-buffer :override #'my/consult-buffer-tabspace))
 
 (defvar my/tabspaces--last nil
   "Previously active tabspace name (for quick toggle).")
