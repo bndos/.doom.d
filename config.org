@@ -239,13 +239,12 @@
   (setq typescript-ts-mode-indent-offset 4))
 
 
-(dolist (hk '(js-ts-mode-hook typescript-ts-mode-hook tsx-ts-mode-hook rjsx-mode-hook typescript-mode-hook))
-  (add-hook hk
-            (lambda ()
-              ;; Let Doom manage formatting on save (no race conditions)
-              (+format-on-save-mode 1)
-              ;; Run organize-imports just before save
-              )))
+(dolist (hk '(typescript-ts-mode-hook
+              tsx-ts-mode-hook
+              js-ts-mode-hook
+              rjsx-mode-hook
+              typescript-mode-hook))
+  (add-hook hk (lambda () (when (fboundp 'apheleia-mode) (apheleia-mode 1)))))
 
 
 (after! treesit
