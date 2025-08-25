@@ -702,22 +702,86 @@ If there is a region, use it for the code actions; otherwise use point."
 * dired
 #+BEGIN_SRC emacs-lisp
 ;; dired
+;; (after! dired-x
+;;   (defun dired-open-in-external-app ()
+;;     "Open the file(s) at point with an external application."
+;;     (interactive)
+;;     (let ((file-list (dired-get-marked-files)))
+;;       (mapc
+;;        (lambda (file-path)
+;;          (call-process "gio" nil 0 nil "open" file-path)
+;;          ;; (call-process "open" nil 0 nil file-path)
+;;          (message file-path))
+;;        file-list)))
+
+;;   (define-key dired-mode-map (kbd "M-o")
+;;               (lambda () (interactive) (dired-open-in-external-app))))
+
+;; (defun open-nautilus ()
+;;   (interactive)
+;;   (call-process "nautilus" nil 0 nil "."))
+
+;; (defun open-finder ()
+;;   (interactive)
+;;     (call-process "open" nil 0 nil "-a" "Finder" ".")))
+
+;; (map! "C-c C-n" #'open-nautilus)
+;;; cross-platform “open externally” helpers
+
+(defun my--linux-opener-and-args (path)
+  "Return (prog . args) to open PATH on Linux."
+  (cond
+   ((executable-find "xdg-open") (cons "xdg-open" (list path)))
+   ((and (executable-find "gio")) (cons "gio" (list "open" path)))
+   ((executable-find "gnome-open") (cons "gnome-open" (list path)))
+   ((executable-find "kde-open5") (cons "kde-open5" (list path)))
+   ((executable-find "kde-open") (cons "kde-open" (list path)))
+   (t (error "No opener found (tried xdg-open/gio/gnome-open/kde-open)"))))
+
+(defun my-open-external (path)
+  "Open PATH with the OS default application."
+  (interactive "fOpen externally: ")
+  (pcase system-type
+    ('darwin (start-process "open-file" nil "open" path))
+    ('windows-nt
+     (if (fboundp 'w32-shell-execute)
+         (w32-shell-execute "open" (convert-standard-filename path))
+       (start-process "open-file" nil "cmd.exe" "/C" "start" "" (convert-standard-filename path))))
+    ('gnu/linux
+     (cl-destructuring-bind (prog . args) (my--linux-opener-and-args path)
+       (apply #'start-process "open-file" nil prog args)))
+    (_ (error "Unsupported system-type: %s" system-type))))
+
+(defun my-open-file-manager-here (&optional dir)
+  "Open the platform file manager at DIR (or `default-directory')."
+  (interactive)
+  (let ((dir (file-name-as-directory (or dir default-directory))))
+    (pcase system-type
+      ('darwin (start-process "open-fm" nil "open" "-a" "Finder" dir))
+      ('windows-nt
+       (if (fboundp 'w32-shell-execute)
+           (w32-shell-execute "explore" (convert-standard-filename dir))
+         (start-process "open-fm" nil "explorer.exe" (convert-standard-filename dir))))
+      ('gnu/linux
+       (let ((fm (seq-find #'executable-find
+                           '("nautilus" "nemo" "dolphin" "thunar" "pcmanfm" "krusader"))))
+         (if fm
+             (start-process "open-fm" nil fm dir)
+           ;; fallback to generic opener
+           (cl-destructuring-bind (prog . args) (my--linux-opener-and-args dir)
+             (apply #'start-process "open-fm" nil prog args)))))
+      (_ (error "Unsupported system-type: %s" system-type)))))
+
+;;; Dired integration
 (after! dired-x
   (defun dired-open-in-external-app ()
-    "Open the file(s) at point with an external application."
+    "Open marked files in their default external app."
     (interactive)
-    (let ((file-list (dired-get-marked-files)))
-      (mapc
-       (lambda (file-path)
-         ;; (let ((process-connection-type nil))
-         ;;   (start-process "" nil "gio" "open" file-path))
-         ;; (start-process "" nil "gio" "open" file-path)
-         (call-process "gio" nil 0 nil "open" file-path)
-         (message file-path))
-       file-list)))
-
-  (define-key dired-mode-map (kbd "M-o")
-              (lambda () (interactive) (dired-open-in-external-app))))
+    (let ((files (dired-get-marked-files)))
+      (dolist (f files)
+        (my-open-external f)
+        (message "Opening: %s" f))))
+  (define-key dired-mode-map (kbd "M-o") #'dired-open-in-external-app))
 
 (after! dirvish
   (setq dirvish-hide-details t)
@@ -950,12 +1014,6 @@ If there is a region, use it for the code actions; otherwise use point."
                               (interactive)
                               (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . left) (slot . 1) (window-width . 0.2)))))
 
-(defun open-nautilus ()
-  (interactive)
-  (call-process "nautilus" nil 0 nil "."))
-
-(map! "C-c C-n" #'open-nautilus)
-
 (defun open-term ()
   "Lists the contents of the current directory."
   (interactive)
@@ -1043,7 +1101,7 @@ If there is a region, use it for the code actions; otherwise use point."
   (add-hook 'after-init-hook #'my--tabspace-setup)
   (tabspaces-use-filtered-buffers-as-default t)
   (tabspaces-default-tab "Default")
-  ;; (tabspaces-remove-to-default t)
+  (tabspaces-remove-to-default t)
   (tabspaces-include-buffers '("*scratch*"))
   ;; sessions
   (tabspaces-session t)

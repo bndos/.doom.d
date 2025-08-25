@@ -1,5 +1,5 @@
 [language-server]
-basedpyright = { command = "basedpyright-langserver", args = ["--stdio"], config = {} }
+ty = { command = "ty", args = ["server"], config = {} }
 taplo = { command = "taplo", args = ["lsp", "stdio"] }
 bash-language-server = { command = "bash-language-server", args = ["start"] }
 vscode-json-language-server = { command = "vscode-json-language-server", args = ["--stdio"], config = { provideFormatter = true, json = { validate = { enable = true } } } }
@@ -193,8 +193,7 @@ language-servers = ["css-ls"]
 name = "python"
 file-types = ["py", "pyi", "py3", "pyw", "ptl", "rpy", "cpy", "ipy", "pyt", { glob = ".python_history" }, { glob = ".pythonstartup" }, { glob = ".pythonrc" }, { glob = "SConstruct" }, { glob = "SConscript" }]
 roots = ["pyproject.toml", "setup.py", "poetry.lock", "pyrightconfig.json"]
-language-servers = [ "basedpyright" ]
-
+language-servers = [ "ty" ]
 
 [[language]]
 name = "rust"

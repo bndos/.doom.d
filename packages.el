@@ -29,9 +29,9 @@
 (package! breadcrumb)
 (package! engrave-faces)
 (package! org-ref)
-(package! lsp-proxy :recipe (:host github :repo "jadestrong/lsp-proxy"
-                :files ("lsp-proxy.el" "emacs-lsp-proxy")
-                :pre-build (("cargo" "build" "--release") ("cp" "./target/release/emacs-lsp-proxy" "./"))))
+(package! lsp-proxy :pin "de2a99f2883abf581f9e627181b41abdbf799333" :recipe (:host github :repo "jadestrong/lsp-proxy"
+                                                                             :files ("lsp-proxy.el" "emacs-lsp-proxy")
+                                                                             :pre-build (("cargo" "build" "--release") ("cp" "./target/release/emacs-lsp-proxy" "./"))))
 (package! tabspaces)
 (package! xclip)
 (package! treesit-auto)
