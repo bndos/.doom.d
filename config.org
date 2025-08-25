@@ -50,14 +50,14 @@
 
 (defun my-preferred-font-size ()
   (let ( (dpi (my-dpi)) )
-  (cond
-    ((< dpi 110) 20)
-    ((< dpi 130) 20)
-    ((< dpi 160) 20)
-    ((< dpi 192) 20)
-    ((< dpi 210) 28)
-    ((< dpi 240) 29)
-    (t 30))))
+    (cond
+     ((< dpi 110) 20)
+     ((< dpi 130) 20)
+     ((< dpi 160) 20)
+     ((< dpi 192) 20)
+     ((< dpi 210) 28)
+     ((< dpi 240) 29)
+     (t 30))))
 
 (defvar my-preferred-font-size (my-preferred-font-size))
 ;; Color on compile buffer
@@ -236,9 +236,17 @@
          )
 
   :config
-  (setq typescript-ts-mode-indent-offset 4)
-  ;; (add-hook! '(typescript-ts-mode-hook tsx-ts-mode-hook) 'eglot-ensure)
-  )
+  (setq typescript-ts-mode-indent-offset 4))
+
+
+(dolist (hk '(js-ts-mode-hook typescript-ts-mode-hook tsx-ts-mode-hook rjsx-mode-hook typescript-mode-hook))
+  (add-hook hk
+            (lambda ()
+              ;; Let Doom manage formatting on save (no race conditions)
+              (+format-on-save-mode 1)
+              ;; Run organize-imports just before save
+              )))
+
 
 (after! treesit
   (setq treesit-language-source-alist
@@ -702,32 +710,6 @@ If there is a region, use it for the code actions; otherwise use point."
 * dired
 #+BEGIN_SRC emacs-lisp
 ;; dired
-;; (after! dired-x
-;;   (defun dired-open-in-external-app ()
-;;     "Open the file(s) at point with an external application."
-;;     (interactive)
-;;     (let ((file-list (dired-get-marked-files)))
-;;       (mapc
-;;        (lambda (file-path)
-;;          (call-process "gio" nil 0 nil "open" file-path)
-;;          ;; (call-process "open" nil 0 nil file-path)
-;;          (message file-path))
-;;        file-list)))
-
-;;   (define-key dired-mode-map (kbd "M-o")
-;;               (lambda () (interactive) (dired-open-in-external-app))))
-
-;; (defun open-nautilus ()
-;;   (interactive)
-;;   (call-process "nautilus" nil 0 nil "."))
-
-;; (defun open-finder ()
-;;   (interactive)
-;;     (call-process "open" nil 0 nil "-a" "Finder" ".")))
-
-;; (map! "C-c C-n" #'open-nautilus)
-;;; cross-platform “open externally” helpers
-
 (defun my--linux-opener-and-args (path)
   "Return (prog . args) to open PATH on Linux."
   (cond
@@ -771,6 +753,8 @@ If there is a region, use it for the code actions; otherwise use point."
            (cl-destructuring-bind (prog . args) (my--linux-opener-and-args dir)
              (apply #'start-process "open-fm" nil prog args)))))
       (_ (error "Unsupported system-type: %s" system-type)))))
+
+(map! "C-c C-n" #'my-open-file-manager-here)
 
 ;;; Dired integration
 (after! dired-x

@@ -1,5 +1,6 @@
 [language-server]
 ty = { command = "ty", args = ["server"], config = {} }
+terraform-ls = { command = "terraform-ls", args = ["serve"], config = {} }
 taplo = { command = "taplo", args = ["lsp", "stdio"] }
 bash-language-server = { command = "bash-language-server", args = ["start"] }
 vscode-json-language-server = { command = "vscode-json-language-server", args = ["--stdio"], config = { provideFormatter = true, json = { validate = { enable = true } } } }
@@ -175,7 +176,7 @@ language-id = "typescriptreact"
 file-types = ["tsx"]
 roots = ["package.json"]
 language-servers = [
-  { name = "vtsls", except-features = [ "format" ] },
+  { name = "vtsls", except-features = [ ] },
   # { name = "typescript-language-server", except-features = [
   #   "format",
   # ] },
@@ -194,6 +195,12 @@ name = "python"
 file-types = ["py", "pyi", "py3", "pyw", "ptl", "rpy", "cpy", "ipy", "pyt", { glob = ".python_history" }, { glob = ".pythonstartup" }, { glob = ".pythonrc" }, { glob = "SConstruct" }, { glob = "SConscript" }]
 roots = ["pyproject.toml", "setup.py", "poetry.lock", "pyrightconfig.json"]
 language-servers = [ "ty" ]
+
+[[language]]
+name = "terraform-ls"
+file-types = ["tf"]
+roots = ["main.tf", ".terraform", ".git"]
+language-servers = [ "terraform-ls" ]
 
 [[language]]
 name = "rust"
