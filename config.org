@@ -443,7 +443,7 @@ Falls back to `process-environment` if envrc export fails."
                less-css-mode-hook
                web-mode-hook
                go-mode-hook
-               python-mode-hook
+               ;; python-mode-hook
                rust-mode-hook
                c-mode-hook
                c++-mode-hook

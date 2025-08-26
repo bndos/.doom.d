@@ -169,17 +169,17 @@
        ;;nix               ; I hereby declare "nix geht mehr!"
        ;;ocaml             ; an objective camel
        (org
-        +journal
+        ;; +journal
         ;; +roam2
         +dragndrop
         ;; +pomodoro
-        +jupyter
+        ;; +jupyter
         )               ; organize your plain life in plain text
        ;;php               ; perl's insecure younger brother
        ;;plantuml          ; diagrams for confusing people more
        ;;purescript        ; javascript, but functional
        (python
-        ;; +lsp
+        +lsp
         ;; +tree-sitter
         )           ; beautiful is better than ugly
        ;;qt                ; the 'cutest' gui framework ever
@@ -196,7 +196,7 @@
        sh                ; she sells {ba,z,fi}sh shells on the C xor
        ;;sml
        ;;solidity          ; do you need a blockchain? No.
-       (swift)             ; who asked for emoji variables?
+       ;; (swift)             ; who asked for emoji variables?
        ;;terra             ; Earth and Moon in alignment for performance.
        ;; (web +lsp)               ; the tubes
        yaml                ; JSON, but readable
