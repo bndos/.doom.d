@@ -20,7 +20,7 @@
 (package! copilot
   :recipe (:host github :repo "copilot-emacs/copilot.el" :files ("*.el")))
 ;; (package! leetcode)
-(package! gptel :pin "2a2b7f97bb8217f5bde64cb4b8dd1b0f793b74f2")
+(package! gptel)
 ;; (package! pr-review)
 ;; (package! arxiv-mode)
 ;; (package! pulsar)
