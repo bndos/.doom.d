@@ -1,5 +1,5 @@
 [language-server]
-ty = { command = "ty", args = ["server"], config = {} }
+basedpyright = { command = "basedpyright-langserver", args = ["--stdio"], config = {} }
 terraform-ls = { command = "terraform-ls", args = ["serve"], config = {} }
 taplo = { command = "taplo", args = ["lsp", "stdio"] }
 bash-language-server = { command = "bash-language-server", args = ["start"] }
@@ -194,7 +194,7 @@ language-servers = ["css-ls"]
 name = "python"
 file-types = ["py", "pyi", "py3", "pyw", "ptl", "rpy", "cpy", "ipy", "pyt", { glob = ".python_history" }, { glob = ".pythonstartup" }, { glob = ".pythonrc" }, { glob = "SConstruct" }, { glob = "SConscript" }]
 roots = ["pyproject.toml", "setup.py", "poetry.lock", "pyrightconfig.json"]
-language-servers = [ "ty" ]
+language-servers = [ "basedpyright" ]
 
 [[language]]
 name = "terraform-ls"
