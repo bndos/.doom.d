@@ -32,21 +32,17 @@
 (setq warning-minimum-level :emergency)
 
 (defun my-dpi ()
-  (let* ((attrs (car (display-monitor-attributes-list)))
-         (size (assoc 'mm-size attrs))
-         (sizex (cadr size))
-         (res (cdr (assoc 'geometry attrs)))
-         (resx (- (caddr res) (car res)))
-         dpi)
-    (catch 'exit
-      ;; in terminal
-      (unless sizex
-        (throw 'exit 10))
-      ;; on big screen
-      (when (> sizex 1000)
-        (throw 'exit 10))
-      ;; DPI
-      (* (/ (float resx) sizex) 25.4))))
+  (if (eq system-type 'darwin)
+      (* 96 (frame-monitor-attribute 'backing-scale-factor))
+    ;; your original DPI logic
+    (let* ((attrs (car (display-monitor-attributes-list)))
+           (size (assoc 'mm-size attrs))
+           (sizex (cadr size))
+           (res (cdr (assoc 'geometry attrs)))
+           (resx (- (caddr res) (car res))))
+      (if sizex
+          (* (/ (float resx) sizex) 25.4)
+        96))))
 
 (defun my-preferred-font-size ()
   (let ( (dpi (my-dpi)) )
@@ -69,9 +65,9 @@
 ;; Theme
 ;; (setq doom-theme 'doom-snazzy)
 ;; (setq doom-theme 'doom-outrun-electric)
-(setq doom-theme 'doom-tokyo-night)
+;; (setq doom-theme 'doom-tokyo-night)
 ;; (setq doom-theme 'doom-ephemeral)
-;; (setq doom-theme 'doom-dracula)
+(setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-feather-dark)
 ;; (setq doom-theme 'doom-challenger-deep)
 (setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size my-preferred-font-size)
@@ -443,7 +439,7 @@ Falls back to `process-environment` if envrc export fails."
                less-css-mode-hook
                web-mode-hook
                go-mode-hook
-               python-mode-hook
+               ;; python-mode-hook
                rust-mode-hook
                c-mode-hook
                c++-mode-hook
@@ -834,6 +830,11 @@ If there is a region, use it for the code actions; otherwise use point."
 #+BEGIN_SRC emacs-lisp
 (after! magit
   (setq transient-display-buffer-action '(display-buffer-in-side-window (side . bottom))))
+
+(after! pr-review
+  (map! :map pr-review-mode-map
+        "M-RET" #'magit-diff-visit-worktree-file-other-window))
+(setq auth-sources '("~/.authinfo.gpg" "~/.authinfo"))
 #+END_SRC
 
 * window-rules

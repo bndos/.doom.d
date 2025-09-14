@@ -102,8 +102,8 @@
        (eval +overlay)     ; run code, run (also, repls)
        ;;gist              ; interacting with github gists
        lookup              ; navigate your code and its documentation
-       ;; (lsp
-       ;;  +eglot)
+       (lsp
+        +eglot)
        magit             ; a git porcelain for Emacs
        ;;make              ; run make tasks from Emacs
        pass              ; password manager for nerds
@@ -179,7 +179,7 @@
        ;;plantuml          ; diagrams for confusing people more
        ;;purescript        ; javascript, but functional
        (python
-        ;; +lsp
+        +lsp
         ;; +tree-sitter
         )           ; beautiful is better than ugly
        ;;qt                ; the 'cutest' gui framework ever

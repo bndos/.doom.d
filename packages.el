@@ -21,7 +21,7 @@
   :recipe (:host github :repo "copilot-emacs/copilot.el" :files ("*.el")))
 ;; (package! leetcode)
 (package! gptel)
-;; (package! pr-review)
+(package! pr-review)
 ;; (package! arxiv-mode)
 ;; (package! pulsar)
 (package! lazy-ruff)
