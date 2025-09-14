@@ -31,31 +31,7 @@
 (global-visual-line-mode t)
 (setq warning-minimum-level :emergency)
 
-(defun my-dpi ()
-  (if (eq system-type 'darwin)
-      (* 96 (frame-monitor-attribute 'backing-scale-factor))
-    ;; your original DPI logic
-    (let* ((attrs (car (display-monitor-attributes-list)))
-           (size (assoc 'mm-size attrs))
-           (sizex (cadr size))
-           (res (cdr (assoc 'geometry attrs)))
-           (resx (- (caddr res) (car res))))
-      (if sizex
-          (* (/ (float resx) sizex) 25.4)
-        96))))
-
-(defun my-preferred-font-size ()
-  (let ( (dpi (my-dpi)) )
-    (cond
-     ((< dpi 110) 20)
-     ((< dpi 130) 20)
-     ((< dpi 160) 20)
-     ((< dpi 192) 20)
-     ((< dpi 210) 28)
-     ((< dpi 240) 29)
-     (t 30))))
-
-(defvar my-preferred-font-size (my-preferred-font-size))
+(defvar my-preferred-font-size 20)
 ;; Color on compile buffer
 (require 'ansi-color)
 (defun my/ansi-colorize-buffer ()
@@ -83,8 +59,8 @@
 (add-to-list 'default-frame-alist '(height . 80))
 (add-to-list 'default-frame-alist '(width . 350))
 
-;; (add-to-list 'default-frame-alist
-;;              '(font . "Comic Mono-13"))
+(add-to-list 'default-frame-alist
+             '(font . "Comic Mono-11"))
 
 
 (add-to-list 'default-frame-alist '(internal-border-width . 20))
