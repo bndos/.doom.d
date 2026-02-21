@@ -80,6 +80,8 @@
   (setq doom-modeline-buffer-file-name-style 'file-name)
   (setq-default doom-modeline-height 15)
   (require 'doom-modeline)
+  (setq doom-modeline-persp-name t)
+  (setq doom-modeline-workspace-name t)
   (doom-modeline-def-modeline 'main
     '(eldoc bar workspace-name window-number modals matches follow buffer-info remote-host buffer-position word-count parrot selection-info)
     '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time "     "))
@@ -811,6 +813,50 @@ If there is a region, use it for the code actions; otherwise use point."
   (map! :map pr-review-mode-map
         "M-RET" #'magit-diff-visit-worktree-file-other-window))
 (setq auth-sources '("~/.authinfo.gpg" "~/.authinfo"))
+
+(use-package! consult-gh
+  :after consult
+  :custom
+  (consult-gh-default-clone-directory "~/projects")
+  (consult-gh-show-preview t)
+  (consult-gh-preview-key "C-o")
+  (consult-gh-repo-action #'consult-gh--repo-browse-files-action)
+  (consult-gh-large-file-warning-threshold 2500000)
+  (consult-gh-confirm-name-before-fork nil)
+  (consult-gh-confirm-before-clone t)
+  (consult-gh-notifications-show-unread-only nil)
+  (consult-gh-default-interactive-command #'consult-gh-transient)
+  (consult-gh-prioritize-local-folder nil)
+  (consult-gh-group-dashboard-by :reason)
+  ;;;; Optional
+  (consult-gh-repo-preview-major-mode nil) ; show readmes in their original format
+  (consult-gh-preview-major-mode 'org-mode) ; use 'org-mode for editing comments, commit messages, ...
+  :config
+  (require 'consult-gh-transient)
+  ;; Remember visited orgs and repos across sessions
+  ;; Enable default keybindings (e.g. for commenting on issues, prs, ...)
+  (consult-gh-enable-default-keybindings))
+
+
+;; Install `consult-gh-embark' for embark actions
+(use-package! consult-gh-embark
+  :config
+  (consult-gh-embark-mode +1))
+
+
+;; Install `consult-gh-forge' for forge actions
+(use-package! consult-gh-forge
+ :config
+ (consult-gh-forge-mode +1)
+ (setq consult-gh-forge-timeout-seconds 20))
+
+
+(use-package! code-review
+  :config
+  (map! :map code-review-mode-map
+        "M-RET" #'magit-diff-visit-worktree-file-other-window)
+  (setq code-review-auth-login-marker 'forge)
+  (add-hook 'code-review-mode-hook #'emojify-mode))
 #+END_SRC
 
 * window-rules
@@ -946,9 +992,9 @@ If there is a region, use it for the code actions; otherwise use point."
 
 (use-package! olivetti
   :defer t
-  :hook
-  (org-mode . olivetti-mode)
-  (markdown-mode . olivetti-mode)
+  ;; :hook
+  ;; (org-mode . olivetti-mode)
+  ;; (markdown-mode . olivetti-mode)
   :config
   (setq olivetti-body-width 170)
   )
@@ -1030,6 +1076,14 @@ If there is a region, use it for the code actions; otherwise use point."
 
 (setq bookmark-default-file "~/.config/doom/bookmarks")
 #+END_SRC
+* AI
+#+BEGIN_SRC emacs-lisp
+;; ai
+(use-package! agent-shell
+  :config
+  (setq agent-shell-google-authentication
+        (agent-shell-google-make-authentication :login t)))
+#+END_SRC
 
 * remapping
 #+BEGIN_SRC emacs-lisp
@@ -1057,6 +1111,7 @@ If there is a region, use it for the code actions; otherwise use point."
 (map! :leader "w >" '(lambda () (interactive) (enlarge-window-horizontally 10)))
 (map! :leader "w +" '(lambda () (interactive) (enlarge-window 10)))
 (map! :leader "w -" '(lambda () (interactive) (shrink-window 10)))
+(map! :leader "w a" 'ace-window)
 
 ;; Pull from PRIMARY (same as middle mouse click)
 (defun get-primary ()

@@ -5,7 +5,6 @@
 ;; on the command line, then restart Emacs for the changes to take effect -- or
 ;; use 'M-x doom/reload'.
 
-
 ;; To install SOME-PACKAGE from MELPA, ELPA or emacsmirror:
                                         ;(package! some-package)
 (package! solaire-mode :disable t)
@@ -17,11 +16,21 @@
 (package! meson-mode)
 (package! olivetti)
 ;; (package! matlab-mode)
-(package! copilot
-  :recipe (:host github :repo "copilot-emacs/copilot.el" :files ("*.el")))
+(package! copilot)
+;;  :recipe (:host github :repo "copilot-emacs/copilot.el" :files ("*.el")))
 ;; (package! leetcode)
 (package! gptel)
 (package! pr-review)
+(package! consult-gh)
+(package! consult-gh-embark)
+(package! consult-gh-forge)
+(package! code-review
+  :recipe (:host github
+           :repo "phelrine/code-review"
+           :branch "fix/closql-update"
+           ;; code-review ships GraphQL queries in a subdir, make sure they’re installed
+           :files ("*.el" "graphql" "code-review-pkg.el"))
+  :pin "97dae6fca12d49833dcbe865460021151520c10b")
 ;; (package! arxiv-mode)
 ;; (package! pulsar)
 (package! lazy-ruff)
@@ -30,8 +39,15 @@
 (package! engrave-faces)
 (package! org-ref)
 (package! lsp-proxy :recipe (:host github :repo "jadestrong/lsp-proxy"
-                             :files ("lsp-proxy.el" "emacs-lsp-proxy")
-                             :pre-build (("cargo" "build" "--release") ("cp" "./target/release/emacs-lsp-proxy" "./"))))
+                             :files ("*.el")))
+(package! aibridge :recipe (:host github :repo "bndos/aibridge"
+                            :files ("*.el")))
+(package! shell-maker)
+(package! acp :recipe (:host github :repo "xenodium/acp.el"
+                       :files("*.el")))
+(package! agent-shell :recipe (:host github :repo "xenodium/agent-shell" :branch "main"
+                               :files("*.el")))
+(package! magit-delta)
 (package! tabspaces)
 (package! xclip)
 (package! treesit-auto)
@@ -51,7 +67,7 @@
 
 ;; To install a package directly from a remote git repo, you must specify a
 ;; `:recipe'. You'll find documentation on what `:recipe' accepts here:
-;; https://github.com/raxod502/straight.el#the-recipe-format
+;; [https://github.com/raxod502/straight.el#the-recipe-format](https://github.com/raxod502/straight.el#the-recipe-format)
                                         ;(package! another-package
                                         ;  :recipe (:host github :repo "username/repo"))
 
@@ -79,7 +95,6 @@
 
 ;; Use `:pin' to specify a particular commit to install.
                                         ;(package! builtin-package :pin "1a2b3c4d5e")
-
 
 ;; Doom's packages are pinned to a specific commit and updated from release to
 ;; release. The `unpin!' macro allows you to unpin single packages...

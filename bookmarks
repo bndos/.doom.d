@@ -134,10 +134,11 @@
  (rear-context-string . "#! /bin/sh\nxrdb ")
  (position . 17))
 ("z-alacritty"
- (filename . "~/.config/alacritty/alacritty.yml")
+ (filename . "~/.config/alacritty/alacritty.toml")
  (front-context-string . "\n# Spaces per Ta")
  (rear-context-string . "o_scroll: false\n")
- (position . 2591))
+ (position . 2591)
+ (last-modified 26827 25524 476384 908000))
 ("h-desktop"
  (filename . "~/Desktop/")
  (front-context-string . "ring-project\n  d")
