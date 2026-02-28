@@ -43,8 +43,8 @@
 ;; (setq doom-theme 'doom-outrun-electric)
 ;; (setq doom-theme 'doom-tokyo-night)
 ;; (setq doom-theme 'doom-ephemeral)
-(setq doom-theme 'doom-dracula)
-;; (setq doom-theme 'doom-feather-dark)
+;; (setq doom-theme 'doom-dracula)
+(setq doom-theme 'doom-feather-dark)
 ;; (setq doom-theme 'doom-challenger-deep)
 (setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size my-preferred-font-size)
        doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size my-preferred-font-size)
@@ -64,9 +64,9 @@
 
 
 (add-to-list 'default-frame-alist '(internal-border-width . 20))
-(add-to-list 'default-frame-alist '(alpha-background . 93))
+(add-to-list 'default-frame-alist '(alpha-background . 95))
 
-(set-frame-parameter (selected-frame) 'alpha-background 0.93)
+(set-frame-parameter (selected-frame) 'alpha-background 0.95)
 ;; (set-frame-parameter nil 'alpha-background 80)
 
 ;; (setq-default header-line-format " ")
@@ -86,6 +86,10 @@
     '(eldoc bar workspace-name window-number modals matches follow buffer-info remote-host buffer-position word-count parrot selection-info)
     '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time "     "))
   )
+
+(add-hook 'doom-load-theme-hook
+          (lambda ()
+            (set-cursor-color "#ddfb04")))
 
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
