@@ -902,6 +902,14 @@ If there is a region, use it for the code actions; otherwise use point."
 (add-hook 'ediff-before-setup-hook (lambda () (select-frame (make-frame))))
 #+END_SRC
 
+* projectile
+#+BEGIN_SRC emacs-lisp
+;; projectile
+(use-package! projectile
+  :config
+  (setq projectile-indexing-method 'alien))
+#+END_SRC
+
 * vterm
 #+BEGIN_SRC emacs-lisp
 ;; vterm
