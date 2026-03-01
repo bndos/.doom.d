@@ -1085,6 +1085,11 @@ If there is a region, use it for the code actions; otherwise use point."
 ;; ai
 (use-package! agent-shell
   :config
+  (setq agent-shell-openai-codex-acp-command
+        '("codex-acp"
+          "-c" "approval_policy=\"never\""
+          "-c" "sandbox_mode=\"workspace-write\""))
+  (setq agent-shell-session-strategy 'prompt)
   (setq agent-shell-google-authentication
         (agent-shell-google-make-authentication :login t)))
 #+END_SRC
