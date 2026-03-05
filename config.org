@@ -31,7 +31,7 @@
 (global-visual-line-mode t)
 (setq warning-minimum-level :emergency)
 
-(defvar my-preferred-font-size 20)
+(defvar my-preferred-font-size 11)
 ;; Color on compile buffer
 (require 'ansi-color)
 (defun my/ansi-colorize-buffer ()
@@ -258,6 +258,14 @@
 #+BEGIN_SRC emacs-lisp
 ;; consult
 (setq consult-fontify-max-size 1024)
+#+END_SRC
+
+* kubed
+#+BEGIN_SRC emacs-lisp
+(use-package! kubed
+  :commands (kubed kubed-transient)
+  :init
+  (map! :leader "k k" #'kubed-prefix-map))
 #+END_SRC
 
 * lsp/flymake
@@ -808,6 +816,13 @@ If there is a region, use it for the code actions; otherwise use point."
  (setq gptel-default-mode 'org-mode))
 #+END_SRC
 
+* magit-delta
+#+BEGIN_SRC emacs-lisp
+;; magit-delta
+(use-package! magit-delta
+  :hook (magit-mode . magit-delta-mode))
+#+END_SRC
+
 * magit
 #+BEGIN_SRC emacs-lisp
 (after! magit
@@ -875,24 +890,24 @@ If there is a region, use it for the code actions; otherwise use point."
  `(
    ("\\*Buffer List\\*"
     (display-buffer-reuse-window display-buffer-in-side-window)
-    (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 1) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . side))
 
    ("\\*\\(?:Tag List\\)\\*\\|^*julia" display-buffer-in-side-window
-    (side . right) (slot . 0) (window-width . 0.2) (dedicated . t)
+    (side . right) (slot . 0) (window-width . 0.2) (dedicated . side)
     (preserve-size . (t . nil)))
 
    ("^\\*magit:\\|^magit-diff" display-buffer-in-side-window
-    (side . left) (slot . 3) (window-width . 0.2) (dedicated . t)
+    (side . left) (slot . 3) (window-width . 0.2) (dedicated . side)
     (preserve-size . (t . nil)))
 
    ("COMMIT_EDITMSG" display-buffer-in-side-window
-    (side . left) (slot . 2) (window-width . 0.2) (dedicated . t)
+    (side . left) (slot . 2) (window-width . 0.2) (dedicated . side)
     (preserve-size . (t . nil)))
    ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein\\|^*MATLAB\\|^* docker container" display-buffer-in-side-window
-    (side . top) (slot . 4) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 4) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . side))
 
    ("\\*\\(?:shell\\|vterm\\)\\*" display-buffer-in-side-window
-    (side . top) (slot . 5) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . t))
+    (side . top) (slot . 5) (preserve-size . (nil . t)) (window-height . 0.15) (dedicated . side))
 
    )
  )
@@ -1019,18 +1034,23 @@ If there is a region, use it for the code actions; otherwise use point."
 (setq delete-by-moving-to-trash t)
 (setq-default comment-line-break-function nil)
 
-(map! :leader "w M-J" (lambda()
-                        (interactive)
-                        (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . -1) (window-height . 0.15)))))
-(map! :leader "w M-K" (lambda()
-                        (interactive)
-                        (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . top) (slot . 1) (window-height . 0.15)))))
-(map! :leader "w M-L" (lambda()
-                        (interactive)
-                        (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . right) (slot . 1) (window-width . 0.35)))))
-(map! :leader "w M-H" (lambda()
-                        (interactive)
-                        (display-buffer-in-side-window (get-buffer (buffer-name)) '((side . left) (slot . 1) (window-width . 0.2)))))
+(defun my/display-current-buffer-in-side (side slot size)
+  (interactive)
+  (display-buffer
+   (current-buffer)
+   `((display-buffer-in-side-window)
+     (side . ,side)
+     (slot . ,slot)
+     ,(if (memq side '(left right))
+          `(window-width . ,size)
+        `(window-height . ,size))
+     (dedicated . side)
+     (window-parameters . ((no-delete-other-windows . t))))))
+
+(map! :leader "w M-J" (cmd! (my/display-current-buffer-in-side 'top  -1 0.15)))
+(map! :leader "w M-K" (cmd! (my/display-current-buffer-in-side 'top   1 0.15)))
+(map! :leader "w M-L" (cmd! (my/display-current-buffer-in-side 'right 1 0.35)))
+(map! :leader "w M-H" (cmd! (my/display-current-buffer-in-side 'left  1 0.20)))
 
 (defun open-term ()
   "Lists the contents of the current directory."

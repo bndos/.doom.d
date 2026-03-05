@@ -47,6 +47,8 @@
                        :files("*.el")))
 (package! agent-shell :recipe (:host github :repo "xenodium/agent-shell" :branch "main"
                                :files("*.el")))
+(package! kubed :recipe (:host github :repo "eshelyaron/kubed"))
+(package! majutsu :recipe (:host github :repo "0WD0/majutsu"))
 (package! magit-delta)
 (package! tabspaces)
 (package! xclip)
