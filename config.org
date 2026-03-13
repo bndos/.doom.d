@@ -836,7 +836,7 @@ If there is a region, use it for the code actions; otherwise use point."
 (use-package! consult-gh
   :after consult
   :custom
-  (consult-gh-default-clone-directory "~/projects")
+  (consult-gh-default-clone-directory "~/Projects")
   (consult-gh-show-preview t)
   (consult-gh-preview-key "C-o")
   (consult-gh-repo-action #'consult-gh--repo-browse-files-action)
@@ -847,15 +847,12 @@ If there is a region, use it for the code actions; otherwise use point."
   (consult-gh-default-interactive-command #'consult-gh-transient)
   (consult-gh-prioritize-local-folder nil)
   (consult-gh-group-dashboard-by :reason)
-  ;;;; Optional
-  (consult-gh-repo-preview-major-mode nil) ; show readmes in their original format
-  (consult-gh-preview-major-mode 'org-mode) ; use 'org-mode for editing comments, commit messages, ...
+  (consult-gh-repo-preview-major-mode nil)
+  (consult-gh-preview-major-mode 'org-mode)
   :config
   (require 'consult-gh-transient)
-  ;; Remember visited orgs and repos across sessions
-  ;; Enable default keybindings (e.g. for commenting on issues, prs, ...)
-  (consult-gh-enable-default-keybindings))
-
+  (consult-gh-enable-default-keybindings)
+  (consult-gh-with-pr-review-mode +1))
 
 ;; Install `consult-gh-embark' for embark actions
 (use-package! consult-gh-embark

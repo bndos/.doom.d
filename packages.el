@@ -24,6 +24,7 @@
 (package! consult-gh)
 (package! consult-gh-embark)
 (package! consult-gh-forge)
+(package! consult-gh-with-pr-review)
 (package! code-review
   :recipe (:host github
            :repo "phelrine/code-review"
