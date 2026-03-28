@@ -841,12 +841,21 @@ If there is a region, use it for the code actions; otherwise use point."
 * magit-delta
 #+BEGIN_SRC emacs-lisp
 ;; magit-delta
-;; (use-package! magit-delta
-;;   :hook (magit-mode . magit-delta-mode))
+(use-package! magit-delta
+  :hook (magit-mode . magit-delta-mode))
 #+END_SRC
 
 * magit
 #+BEGIN_SRC emacs-lisp
+(use-package! magit-treediff
+  :after magit
+  :load-path "lisp/magit-treediff"
+  :init
+  (setq magit-treediff-tree-backend 'treemacs)
+  :config
+  (map! :map magit-status-mode-map
+        :nv "v" #'magit-treediff))
+
 (after! magit
   (setq transient-display-buffer-action '(display-buffer-in-side-window (side . bottom))))
 
