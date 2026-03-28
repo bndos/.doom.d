@@ -847,9 +847,10 @@ If there is a region, use it for the code actions; otherwise use point."
 
 * magit
 #+BEGIN_SRC emacs-lisp
+(add-load-path! "lisp/magit-treediff")
+
 (use-package! magit-treediff
   :after magit
-  :load-path "lisp/magit-treediff"
   :init
   (setq magit-treediff-tree-backend 'treemacs)
   :config
