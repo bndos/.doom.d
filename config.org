@@ -81,8 +81,6 @@
         tab-bar-new-button-show nil
         tab-bar-close-button-show nil)
 
-  (defvar my/tab-bar-update-pending nil)
-
   (defun my/tab-bar-persp-tabs ()
     (when (bound-and-true-p persp-mode)
       (let* ((names (persp-names-current-frame-fast-ordered))
@@ -98,17 +96,7 @@
               (lambda () (interactive) (persp-switch ,name)))))
          names))))
 
-  (setq tab-bar-format '(my/tab-bar-persp-tabs))
-
-  (add-hook 'persp-activated-functions
-            (lambda (&rest _) (setq my/tab-bar-update-pending t)))
-
-  (add-hook 'post-command-hook
-            (lambda ()
-              (when my/tab-bar-update-pending
-                (setq my/tab-bar-update-pending nil)
-                (set-frame-parameter nil 'tab-bar-lines 0)
-                (set-frame-parameter nil 'tab-bar-lines 1)))))
+  (setq tab-bar-format '(my/tab-bar-persp-tabs)))
 
 (after! doom-modeline
   (setq doom-modeline-buffer-file-name-style 'file-name)
