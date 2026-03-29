@@ -1058,8 +1058,12 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
           :children (magit-treediff--treemacs-file-children)
           :child-type 'magit-treediff-treemacs-node)
         (treemacs-define-expandable-node-type magit-treediff-treemacs-node
-          :open-icon (if (eq (plist-get item :type) 'dir) "▾ " "  ")
-          :closed-icon (if (eq (plist-get item :type) 'dir) "▸ " "  ")
+          :open-icon (if (eq (plist-get item :type) 'dir)
+                         (treemacs-icon-for-dir (plist-get item :name) 'open)
+                       (treemacs-icon-for-file (or (plist-get item :path) "")))
+          :closed-icon (if (eq (plist-get item :type) 'dir)
+                           (treemacs-icon-for-dir (plist-get item :name) 'closed)
+                         (treemacs-icon-for-file (or (plist-get item :path) "")))
           :label (magit-treediff--treemacs-node-label item)
           :key (or (plist-get item :path)
                    (concat (plist-get item :name) "/"))
@@ -1090,8 +1094,8 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
           (header (with-current-buffer controller
                     (magit-treediff--format-header))))
       (goto-char (point-min))
-      (insert (propertize (concat "  " header) 'face 'magit-treediff-tree-root
-                          'keymap nil)
+      (insert (or (ht-get treemacs-icons 'dir-open) "")
+              (propertize header 'face 'magit-treediff-tree-root 'keymap nil)
               "\n"))
     (magit-treediff--goto-selected-tree-file)
     (set-buffer-modified-p nil)))
