@@ -1098,6 +1098,10 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
               (propertize header 'face 'magit-treediff-tree-root 'keymap nil)
               "\n"))
     (magit-treediff--goto-selected-tree-file)
+    ;; Re-enable hl-line so the cursor is visible when navigating the tree.
+    ;; --tree-buffer-common-setup disables it to avoid a double-highlight in
+    ;; the builtin backend; treemacs has no separate focus cue of its own.
+    (hl-line-mode 1)
     (set-buffer-modified-p nil)))
 
 (defun magit-treediff--ensure-treemacs-tree-buffer ()
