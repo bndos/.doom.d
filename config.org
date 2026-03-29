@@ -849,6 +849,7 @@ If there is a region, use it for the code actions; otherwise use point."
 #+BEGIN_SRC emacs-lisp
 (add-load-path! "lisp/magit-treediff")
 (add-load-path! "lisp/pr-review-worktree")
+(add-load-path! "lisp/pr-review-treediff")
 
 (use-package! magit-treediff
   :after magit
@@ -864,10 +865,14 @@ If there is a region, use it for the code actions; otherwise use point."
 (use-package! pr-review-worktree
   :after pr-review)
 
+(use-package! pr-review-treediff
+  :after (pr-review magit-treediff))
+
 (after! pr-review
   (map! :map pr-review-mode-map
         "M-RET" #'magit-diff-visit-worktree-file-other-window
-        :n "gw" #'pr-review-open-worktree))
+        :n "gw" #'pr-review-open-worktree
+        :n "gt" #'pr-review-treediff-toggle))
 (setq auth-sources '("~/.authinfo.gpg" "~/.authinfo"))
 
 (use-package! consult-gh
