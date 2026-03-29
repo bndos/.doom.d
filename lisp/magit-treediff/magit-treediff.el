@@ -164,6 +164,9 @@ controller."
 (defvar-local magit-treediff-tree-buffer-p nil)
 (put 'magit-treediff-tree-buffer-p 'permanent-local t)
 
+(defvar-local magit-treediff-diff-buffer-p nil)
+(put 'magit-treediff-diff-buffer-p 'permanent-local t)
+
 (defvar-local magit-treediff-side nil)
 (put 'magit-treediff-side 'permanent-local t)
 
@@ -210,6 +213,13 @@ controller."
 (defvar magit-treediff--inhibit-window-sync nil)
 (defvar magit-treediff-treemacs-root nil)
 (defvar magit-treediff-treemacs-node nil)
+(defvar magit-treediff-mode-override-map)
+(defvar magit-treediff-pane-mode-override-map)
+(defvar magit-treediff-tree-mode-override-map)
+(defvar magit-treediff-diff-mode-override-map)
+
+(defvar-local magit-treediff-tree--last-file nil
+  "Last selected file rendered in the tree buffer.")
 
 (defun magit-treediff--viewer-backend ()
   "Return the backend plist for the current treediff viewer."
@@ -805,15 +815,6 @@ Returns a list of nodes, each a plist with :type (dir or file),
   (magit-treediff--install-override-map
    magit-treediff-tree-mode-override-map))
 
-(defun magit-treediff--tree-follow-point ()
-  "Update the diff viewer from the current tree point."
-  (when-let ((file (magit-treediff--tree-file-at-point)))
-    (unless (equal file magit-treediff-tree--last-file)
-      (setq magit-treediff-tree--last-file file)
-      (when (buffer-live-p magit-treediff-parent-buffer)
-        (with-current-buffer magit-treediff-parent-buffer
-          (magit-treediff--select-file file))))))
-
 (defun magit-treediff--file-change-summary (file)
   "Return a short UI summary for FILE."
   (let ((added 0)
@@ -970,42 +971,13 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
       (magit-treediff-tree-visit-file)
     (treemacs-toggle-node)))
 
-(defun magit-treediff--tree-move-to-file (delta)
-  "Move DELTA file entries in the current tree buffer, skipping non-file nodes."
-  (let ((step (if (< delta 0) -1 1))
-        (remaining (abs delta)))
-    (while (> remaining 0)
-      (let ((origin (point))
-            (start (point))
-            (found nil))
-        (forward-line step)
-        (beginning-of-line)
-        (while (and (not found)
-                    (/= (point) start))
-          (if (magit-treediff--tree-file-at-point)
-              (setq found t)
-            (setq start (point))
-            (forward-line step)
-            (beginning-of-line)))
-        (if found
-            (setq remaining (1- remaining))
-          (goto-char origin)
-          (setq remaining 0))))))
-
-(defun magit-treediff--tree-call-with-follow (command)
-  "Call tree COMMAND interactively, then update the diff from point."
-  (funcall command)
-  (magit-treediff--tree-follow-point))
-
 (defun magit-treediff-tree-next-line ()
   (interactive)
-  (magit-treediff--tree-call-with-follow
-   (lambda () (magit-treediff--tree-move-to-file 1))))
+  (call-interactively #'next-line))
 
 (defun magit-treediff-tree-previous-line ()
   (interactive)
-  (magit-treediff--tree-call-with-follow
-   (lambda () (magit-treediff--tree-move-to-file -1))))
+  (call-interactively #'previous-line))
 
 (defun magit-treediff-tree-next-line-fallback ()
   (interactive)
@@ -1017,12 +989,12 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
 
 (defun magit-treediff--treemacs-install-local-keys ()
   "Install treediff-specific local keys into a Treemacs tree buffer."
-  (local-set-key (kbd "j") #'magit-treediff-tree-next-line)
-  (local-set-key (kbd "k") #'magit-treediff-tree-previous-line)
-  (local-set-key (kbd "n") #'magit-treediff-tree-next-line-fallback)
-  (local-set-key (kbd "p") #'magit-treediff-tree-previous-line-fallback)
-  (local-set-key [down] #'magit-treediff-tree-next-line)
-  (local-set-key [up] #'magit-treediff-tree-previous-line)
+  (local-set-key (kbd "j") #'next-line)
+  (local-set-key (kbd "k") #'previous-line)
+  (local-set-key (kbd "n") #'next-line)
+  (local-set-key (kbd "p") #'previous-line)
+  (local-set-key [down] #'next-line)
+  (local-set-key [up] #'previous-line)
   (local-set-key (kbd "q") #'magit-treediff-tree-quit)
   (local-set-key (kbd "g") #'magit-treediff-tree-refresh)
   (local-set-key (kbd "s") #'magit-treediff-stage)
@@ -1621,6 +1593,7 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
 (defvar magit-treediff-mode-map)
 (defvar magit-treediff-pane-mode-map)
 (defvar magit-treediff-tree-mode-map)
+(defvar magit-treediff-diff-mode-override-map (make-sparse-keymap))
 (defvar magit-treediff-mode-override-map (make-sparse-keymap))
 (defvar magit-treediff-pane-mode-override-map (make-sparse-keymap))
 (defvar magit-treediff-tree-mode-override-map (make-sparse-keymap))
@@ -1711,8 +1684,11 @@ suppressed via `save-window-excursion' so the caller controls display."
     ;; - the post-refresh advice knows which file to re-highlight.
     (with-current-buffer buffer
       (setq-local magit-treediff-parent-buffer controller)
+      (setq-local magit-treediff-diff-buffer-p t)
       (setq-local magit-treediff--highlight-file file)
-      (magit-diff-syntax-local-mode -1))
+      (magit-diff-syntax-local-mode -1)
+      (magit-treediff--install-override-map
+       magit-treediff-diff-mode-override-map))
     (setq magit-treediff--diff-buffer buffer)
     buffer))
 
@@ -2053,6 +2029,63 @@ Nil means the whole buffer and dominates narrower ranges."
 
 ;;; File selection
 
+(defun magit-treediff--model-files ()
+  "Return the current model's file paths."
+  (mapcar (lambda (file)
+            (plist-get file :file))
+          magit-treediff--model))
+
+(defun magit-treediff--selected-file-index ()
+  "Return the index of the selected file in the current model."
+  (seq-position (magit-treediff--model-files)
+                magit-treediff-selected-file
+                #'equal))
+
+(defun magit-treediff--select-file-offset (offset)
+  "Select the file OFFSET entries away from the current selection."
+  (let* ((files (magit-treediff--model-files))
+         (count (length files))
+         (index (or (magit-treediff--selected-file-index) 0))
+         (target (+ index offset)))
+    (cond
+     ((zerop count)
+      (user-error "No files in treediff"))
+     ((or (< target 0) (>= target count))
+      (user-error "No %s file"
+                  (if (> offset 0) "next" "previous")))
+     (t
+      (magit-treediff--select-file (nth target files))))))
+
+(defun magit-treediff-diff-next-file ()
+  "Select the next file from the diff buffer."
+  (interactive)
+  (magit-treediff--with-controller
+   (lambda ()
+     (magit-treediff--select-file-offset 1))))
+
+(defun magit-treediff-diff-previous-file ()
+  "Select the previous file from the diff buffer."
+  (interactive)
+  (magit-treediff--with-controller
+   (lambda ()
+     (magit-treediff--select-file-offset -1))))
+
+(defun magit-treediff-diff-find-file ()
+  "Select a file from the diff buffer using completion."
+  (interactive)
+  (let ((file
+         (magit-treediff--with-controller
+          (lambda ()
+            (let* ((files (magit-treediff--model-files))
+                   (default magit-treediff-selected-file))
+              (unless files
+                (user-error "No files in treediff"))
+              (completing-read "Treediff file: "
+                               files nil t nil nil default))))))
+    (magit-treediff--with-controller
+     (lambda ()
+       (magit-treediff--select-file file)))))
+
 (defun magit-treediff--select-file (file)
   "Select FILE in the controller and update the diff display."
   (let ((from-tree (and (boundp 'magit-treediff-tree-buffer-p)
@@ -2068,18 +2101,6 @@ Nil means the whole buffer and dominates narrower ranges."
     (unless from-tree
       (magit-treediff--sync-tree))))
 
-(defvar-local magit-treediff-tree--last-file nil
-  "The last file visited via point-motion auto-update.")
-
-(defun magit-treediff-tree--auto-visit ()
-  "Update the diff panel when the cursor moves onto a different file node."
-  (when-let ((file (magit-treediff--tree-file-at-point)))
-    (unless (equal file magit-treediff-tree--last-file)
-      (setq magit-treediff-tree--last-file file)
-      (when (buffer-live-p magit-treediff-parent-buffer)
-        (with-current-buffer magit-treediff-parent-buffer
-          (magit-treediff--select-file file))))))
-
 (define-derived-mode magit-treediff-tree-mode special-mode "Magit Treediff Tree"
   "Mode used for the treediff file tree."
   :interactive nil
@@ -2088,8 +2109,7 @@ Nil means the whole buffer and dominates narrower ranges."
   (setq-local magit-treediff-tree-buffer-p t)
   (setq truncate-lines t)
   (setq-local mode-line-format nil)
-  (setq-local window-selection-change-functions nil)
-  (add-hook 'post-command-hook #'magit-treediff-tree--auto-visit nil t))
+  (setq-local window-selection-change-functions nil))
 
 (defun magit-treediff--initialize-keymaps ()
   "Initialize or refresh treediff mode keymaps."
@@ -2161,21 +2181,29 @@ Nil means the whole buffer and dominates narrower ranges."
   (keymap-set magit-treediff-pane-mode-override-map "q"
               #'magit-treediff-pane-quit)
   (keymap-set magit-treediff-tree-mode-override-map "j"
-              #'magit-treediff-tree-next-line)
+              #'next-line)
   (keymap-set magit-treediff-tree-mode-override-map "k"
-              #'magit-treediff-tree-previous-line)
+              #'previous-line)
   (keymap-set magit-treediff-tree-mode-override-map "n"
-              #'magit-treediff-tree-next-line-fallback)
+              #'next-line)
   (keymap-set magit-treediff-tree-mode-override-map "p"
-              #'magit-treediff-tree-previous-line-fallback)
+              #'previous-line)
   (keymap-set magit-treediff-tree-mode-override-map "<down>"
-              #'magit-treediff-tree-next-line)
+              #'next-line)
   (keymap-set magit-treediff-tree-mode-override-map "<up>"
-              #'magit-treediff-tree-previous-line)
+              #'previous-line)
   (keymap-set magit-treediff-tree-mode-override-map "x"
               #'magit-treediff-discard)
   (keymap-set magit-treediff-tree-mode-override-map "q"
-              #'magit-treediff-tree-quit))
+              #'magit-treediff-tree-quit)
+  (keymap-set magit-treediff-diff-mode-override-map "M-n"
+              #'magit-treediff-diff-next-file)
+  (keymap-set magit-treediff-diff-mode-override-map "M-p"
+              #'magit-treediff-diff-previous-file)
+  (keymap-set magit-treediff-diff-mode-override-map "C-c C-f"
+              #'magit-treediff-diff-find-file)
+  (keymap-set magit-treediff-diff-mode-override-map "q"
+              #'magit-treediff-pane-quit))
 
 (magit-treediff--initialize-override-keymaps)
 
@@ -2195,6 +2223,10 @@ Nil means the whole buffer and dominates narrower ranges."
        (magit-treediff-tree-buffer-p
         (magit-treediff--install-override-map
          magit-treediff-tree-mode-override-map))
+       ((and magit-treediff-diff-buffer-p
+             (derived-mode-p 'magit-diff-mode))
+        (magit-treediff--install-override-map
+         magit-treediff-diff-mode-override-map))
        ((derived-mode-p 'magit-treediff-pane-mode)
         (magit-treediff--install-override-map
          magit-treediff-pane-mode-override-map))
@@ -2229,7 +2261,8 @@ Nil means the whole buffer and dominates narrower ranges."
     (unless (buffer-live-p magit-treediff-parent-buffer)
       (user-error "Parent buffer no longer exists"))
     (with-current-buffer magit-treediff-parent-buffer
-      (magit-treediff--select-file file))))
+      (magit-treediff--select-file file)
+      (magit-treediff--focus-viewer))))
 
 (defun magit-treediff--current-file-model ()
   (let ((file (magit-treediff--current-file)))
