@@ -842,6 +842,10 @@ Returns a list of nodes, each a plist with :type (dir or file),
   ;; highlight that makes the selected line hard to track.
   (when (bound-and-true-p hl-line-mode)
     (hl-line-mode -1))
+  ;; Prevent treemacs's git-mode annotation pass from overriding our
+  ;; diff-status-based faces with working-tree git status.
+  (when (boundp 'treemacs--git-mode)
+    (setq-local treemacs--git-mode nil))
   (magit-treediff--install-override-map
    magit-treediff-tree-mode-override-map))
 
