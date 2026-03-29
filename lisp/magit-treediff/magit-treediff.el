@@ -112,6 +112,36 @@ controller."
   "Face used to highlight the current hunk in treediff helper buffers."
   :group 'magit-treediff)
 
+(defface magit-treediff-tree-added
+  '((t :inherit success))
+  "Face for added (new) files in the tree."
+  :group 'magit-treediff)
+
+(defface magit-treediff-tree-deleted
+  '((t :inherit error))
+  "Face for deleted files in the tree."
+  :group 'magit-treediff)
+
+(defface magit-treediff-tree-renamed
+  '((t :inherit warning))
+  "Face for renamed files in the tree."
+  :group 'magit-treediff)
+
+(defface magit-treediff-tree-modified
+  '((t :inherit (treemacs-file-face)))
+  "Face for modified files in the tree."
+  :group 'magit-treediff)
+
+(defface magit-treediff-tree-dir
+  '((t :inherit (treemacs-directory-face) :weight bold))
+  "Face for directory nodes in the tree."
+  :group 'magit-treediff)
+
+(defface magit-treediff-tree-root
+  '((t :inherit (treemacs-root-face)))
+  "Face for the root header line in the tree."
+  :group 'magit-treediff)
+
 (defvar-local magit-treediff-range nil)
 (put 'magit-treediff-range 'permanent-local t)
 
@@ -842,15 +872,24 @@ Returns a list of nodes, each a plist with :type (dir or file),
     ("renamed" "R")
     (_ "M")))
 
+(defun magit-treediff--file-status-face (file &optional selected)
+  "Return the face for FILE based on its status.
+When SELECTED is non-nil return the selected-file face instead."
+  (if selected
+      'magit-treediff-tree-current
+    (pcase (and file (plist-get file :status))
+      ("new file" 'magit-treediff-tree-added)
+      ("deleted"  'magit-treediff-tree-deleted)
+      ("renamed"  'magit-treediff-tree-renamed)
+      (_          'magit-treediff-tree-modified))))
+
 (defun magit-treediff--builtin-file-label (file selected)
   "Return the built-in tree label for FILE.
 If SELECTED is non-nil, use the selected face."
   (let* ((summary (magit-treediff--file-change-summary file))
          (name (file-name-nondirectory (plist-get file :file)))
          (status (magit-treediff--file-status-token file))
-         (face (if selected
-                   'magit-treediff-tree-current
-                 'default)))
+         (face (magit-treediff--file-status-face file selected)))
     (concat
      (propertize name 'face face)
      (propertize
@@ -869,7 +908,7 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
       ('dir
        (insert (make-string (* depth 2) ?\s)
                (propertize (concat (plist-get node :name) "/")
-                           'face 'magit-section-heading)
+                           'face 'magit-treediff-tree-dir)
                "\n")
        (magit-treediff--render-builtin-tree-nodes
         (plist-get node :children) (1+ depth) selected file-table))
@@ -900,8 +939,11 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
          (tree (magit-treediff--build-tree file-paths))
          (file-table (mapcar (lambda (f)
                                (cons (plist-get f :file) f))
-                             files)))
+                             files))
+         (header (with-current-buffer parent
+                   (magit-treediff--format-header))))
     (erase-buffer)
+    (insert (propertize header 'face 'magit-treediff-tree-root) "\n")
     (magit-treediff--render-builtin-tree-nodes tree 0 selected file-table)
     (magit-treediff--goto-selected-tree-file)
     (set-buffer-modified-p nil)))
@@ -939,7 +981,7 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
   "Return the display label for Treemacs ITEM."
   (if (eq (plist-get item :type) 'dir)
       (propertize (concat (plist-get item :name) "/")
-                  'face 'treemacs-directory-face)
+                  'face 'magit-treediff-tree-dir)
     (let* ((path (plist-get item :path))
            (controller (and (buffer-live-p magit-treediff-parent-buffer)
                             magit-treediff-parent-buffer))
@@ -949,9 +991,7 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
            (selected (and controller
                           (with-current-buffer controller
                             (equal magit-treediff-selected-file path))))
-           (name-face (if selected
-                          'magit-treediff-tree-current
-                        'treemacs-git-modified-face))
+           (name-face (magit-treediff--file-status-face file selected))
            (summary (and file (magit-treediff--file-change-summary file))))
       (concat
        (propertize (plist-get item :name) 'face name-face)
@@ -962,7 +1002,7 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
                   (plist-get summary :hunks)
                   (plist-get summary :added)
                   (plist-get summary :removed))
-          'face 'treemacs-git-untracked-face))))))
+          'face 'magit-dimmed))))))
 
 (defun magit-treediff--treemacs-ret-action (&optional _)
   "Visit or toggle the Treemacs node at point."
@@ -1041,6 +1081,11 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
         (progn
           (magit-treediff--tree-buffer-common-setup ,controller)
           (magit-treediff--treemacs-install-local-keys))))
+    ;; Show root header in the window header-line (safe: doesn't touch buffer content)
+    (setq-local header-line-format
+                (propertize (with-current-buffer controller
+                              (magit-treediff--format-header))
+                            'face 'magit-treediff-tree-root))
     (magit-treediff--goto-selected-tree-file)
     (set-buffer-modified-p nil)))
 

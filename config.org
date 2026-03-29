@@ -868,11 +868,69 @@ If there is a region, use it for the code actions; otherwise use point."
 (use-package! pr-review-treediff
   :after (pr-review magit-treediff))
 
+(defun pr-review--collect-comment-positions ()
+  "Return sorted positions of all comments: inline threads, pending, and review sections."
+  (let (positions)
+    (save-excursion
+      ;; Inline diff thread links (pr-review-eldoc-content marks the summary line)
+      (goto-char (point-min))
+      (while-let ((m (text-property-search-forward
+                      'pr-review-eldoc-content nil (lambda (_ v) v))))
+        (push (prop-match-beginning m) positions))
+      ;; Inline pending comment blocks
+      (goto-char (point-min))
+      (while-let ((m (text-property-search-forward
+                      'pr-review-pending-review-thread nil (lambda (_ v) v))))
+        (push (prop-match-beginning m) positions))
+      ;; Bottom review thread sections
+      (goto-char (point-min))
+      (while-let ((m (text-property-search-forward
+                      'magit-section nil
+                      (lambda (_ v) (cl-typep v 'pr-review--review-thread-section)))))
+        (push (prop-match-beginning m) positions)
+        ;; Skip to end of this section to avoid re-matching its interior
+        (goto-char (prop-match-end m))))
+    (sort (delete-dups positions) #'<)))
+
+(defun pr-review--comment-skip-pos (pos direction)
+  "Return a position past the comment at POS for DIRECTION (1 or -1)."
+  (let ((section (get-text-property pos 'magit-section)))
+    (cond
+     ((cl-typep section 'pr-review--review-thread-section)
+      (if (> direction 0) (oref section end) (1- (oref section start))))
+     ((get-text-property pos 'pr-review-pending-review-thread)
+      (if (> direction 0)
+          (or (next-single-property-change pos 'pr-review-pending-review-thread) pos)
+        (1- (or (previous-single-property-change pos 'pr-review-pending-review-thread) (1+ pos)))))
+     ((get-text-property pos 'pr-review-eldoc-content)
+      (if (> direction 0)
+          (or (next-single-property-change pos 'pr-review-eldoc-content) pos)
+        (1- (or (previous-single-property-change pos 'pr-review-eldoc-content) (1+ pos)))))
+     (t pos))))
+
+(defun pr-review-next-comment ()
+  "Move to the next inline or review-section comment."
+  (interactive)
+  (let* ((start (pr-review--comment-skip-pos (point) 1))
+         (positions (pr-review--collect-comment-positions))
+         (next (seq-find (lambda (p) (> p start)) positions)))
+    (if next (goto-char next) (user-error "No next comment"))))
+
+(defun pr-review-prev-comment ()
+  "Move to the previous inline or review-section comment."
+  (interactive)
+  (let* ((start (pr-review--comment-skip-pos (point) -1))
+         (positions (pr-review--collect-comment-positions))
+         (prev (car (last (seq-filter (lambda (p) (< p start)) positions)))))
+    (if prev (goto-char prev) (user-error "No previous comment"))))
+
 (after! pr-review
   (map! :map pr-review-mode-map
         "M-RET" #'magit-diff-visit-worktree-file-other-window
         :n "gw" #'pr-review-open-worktree
-        :n "gt" #'pr-review-treediff-toggle))
+        :n "gt" #'pr-review-treediff-toggle
+        :n "]t" #'pr-review-next-comment
+        :n "[t" #'pr-review-prev-comment))
 (setq auth-sources '("~/.authinfo.gpg" "~/.authinfo"))
 
 (use-package! consult-gh

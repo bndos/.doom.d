@@ -26,12 +26,17 @@ pr-review buffer instead of rendering diff panes.")
 
 (defun pr-review-treediff--make-controller (pr-buf)
   "Create or refresh a magit-treediff controller buffer for PR-BUF."
-  (let* ((name (pr-review-treediff--controller-name pr-buf))
-         (ctrl (or (get-buffer name) (get-buffer-create name))))
+  (let* ((name  (pr-review-treediff--controller-name pr-buf))
+         (ctrl  (or (get-buffer name) (get-buffer-create name)))
+         (pr-path (buffer-local-value 'pr-review--pr-path pr-buf)))
     (with-current-buffer ctrl
       (unless (derived-mode-p 'magit-treediff-mode)
         (magit-treediff-mode))
       (setq-local pr-review-treediff--pr-buffer pr-buf)
+      (setq-local magit-treediff-source-kind 'range)
+      (setq-local magit-treediff-range
+                  (format "%s/%s  PR #%s"
+                          (nth 0 pr-path) (nth 1 pr-path) (nth 2 pr-path)))
       (setq-local magit-treediff--model
                   (mapcar (lambda (f) (list :file f))
                           (with-current-buffer pr-buf
@@ -49,7 +54,9 @@ pr-review buffer instead of rendering diff panes.")
         (when (buffer-live-p pr-buf)
           (when-let ((win (get-buffer-window pr-buf)))
             (with-selected-window win
-              (pr-review--goto-section-with-value file)))))
+              (pr-review--goto-section-with-value file))
+            ;; Focus the diff window after navigation
+            (select-window win))))
     (funcall orig-fn file)))
 
 (defun pr-review-treediff--around-quit (orig-fn)
@@ -66,6 +73,16 @@ pr-review buffer instead of rendering diff panes.")
 
 (advice-add 'magit-treediff--select-file :around #'pr-review-treediff--around-select-file)
 (advice-add 'magit-treediff-quit         :around #'pr-review-treediff--around-quit)
+
+;;; Advice: re-enable hl-line after treemacs setup disables it
+
+(defun pr-review-treediff--after-tree-common-setup (controller)
+  "Re-enable hl-line when tree buffer belongs to a pr-review-treediff controller."
+  (when (buffer-local-value 'pr-review-treediff--pr-buffer controller)
+    (hl-line-mode 1)))
+
+(advice-add 'magit-treediff--tree-buffer-common-setup :after
+            #'pr-review-treediff--after-tree-common-setup)
 
 ;;; Entry point
 
