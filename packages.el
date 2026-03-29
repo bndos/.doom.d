@@ -55,6 +55,7 @@
 (package! xclip)
 (package! treesit-auto)
 (package! dape)
+(package! persp-mode :recipe (:host "bndos/persp-mode.el"))
 ;; (when (package! lsp-bridge
 ;;         :recipe (:host github
 ;;                  :repo "manateelazycat/lsp-bridge"

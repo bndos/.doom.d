@@ -1195,7 +1195,17 @@ If there is a region, use it for the code actions; otherwise use point."
 (map! :leader "f ." #'find-name-dired)
 
 ;; workspaces
-(map! :leader "TAB TAB" #'+workspace/other)
+(defun my/+workspace/other-safe ()
+  (interactive)
+  (if (bound-and-true-p +workspace--last)
+      (+workspace/switch-to +workspace--last)
+    (let* ((current (+workspace-current-name))
+           (other (car (remove current (+workspace-list-names)))))
+      (if other
+          (+workspace-switch other)
+        (+workspace-message "No other workspace" 'warn)))))
+
+(map! :leader "TAB TAB" #'my/+workspace/other-safe)
 (map! :leader "TAB '" #'+workspace/display)
 
 ;; tangling
