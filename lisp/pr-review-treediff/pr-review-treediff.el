@@ -62,12 +62,17 @@ pr-review buffer instead of rendering diff panes.")
 (defun pr-review-treediff--around-quit (orig-fn)
   "For pr-review-treediff controllers, just close the tree window and clean up."
   (if pr-review-treediff--pr-buffer
-      (progn
+      (let ((pr-buf pr-review-treediff--pr-buffer))
         (when (buffer-live-p magit-treediff--tree-buffer)
           (when-let ((win (get-buffer-window magit-treediff--tree-buffer t)))
             (set-window-dedicated-p win nil)
             (delete-window win))
           (kill-buffer magit-treediff--tree-buffer))
+        ;; Remove the sync hook from the pr-review buffer
+        (when (buffer-live-p pr-buf)
+          (with-current-buffer pr-buf
+            (remove-hook 'post-command-hook
+                         #'pr-review-treediff--sync-tree-to-point t)))
         (kill-buffer (current-buffer)))
     (funcall orig-fn)))
 
@@ -83,6 +88,30 @@ pr-review buffer instead of rendering diff panes.")
 
 (advice-add 'magit-treediff--tree-buffer-common-setup :after
             #'pr-review-treediff--after-tree-common-setup)
+
+;;; Current-file tracking: sync tree highlight as user scrolls pr-review buffer
+
+(defun pr-review-treediff--file-at-point ()
+  "Return the diff file path at or above point in a pr-review buffer."
+  (let ((section (magit-current-section)))
+    (while (and section (not (magit-file-section-p section)))
+      (setq section (oref section parent)))
+    (when (magit-file-section-p section)
+      (oref section value))))
+
+(defun pr-review-treediff--sync-tree-to-point ()
+  "Update tree selection to match the file visible at point."
+  (when (eq major-mode 'pr-review-mode)
+    (let* ((ctrl (get-buffer (pr-review-treediff--controller-name (current-buffer)))))
+      (when (and ctrl
+                 (buffer-live-p (buffer-local-value 'magit-treediff--tree-buffer ctrl))
+                 (get-buffer-window
+                  (buffer-local-value 'magit-treediff--tree-buffer ctrl)))
+        (when-let ((file (pr-review-treediff--file-at-point)))
+          (unless (equal file (buffer-local-value 'magit-treediff-selected-file ctrl))
+            (with-current-buffer ctrl
+              (setq magit-treediff-selected-file file)
+              (magit-treediff--sync-tree))))))))
 
 ;;; Entry point
 
@@ -108,7 +137,11 @@ Respects `magit-treediff-tree-backend' (builtin or treemacs)."
       (let ((ctrl (pr-review-treediff--make-controller pr-buf)))
         (with-current-buffer ctrl
           (magit-treediff--display-tree
-           (magit-treediff--ensure-tree-buffer)))))))
+           (magit-treediff--ensure-tree-buffer)))
+        ;; Track current file as user scrolls
+        (with-current-buffer pr-buf
+          (add-hook 'post-command-hook
+                    #'pr-review-treediff--sync-tree-to-point nil t))))))
 
 (provide 'pr-review-treediff)
 ;;; pr-review-treediff.el ends here

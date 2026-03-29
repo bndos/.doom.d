@@ -113,32 +113,32 @@ controller."
   :group 'magit-treediff)
 
 (defface magit-treediff-tree-added
-  '((t :inherit success))
+  '((t :inherit treemacs-git-added-face))
   "Face for added (new) files in the tree."
   :group 'magit-treediff)
 
 (defface magit-treediff-tree-deleted
-  '((t :inherit error))
+  '((t :inherit treemacs-git-conflict-face))
   "Face for deleted files in the tree."
   :group 'magit-treediff)
 
 (defface magit-treediff-tree-renamed
-  '((t :inherit warning))
+  '((t :inherit treemacs-git-renamed-face))
   "Face for renamed files in the tree."
   :group 'magit-treediff)
 
 (defface magit-treediff-tree-modified
-  '((t :inherit (treemacs-file-face)))
+  '((t :inherit treemacs-git-modified-face))
   "Face for modified files in the tree."
   :group 'magit-treediff)
 
 (defface magit-treediff-tree-dir
-  '((t :inherit (treemacs-directory-face) :weight bold))
+  '((t :inherit treemacs-directory-face))
   "Face for directory nodes in the tree."
   :group 'magit-treediff)
 
 (defface magit-treediff-tree-root
-  '((t :inherit (treemacs-root-face)))
+  '((t :inherit treemacs-root-face))
   "Face for the root header line in the tree."
   :group 'magit-treediff)
 
@@ -1081,11 +1081,14 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
         (progn
           (magit-treediff--tree-buffer-common-setup ,controller)
           (magit-treediff--treemacs-install-local-keys))))
-    ;; Show root header in the window header-line (safe: doesn't touch buffer content)
-    (setq-local header-line-format
-                (propertize (with-current-buffer controller
-                              (magit-treediff--format-header))
-                            'face 'magit-treediff-tree-root))
+    ;; Insert root header at top matching treemacs root-node style
+    (let ((inhibit-read-only t)
+          (header (with-current-buffer controller
+                    (magit-treediff--format-header))))
+      (goto-char (point-min))
+      (insert (propertize (concat "  " header) 'face 'magit-treediff-tree-root
+                          'keymap nil)
+              "\n"))
     (magit-treediff--goto-selected-tree-file)
     (set-buffer-modified-p nil)))
 
@@ -2616,6 +2619,10 @@ Nil means the whole buffer and dominates narrower ranges."
                                   (plist-get o :fl-face)
                                   (plist-get o :priority)))
                         ov-info "\n"))))
+
+;; Force treemacs node types to be re-evaluated with current face definitions
+;; whenever this file is loaded (prevents stale cached definitions).
+(setq magit-treediff--treemacs-defined nil)
 
 (provide 'magit-treediff)
 
