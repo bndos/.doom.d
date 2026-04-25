@@ -1044,7 +1044,18 @@ If there is a region, use it for the code actions; otherwise use point."
 (use-package! vterm
   :init
   (setq vterm-shell "zsh")
-  (setq vterm-buffer-name-string "*vterm %s*"))
+  (setq vterm-buffer-name-string "*vterm %s*")
+  :config
+  ;; Strip leading spinner chars (e.g. from codex) before vterm renames the
+  ;; buffer.  Without this, persp-mode saves the window config under the
+  ;; transient spinner name; on restore it can't find that buffer (the spinner
+  ;; has advanced) and calls get-buffer-create, producing an empty
+  ;; fundamental-mode ghost that occupies the window instead of the real vterm.
+  (defun vterm--strip-spinner-title (args)
+    (list (replace-regexp-in-string
+           (rx bos (any (#x2800 . #x28FF)) " ")
+           "" (car args))))
+  (advice-add 'vterm--set-title :filter-args #'vterm--strip-spinner-title))
 #+END_SRC
 
 * org
