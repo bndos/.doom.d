@@ -189,6 +189,11 @@
   '(company-tooltip :background "#101010")
   '(company-tooltip-common-selection :background "#ff79c6" :foreground "#000000")
   '(company-tooltip-selection :background "#ff79c6" :foreground "#000000")
+  '(window-divider :foreground "#3d263e")
+  '(window-divider-first-pixel :foreground "#3d263e")
+  '(window-divider-last-pixel :foreground "#3d263e")
+  '(vertical-border :foreground "#3d263e")
+  '(fringe :background "#000000")
 
   )
 
@@ -203,7 +208,10 @@
                  (face-remap-remove-relative remap-cookie))
                (face-remap-add-relative 'default 'flash-active-buffer-face)))
 
-(setq window-divider-default-bottom-width 0)
+(setq window-divider-default-right-width 4
+      window-divider-default-bottom-width 4
+      window-divider-default-places t)
+(window-divider-mode 1)
 
 ;; (use-package! tree-sitter
 ;;   :defer t
@@ -295,6 +303,11 @@
 (use-package! breadcrumb
   :ensure t
   :config
+  (when (and (fboundp 'my/breadcrumb-lsp-proxy--normalize-imenu-alist)
+             (advice-member-p #'my/breadcrumb-lsp-proxy--normalize-imenu-alist
+                              #'bc--ipath-alist))
+    (advice-remove #'bc--ipath-alist
+                   #'my/breadcrumb-lsp-proxy--normalize-imenu-alist))
   (breadcrumb-mode t))
 
 (after! company
@@ -435,6 +448,45 @@ Falls back to `process-environment` if envrc export fails."
 (use-package lsp-proxy
   ;; :load-path "/path/to/lsp-proxy"
   :config
+  (defun my/lsp-proxy-imenu-position-marker (pos)
+    "Convert lsp-proxy's zero-based (LINE . CHARACTER) POS to a marker."
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        (forward-line (car pos))
+        (forward-char (cdr pos))
+        (point-marker))))
+
+  (defun my/lsp-proxy-imenu-normalize-positions (alist)
+    "Convert lsp-proxy imenu LSP positions to normal imenu marker positions."
+    (mapcar
+     (lambda (item)
+       (let ((name (car item))
+             (pos-or-children (cdr item)))
+         (cond
+          ((and (consp pos-or-children)
+                (numberp (car pos-or-children))
+                (numberp (cdr pos-or-children)))
+           (cons name (my/lsp-proxy-imenu-position-marker pos-or-children)))
+          ((consp pos-or-children)
+           (cons name (my/lsp-proxy-imenu-normalize-positions pos-or-children)))
+          (t item))))
+     alist))
+
+  (unless (advice-member-p #'my/lsp-proxy-imenu-normalize-positions
+                           #'lsp-proxy--convert-imenu-format)
+    (advice-add #'lsp-proxy--convert-imenu-format
+                :filter-return
+                #'my/lsp-proxy-imenu-normalize-positions))
+
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (bound-and-true-p lsp-proxy-mode)
+        (setq imenu--index-alist nil
+              bc--ipath-plain-cache nil)
+        (force-mode-line-update))))
+
   (setq lsp-proxy-user-languages-config
         (expand-file-name "~/.config/doom/languages.toml"))
 
@@ -841,8 +893,8 @@ If there is a region, use it for the code actions; otherwise use point."
 * magit-delta
 #+BEGIN_SRC emacs-lisp
 ;; magit-delta
-(use-package! magit-delta
-  :hook (magit-mode . magit-delta-mode))
+;; (use-package! magit-delta
+;;   :hook (magit-mode . magit-delta-mode))
 #+END_SRC
 
 * magit
@@ -1044,18 +1096,37 @@ If there is a region, use it for the code actions; otherwise use point."
 (use-package! vterm
   :init
   (setq vterm-shell "zsh")
-  (setq vterm-buffer-name-string "*vterm %s*")
+  ;; Keep vterm buffer names stable for persp-mode.  Agent CLIs can emit
+  ;; transient or blank terminal-title updates; using those as buffer names
+  ;; makes restored window configs point at buffers that no longer exist.
+  (setq vterm-buffer-name-string nil)
   :config
-  ;; Strip leading spinner chars (e.g. from codex) before vterm renames the
-  ;; buffer.  Without this, persp-mode saves the window config under the
-  ;; transient spinner name; on restore it can't find that buffer (the spinner
-  ;; has advanced) and calls get-buffer-create, producing an empty
-  ;; fundamental-mode ghost that occupies the window instead of the real vterm.
-  (defun vterm--strip-spinner-title (args)
-    (list (replace-regexp-in-string
-           (rx bos (any (#x2800 . #x28FF)) " ")
-           "" (car args))))
-  (advice-add 'vterm--set-title :filter-args #'vterm--strip-spinner-title))
+  (defvar-local my/vterm-terminal-title nil)
+
+  (defun my/vterm-header-line ()
+    (setq-local header-line-format
+                '(:eval
+                  (propertize
+                   (format "  %s  "
+                           (or my/vterm-terminal-title
+                               (buffer-name)))
+                   'face 'mode-line-inactive))))
+
+  (add-hook 'vterm-mode-hook #'my/vterm-header-line)
+
+  (defun my/vterm-record-terminal-title (title)
+    "Remember TITLE for display without renaming the vterm buffer."
+    (let ((title (string-trim
+                  (replace-regexp-in-string
+                   (rx bos (any (#x2800 . #x28FF)) " ")
+                   "" (or title "")))))
+      (unless (string-empty-p title)
+        (setq my/vterm-terminal-title title)
+        (force-mode-line-update))))
+  
+  (advice-add #'vterm--set-title
+              :before
+              #'my/vterm-record-terminal-title))
 #+END_SRC
 
 * org
