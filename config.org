@@ -154,8 +154,9 @@
   '(magit-diff-revision-summary-highlight :foreground "#8be9fd" :background "#111116" :weight bold)
   '(diff-added :foreground "#7ee787" :background "#061a0b")
   '(diff-removed :foreground "#ff7b72" :background "#230809")
-  '(diff-refine-added :foreground "#ffffff" :background "#16833a" :weight bold)
-  '(diff-refine-removed :foreground "#ffffff" :background "#9d1c24" :weight bold)
+  '(diff-refine-added :foreground "#caffd0" :background "#14451f" :weight bold :inverse-video nil :box nil :extend t)
+  '(diff-refine-removed :foreground "#ffd0cc" :background "#55161a" :weight bold :inverse-video nil :box nil :extend t)
+  '(diff-refine-changed :foreground "#fff0a6" :background "#4a3a10" :weight bold :inverse-video nil :box nil :extend t)
   ;; better ediff colors for dark theme
   '(ediff-current-diff-A :background "#773333")
   '(ediff-current-diff-B :background "#337733")
