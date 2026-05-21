@@ -31,6 +31,56 @@
 (global-visual-line-mode t)
 (setq warning-minimum-level :emergency)
 
+;; Terminal/container clipboard bridge.  This keeps `emacs -nw` inside Docker
+;; connected to the host clipboard through Wayland first, then X11.
+(defun bndos-terminal-clipboard--enabled-p ()
+  (not (string= (or (getenv "BNDOS_TERMINAL_CLIPBOARD") "1") "0")))
+
+(defun bndos-terminal-clipboard--wayland-p ()
+  (and (getenv "WAYLAND_DISPLAY")
+       (executable-find "wl-copy")
+       (executable-find "wl-paste")))
+
+(defun bndos-terminal-clipboard--x11-p ()
+  (and (getenv "DISPLAY")
+       (executable-find "xclip")))
+
+(defun bndos-terminal-clipboard-set (text)
+  (cond
+   ((bndos-terminal-clipboard--wayland-p)
+    (with-temp-buffer
+      (insert text)
+      (call-process-region (point-min) (point-max) "wl-copy" nil nil nil)))
+   ((bndos-terminal-clipboard--x11-p)
+    (with-temp-buffer
+      (insert text)
+      (call-process-region (point-min) (point-max) "xclip" nil nil nil "-selection" "clipboard"))))
+  text)
+
+(defun bndos-terminal-clipboard-get ()
+  (cond
+   ((bndos-terminal-clipboard--wayland-p)
+    (with-temp-buffer
+      (when (zerop (call-process "wl-paste" nil t nil "--no-newline"))
+        (buffer-string))))
+   ((bndos-terminal-clipboard--x11-p)
+    (with-temp-buffer
+      (when (zerop (call-process "xclip" nil t nil "-selection" "clipboard" "-o"))
+        (buffer-string))))))
+
+(defun bndos-terminal-clipboard-enable ()
+  (when (and (bndos-terminal-clipboard--enabled-p)
+             (not (display-graphic-p))
+             (or (bndos-terminal-clipboard--wayland-p)
+                 (bndos-terminal-clipboard--x11-p)))
+    (setq select-enable-clipboard t
+          interprogram-cut-function #'bndos-terminal-clipboard-set
+          interprogram-paste-function #'bndos-terminal-clipboard-get)))
+
+(bndos-terminal-clipboard-enable)
+(add-hook 'after-init-hook #'bndos-terminal-clipboard-enable)
+
+
 (defvar my-preferred-font-size 11)
 ;; Color on compile buffer
 (require 'ansi-color)
@@ -149,9 +199,11 @@
   '(magit-diff-file-heading-highlight :foreground "#ff79c6" :background "#111116" :weight bold)
   '(magit-diff-hunk-heading :foreground "#d6c7ff" :background "#241836")
   '(magit-diff-hunk-heading-highlight :foreground "#ffffff" :background "#3a2457" :weight bold)
-  '(magit-section-highlight :background "#17111f" :extend t :inverse-video nil)
-  '(magit-diff-hunk-region :foreground unspecified :background unspecified :weight bold :underline (:color "#ff79c6" :style line) :inverse-video nil :box nil :extend t)
+  '(magit-section-highlight :foreground unspecified :background "#17111f" :extend t :inverse-video nil)
+  '(magit-diff-hunk-region :foreground "#ffffff" :background "#17111f" :weight bold :underline (:color "#ff79c6" :style line) :inverse-video nil :box nil :extend t)
   '(magit-diff-lines-heading :foreground "#000000" :background "#ff79c6")
+  '(magit-diff-hunk-heading-selection :foreground "#ff79c6" :background "#17111f" :weight bold :inverse-video nil :extend t)
+  '(magit-diff-file-heading-selection :foreground "#ff79c6" :background "#17111f" :weight bold :inverse-video nil :extend t)
   '(magit-diff-lines-boundary :foreground "#ff79c6" :background "#17111f" :inverse-video nil :extend t)
   '(magit-diff-revision-summary :foreground "#8be9fd" :background "#000000" :weight bold)
   '(magit-diff-revision-summary-highlight :foreground "#8be9fd" :background "#111116" :weight bold)
