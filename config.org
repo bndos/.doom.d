@@ -1291,16 +1291,25 @@ If there is a region, use it for the code actions; otherwise use point."
 
 (defun my/display-current-buffer-in-side (side slot size)
   (interactive)
-  (display-buffer
-   (current-buffer)
-   `((display-buffer-in-side-window)
-     (side . ,side)
-     (slot . ,slot)
-     ,(if (memq side '(left right))
-          `(window-width . ,size)
-        `(window-height . ,size))
-     (dedicated . side)
-     (window-parameters . ((no-delete-other-windows . t))))))
+  (let ((buffer (current-buffer))
+        (window (selected-window)))
+    ;; `vterm' is usually already displayed in a dedicated side window via
+    ;; `display-buffer-alist'.  Re-displaying that same live side-window buffer
+    ;; tends to keep/reuse the existing window, so remove that window first.
+    (when (window-live-p window)
+      (set-window-dedicated-p window nil)
+      (when (window-parameter window 'window-side)
+        (delete-window window)))
+    (select-window
+     (display-buffer-in-side-window
+      buffer
+      `((side . ,side)
+        (slot . ,slot)
+        ,(if (memq side '(left right))
+             `(window-width . ,size)
+           `(window-height . ,size))
+        (dedicated . side)
+        (window-parameters . ((no-delete-other-windows . t))))))))
 
 (map! :leader "w M-J" (cmd! (my/display-current-buffer-in-side 'top  -1 0.15)))
 (map! :leader "w M-K" (cmd! (my/display-current-buffer-in-side 'top   1 0.15)))
