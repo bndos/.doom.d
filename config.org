@@ -450,6 +450,10 @@
                  :cwd dape-cwd-fn
                  :program jake/file-relative-dir))
   (dape-breakpoint-global-mode)
+  (add-hook 'dape-read-config-hook #'dape--launch-json-read-config-hook)
+  (add-hook 'dape-start-hook #'dape-info)
+  (add-hook 'dape-start-hook #'dape-repl)
+  (add-hook 'dape-update-ui-hook #'dape-info-update)
   (setq dape-request-timeout 60)
 
   ;; Info buffers to the right
@@ -693,6 +697,13 @@ If there is a region, use it for the code actions; otherwise use point."
    (t
     (message "No LSP backend active in this buffer, or Eglot has no diagnostics function."))))
 
+(defun my-lsp-format-buffer ()
+  "Format the current buffer with lsp-proxy."
+  (interactive)
+  (if (bound-and-true-p lsp-proxy-mode)
+      (call-interactively #'lsp-proxy-format-buffer)
+    (message "No lsp-proxy backend active in this buffer.")))
+
 ;; ---------------------------------------
 ;; GLOBAL KEYBINDINGS (use only once)
 ;; ---------------------------------------
@@ -706,6 +717,7 @@ If there is a region, use it for the code actions; otherwise use point."
       "c r" #'my-lsp-rename
       "c a" #'my-lsp-code-actions
       "c d" #'my-lsp-describe-thing-at-point
+      "c f" #'my-lsp-format-buffer
       "c r" #'my-lsp-rename
       "c x" #'my-lsp-show-project-diagnostics)
 #+END_SRC

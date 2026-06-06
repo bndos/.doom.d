@@ -41,8 +41,6 @@
 (package! org-ref)
 (package! lsp-proxy :recipe (:host github :repo "jadestrong/lsp-proxy"
                              :files ("*.el")))
-(package! aibridge :recipe (:host github :repo "bndos/aibridge"
-                            :files ("*.el")))
 (package! shell-maker)
 (package! acp :recipe (:host github :repo "xenodium/acp.el"
                        :files("*.el")))
@@ -54,7 +52,8 @@
 (package! tabspaces)
 (package! xclip)
 (package! treesit-auto)
-(package! dape)
+(package! dape :recipe (:host github :repo "bndos/dape"))
+(package! cmake-mode)
 (package! persp-mode :recipe (:host "bndos/persp-mode.el"))
 ;; (when (package! lsp-bridge
 ;;         :recipe (:host github
