@@ -27,8 +27,7 @@
 ;; (setq fancy-splash-image (concat doom-private-dir "doom.xpm"))
 
 (setq recentf-menu-filter 'recentf-show-basenames)
-(setq display-line-numbers-type nil)
-(global-visual-line-mode t)
+(setq display-line-numbers-type 'relative)
 (setq warning-minimum-level :emergency)
 
 ;; Terminal/container clipboard bridge.  This keeps `emacs -nw` inside Docker
