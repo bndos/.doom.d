@@ -29,6 +29,7 @@
 (setq recentf-menu-filter 'recentf-show-basenames)
 (setq display-line-numbers-type 'relative)
 (setq warning-minimum-level :emergency)
+(global-visual-line-mode 1)
 
 ;; Terminal/container clipboard bridge.  This keeps `emacs -nw` inside Docker
 ;; connected to the host clipboard through Wayland first, then X11.
@@ -385,12 +386,27 @@
                    #'my/breadcrumb-lsp-proxy--normalize-imenu-alist))
   (breadcrumb-mode t))
 
-(after! company
-  (setq company-idle-delay 0)
-  ;; If you encounter issues when typing Vue directives (e.g., v-), you can try setting it to 1. I'm not sure if it's a problem with Volar.
-  (setq company-minimum-prefix-length 2)
-  (setq company-tooltip-idle-delay 0)
-  )
+;; (after! company
+;;   (setq company-idle-delay 0)
+;;   ;; If you encounter issues when typing Vue directives (e.g., v-), you can try setting it to 1. I'm not sure if it's a problem with Volar.
+;;   (setq company-minimum-prefix-length 2)
+;;   (setq company-tooltip-idle-delay 0)
+;;   )
+
+(after! corfu
+  (setq corfu-auto-delay 0)
+  (setq corfu-auto-prefix 0)
+  (setq corfu-popupinfo-delay '(0.1 . 0.1))
+  (setq corfu-popupinfo-mode t)
+  ;; Doom binds these in corfu-mode-map (not evil-insert-state-map), so they
+  ;; shadow C-n/C-p/C-SPC everywhere corfu-mode is active. Unset them so normal
+  ;; line navigation and set-mark-command fall through from the global map.
+  ;; corfu-map (popup-visible keymap) still handles navigation when popup is open.
+  (map! :map corfu-mode-map
+        :i "C-n"   nil
+        :i "C-p"   nil
+        :i "C-SPC" nil
+        :i "C-@"   nil))
 
 (use-package dape
   :preface
@@ -1183,6 +1199,7 @@ If there is a region, use it for the code actions; otherwise use point."
 (use-package! vterm
   :init
   (setq vterm-shell "zsh")
+  (setq vterm-environment '("COLORTERM=truecolor" "NO_COLOR"))
   ;; Keep vterm buffer names stable for persp-mode.  Agent CLIs can emit
   ;; transient or blank terminal-title updates; using those as buffer names
   ;; makes restored window configs point at buffers that no longer exist.

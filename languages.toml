@@ -9,6 +9,10 @@ dart = { command = "dart", args = ["language-server", "--client-id=emacs.lsp-pro
 clangd = { command = "clangd" }
 solargraph = { command = "solargraph", args = ["stdio"] }
 
+[language-server.copilot]
+command = "copilot-langauge-server"
+args = ["--stdio"]
+
 [language-server.css-ls]
 command = "vscode-css-language-server"
 args = ["--stdio"]
@@ -207,7 +211,8 @@ name = "rust"
 file-types = ["rs"]
 roots = ["Cargo.toml", "Cargo.lock"]
 language-servers = [
-  { name = "rust-analyzer", library-directories = ["~/.cargo/registry/src", "~/.rustup/toolchains"] }
+  { name = "rust-analyzer", library-directories = ["~/.cargo/registry/src", "~/.rustup/toolchains"] },
+  { name = "copilot", support-workspace = true }
 ]
 
 [[language]]
