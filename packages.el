@@ -34,6 +34,7 @@
   :pin "97dae6fca12d49833dcbe865460021151520c10b")
 ;; (package! arxiv-mode)
 ;; (package! pulsar)
+(package! ein)
 (package! lazy-ruff)
 (package! flymake-ruff)
 (package! breadcrumb)
