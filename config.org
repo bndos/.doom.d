@@ -1017,6 +1017,7 @@ If there is a region, use it for the code actions; otherwise use point."
   (defvar-local my/markdown-visual-table-align-timer nil)
   (defvar-local my/markdown-visual-table-align-editing nil)
   (defvar-local my/markdown-latex-preview-overlays nil)
+  (defvar-local my/markdown-style-overlays nil)
   (defvar-local my/markdown-html-render-overlays nil)
   (defvar my/markdown-latex-preview-cache-dir
     (expand-file-name "markdown-latex-preview/" temporary-file-directory))
@@ -1351,6 +1352,22 @@ If there is a region, use it for the code actions; otherwise use point."
           (user-error "pandoc failed while rendering markdown")))
       (buffer-string)))
 
+  (defun my/markdown-to-org (markdown)
+    "Convert MARKDOWN string to org-mode format via pandoc."
+    (unless (executable-find "pandoc")
+      (user-error "pandoc is required for markdown preview"))
+    (with-temp-buffer
+      (insert markdown)
+      (let ((status (call-process-region
+                     (point-min) (point-max)
+                     "pandoc" t t nil
+                     "--quiet"
+                     "-f" "markdown+tex_math_dollars+pipe_tables"
+                     "-t" "org")))
+        (unless (zerop status)
+          (user-error "pandoc failed to convert markdown to org")))
+      (buffer-string)))
+
   (defun my/markdown-html-to-shr-string (html)
     "Render HTML to a propertized Emacs string using shr."
     (require 'shr)
@@ -1384,6 +1401,86 @@ If there is a region, use it for the code actions; otherwise use point."
       (overlay-put overlay 'category 'my/markdown-html-render)
       (push overlay my/markdown-html-render-overlays)
       (message "Rendered markdown with pandoc/shr")))
+
+  (defun my/markdown-clear-style-overlays (&optional beg end)
+    "Clear display-only markdown style overlays between BEG and END."
+    (let ((beg (or beg (point-min)))
+          (end (or end (point-max))))
+      (mapc (lambda (overlay)
+              (when (and (overlay-buffer overlay)
+                         (< (overlay-start overlay) end)
+                         (> (overlay-end overlay) beg))
+                (delete-overlay overlay)))
+            my/markdown-style-overlays)
+      (dolist (overlay (overlays-in beg end))
+        (when (eq (overlay-get overlay 'category) 'my/markdown-style)
+          (delete-overlay overlay)))
+      (setq my/markdown-style-overlays
+            (seq-filter #'overlay-buffer my/markdown-style-overlays))))
+
+  (defun my/markdown-style--push (overlay)
+    "Record OVERLAY as part of the display-only markdown styling layer."
+    (overlay-put overlay 'category 'my/markdown-style)
+    (overlay-put overlay 'evaporate t)
+    (push overlay my/markdown-style-overlays)
+    overlay)
+
+  (defun my/markdown-style--hide (beg end)
+    "Hide source marker text between BEG and END."
+    (when (< beg end)
+      (let ((overlay (make-overlay beg end nil t nil)))
+        (overlay-put overlay 'display "")
+        (overlay-put overlay 'priority 8)
+        (my/markdown-style--push overlay))))
+
+  (defun my/markdown-style--heading-face (level)
+    "Return a readable preview face for markdown heading LEVEL."
+    (let ((height (pcase level
+                    (1 1.75) (2 1.45) (3 1.25) (4 1.12) (_ 1.05)))
+          (color (pcase level
+                   (1 "#7aa2f7") (2 "#9ece6a") (3 "#e0af68")
+                   (4 "#bb9af7") (_ "#c0caf5"))))
+      `(:height ,height :weight bold :foreground ,color)))
+
+  (defun my/markdown-render-style-overlays (&optional beg end)
+    "Render lightweight markdown styling in-place without changing buffer text."
+    (let ((beg (or beg (point-min)))
+          (end (or end (point-max))))
+      (my/markdown-clear-style-overlays beg end)
+      (save-excursion
+        (goto-char beg)
+        (while (re-search-forward "^\\([ \t]*\\)\\(#\\{1,6\\}\\)[ \t]+\\(.+?\\)[ \t]*#*[ \t]*$" end t)
+          (let* ((level (length (match-string 2)))
+                 (marker-beg (match-beginning 2))
+                 (text-beg (match-beginning 3))
+                 (text-end (match-end 3))
+                 (line-end (line-end-position))
+                 (overlay (make-overlay text-beg text-end nil t nil)))
+            (my/markdown-style--hide marker-beg text-beg)
+            (when (< text-end line-end)
+              (my/markdown-style--hide text-end line-end))
+            (overlay-put overlay 'face (my/markdown-style--heading-face level))
+            (overlay-put overlay 'priority 9)
+            (my/markdown-style--push overlay)))
+        (goto-char beg)
+        (while (re-search-forward "\\(^\\|[^\\\\]\\)\\(`\\)\\([^`\n]+\\)\\(`\\)" end t)
+          (unless (save-excursion
+                    (goto-char (match-beginning 0))
+                    (my/markdown-visual-table-align--pipe-table-line-p))
+            (let* ((open-beg (match-beginning 2))
+                   (open-end (match-end 2))
+                   (text-beg (match-beginning 3))
+                   (text-end (match-end 3))
+                   (close-beg (match-beginning 4))
+                   (close-end (match-end 4))
+                   (overlay (make-overlay text-beg text-end nil t nil)))
+              (my/markdown-style--hide open-beg open-end)
+              (my/markdown-style--hide close-beg close-end)
+              (overlay-put overlay 'face (if (facep 'markdown-code-face)
+                                             'markdown-code-face
+                                           'font-lock-constant-face))
+              (overlay-put overlay 'priority 9)
+              (my/markdown-style--push overlay)))))))
 
   (defun my/markdown-render-latex-previews-region (beg end)
     "Render all TeX formulas between BEG and END as SVG overlays."
@@ -1423,17 +1520,20 @@ If there is a region, use it for the code actions; otherwise use point."
       cleared))
 
   (defun my/markdown-render-current-buffer ()
-    "Refresh visual markdown tables and formula previews in this buffer."
+    "Refresh inline markdown styling, visual tables, and formula previews."
     (interactive)
+    (when (bound-and-true-p my/markdown-html-render-overlays)
+      (my/markdown-clear-html-render))
     (let ((table-count 0)
           (formula-count 0))
+      (my/markdown-render-style-overlays (point-min) (point-max))
       (when (bound-and-true-p my/markdown-visual-table-align-mode)
         (setq my/markdown-visual-table-align-editing nil)
         (my/markdown-visual-table-align-refresh)
         (setq table-count (length my/markdown-visual-table-align-overlays)))
       (setq formula-count
             (my/markdown-render-latex-previews-region (point-min) (point-max)))
-      (message "Refreshed %s table lines; rendered %s formula previews"
+      (message "Rendered markdown: %s table lines, %s formula previews"
                table-count formula-count)))
 
   (defun my/markdown-clear-rendered-at-point ()
@@ -1452,6 +1552,17 @@ If there is a region, use it for the code actions; otherwise use point."
        t)
      (and (fboundp 'my/markdown-clear-latex-preview-at-point)
           (my/markdown-clear-latex-preview-at-point))
+     (when (and (boundp 'my/markdown-style-overlays)
+                (seq-some (lambda (overlay)
+                            (when (and (overlay-buffer overlay)
+                                       (>= (point) (overlay-start overlay))
+                                       (<= (point) (overlay-end overlay)))
+                              (delete-overlay overlay)
+                              t))
+                          my/markdown-style-overlays))
+       (setq my/markdown-style-overlays
+             (seq-filter #'overlay-buffer my/markdown-style-overlays))
+       t)
      (and (fboundp 'my/markdown-visual-table-align-clear-at-point)
           (my/markdown-visual-table-align-clear-at-point))))
 
@@ -1756,6 +1867,8 @@ If there is a region, use it for the code actions; otherwise use point."
 (map! "M-V" #'projectile-vterm)
 
 (use-package! vterm
+  :defer t
+  :commands (vterm vterm-other-window)
   :init
   (setq vterm-shell "zsh")
   (setq vterm-environment '("COLORTERM=truecolor" "NO_COLOR"))
@@ -1876,6 +1989,136 @@ If there is a region, use it for the code actions; otherwise use point."
 (with-eval-after-load 'ein-worksheet
   (setq ein:worksheet-warn-obsolesced-keybinding nil))
 
+(require 'cl-lib)
+(require 'subr-x)
+
+(defvar my/ein-managed-url nil)
+(defvar my/ein-managed-token nil)
+
+(defun my/ein-default-notebook-directory ()
+  "Return the default notebook directory for managed EIN servers."
+  (cond ((file-directory-p (expand-file-name "~/Projects/calibrars/notebooks/"))
+         (expand-file-name "~/Projects/calibrars/notebooks/"))
+        ((file-directory-p (expand-file-name "~/Projects/"))
+         (expand-file-name "~/Projects/"))
+        (t (expand-file-name "~/"))))
+
+(defun my/ein-query-add-managed-token (settings url)
+  "Add the managed Jupyter token to EIN API requests for our server."
+  (if (and my/ein-managed-url
+           my/ein-managed-token
+           (string-prefix-p my/ein-managed-url url))
+      (let* ((headers (copy-sequence (or (plist-get settings :headers) nil)))
+             (headers (cl-remove "Authorization" headers
+                                 :key #'car
+                                 :test #'string=)))
+        (plist-put settings :headers
+                   (cons (cons "Authorization"
+                               (format "token %s" my/ein-managed-token))
+                         headers)))
+    settings))
+
+(defun my/ein-query-prepare-header-around (orig url settings &optional securep)
+  "Ensure managed EIN server API calls carry the generated token."
+  (my/ein-query-add-managed-token
+   (funcall orig url settings securep)
+   url))
+
+(defun my/ein-configure ()
+  "Apply the managed EIN/Jupyter settings idempotently."
+  (setq ein:jupyter-server-command (or (executable-find "jupyter") "jupyter")
+        ein:jupyter-server-use-subcommand "notebook"
+        ein:jupyter-default-notebook-directory (my/ein-default-notebook-directory)
+        ein:notebooklist-login-timeout 20000
+        ein:jupyter-server-args '("--no-browser" "--ip=127.0.0.1")
+        ein:output-area-inlined-images t
+        ein:worksheet-warn-obsolesced-keybinding nil)
+  (when (fboundp 'ein:query-prepare-header)
+    (advice-remove 'ein:query-prepare-header
+                   #'my/ein-query-prepare-header-around)
+    (advice-add 'ein:query-prepare-header
+                :around #'my/ein-query-prepare-header-around)))
+
+(defun my/ein-load ()
+  "Load EIN features needed by the managed server commands."
+  (require 'ein)
+  (require 'ein-jupyter)
+  (require 'ein-notebook)
+  (require 'ein-notebooklist)
+  (require 'ein-worksheet)
+  (require 'ein-cell)
+  (require 'ein-query)
+  (my/ein-configure))
+
+(defun my/ein-free-local-port ()
+  "Return an available localhost TCP port for a new EIN Jupyter server."
+  (let ((server (make-network-process :name "my/ein-port-probe"
+                                      :buffer nil
+                                      :family 'ipv4
+                                      :host "127.0.0.1"
+                                      :service 0
+                                      :server t
+                                      :noquery t)))
+    (unwind-protect
+        (process-contact server :service)
+      (delete-process server))))
+
+(defun my/ein--jupyter-command ()
+  (or (executable-find ein:jupyter-server-command)
+      (executable-find "jupyter")
+      (user-error "Could not find jupyter in exec-path")))
+
+(defun my/ein-random-token ()
+  "Return a per-server token for the EIN-owned local Jupyter process."
+  (secure-hash 'sha256
+               (format "%s:%s:%s:%s"
+                       (float-time) (random) (emacs-pid) (user-uid))))
+
+(defun my/ein-jupyter-live-process-p ()
+  "Return non-nil only when EIN's Jupyter process is actually live."
+  (let ((proc (ein:jupyter-server-process)))
+    (and proc (process-live-p proc))))
+
+(defun my/ein-current-url ()
+  "Return EIN's current server URL without propagating brittle errors."
+  (or my/ein-managed-url
+      (ignore-errors (ein:jupyter-my-url-or-port))))
+
+(defun my/ein-managed-live-p ()
+  "Return non-nil when the live EIN process matches our managed server."
+  (and (my/ein-jupyter-live-process-p)
+       my/ein-managed-url
+       (equal (my/ein-current-url) my/ein-managed-url)))
+
+(defun my/ein-stop-current-process ()
+  "Stop EIN's current Jupyter process and clear stale process buffers."
+  (when-let ((proc (ein:jupyter-server-process)))
+    (let ((pid (process-id proc))
+          (url (my/ein-current-url)))
+      (if url
+          (ignore-errors (ein:jupyter-server-stop nil url))
+        (ignore-errors (delete-process proc)))
+      (cl-loop repeat 20
+               while (my/ein-jupyter-live-process-p)
+               do (sleep-for 0 100))
+      (when (my/ein-jupyter-live-process-p)
+        (ignore-errors (delete-process proc))
+        (when pid
+          (ignore-errors (signal-process pid 9))))))
+  (when-let ((buffer (get-buffer *ein:jupyter-server-buffer-name*)))
+    (kill-buffer buffer)))
+
+(defun my/ein-login-managed-server ()
+  "Open the managed notebook list using the token generated by this config."
+  (unless (and my/ein-managed-url my/ein-managed-token)
+    (user-error "No managed EIN Jupyter server is recorded"))
+  ;; Use open* directly: our Authorization-header advice handles auth, avoiding
+  ;; the fragile POST-to-/login flow that breaks with Jupyter Server 7.
+  (ein:notebooklist-open*
+   my/ein-managed-url nil nil
+   (lambda (buffer _url-or-port) (pop-to-buffer buffer))
+   nil))
+
 (after! ein
   (require 'ein-jupyter)
   (require 'ein-notebook)
@@ -1883,6 +2126,7 @@ If there is a region, use it for the code actions; otherwise use point."
   (require 'ein-worksheet)
   (require 'ein-cell)
   (require 'ein-query)
+  (my/ein-configure)
 
   (setq ein:jupyter-server-command (or (executable-find "jupyter") "jupyter")
         ein:jupyter-server-use-subcommand "notebook"
@@ -2021,63 +2265,6 @@ Runs synchronously; returns after the kill signals are sent."
              " | grep -o '[0-9]*'"
              " | xargs -r kill -9 2>/dev/null")))
 
-  (defun my/ein-start-jupyter (&optional directory)
-    "Start a managed Jupyter server on a free local port and open notebooks."
-    (interactive
-     (list (read-directory-name "Notebook directory: "
-                                ein:jupyter-default-notebook-directory
-                                ein:jupyter-default-notebook-directory
-                                t)))
-    (my/ein-kill-all-notebook-servers)
-    ;; Force-clear the EIN buffer so ein:jupyter-server-start can create a fresh one.
-    (when-let ((buf (get-buffer *ein:jupyter-server-buffer-name*)))
-      (let ((kill-buffer-query-functions nil))
-        (kill-buffer buf)))
-    (let* ((port (my/ein-free-local-port))
-           (url (format "http://127.0.0.1:%s" port))
-           (token (my/ein-random-token))
-           (ein:jupyter-server-args
-            (append ein:jupyter-server-args
-                    (list (format "--IdentityProvider.token=%s" token)
-                          (format "--NotebookApp.token=%s" token)))))
-      (setq my/ein-managed-token token
-            my/ein-managed-url url)
-      (ein:jupyter-server-start
-       (my/ein--jupyter-command)
-       (file-name-as-directory (expand-file-name directory))
-       t nil
-       port)
-      (cl-loop repeat 40
-               until (my/ein-jupyter-live-process-p)
-               do (sleep-for 0 100))
-      (my/ein-login-managed-server)))
-
-  (defun my/ein-open-running-server ()
-    "Open the managed EIN Jupyter server, starting one when needed."
-    (interactive)
-    (if (my/ein-managed-live-p)
-        (my/ein-login-managed-server)
-      (my/ein-start-jupyter ein:jupyter-default-notebook-directory)))
-
-  (defun my/ein-restart-jupyter (&optional directory)
-    "Stop any EIN Jupyter process, then start a fresh managed local server."
-    (interactive
-     (list (read-directory-name "Notebook directory: "
-                                (or (ein:jupyter-running-notebook-directory)
-                                    ein:jupyter-default-notebook-directory)
-                                ein:jupyter-default-notebook-directory
-                                t)))
-    (setq my/ein-managed-url nil
-          my/ein-managed-token nil)
-    (my/ein-start-jupyter directory))
-
-  (defun my/ein-stop-jupyter ()
-    "Stop the EIN-managed local Jupyter server and clear recorded auth state."
-    (interactive)
-    (setq my/ein-managed-url nil
-          my/ein-managed-token nil)
-    (my/ein-stop-current-process)
-    (message "Stopped EIN Jupyter server"))
 
   (defun my/ein-notebook-evil-setup ()
     (when (bound-and-true-p evil-mode)
@@ -2086,18 +2273,128 @@ Runs synchronously; returns after the kill signals are sent."
 
   (add-hook 'ein:notebook-mode-hook #'my/ein-notebook-evil-setup)
 
+  (defvar-local my/ein-markdown-preview-tmpfile nil
+    "Per-buffer temp .html file for the xwidget markdown preview.")
+
+  (defun my/ein-markdown-preview-page (body)
+    "Wrap BODY html in a GitHub-flavoured styled page for xwidget preview."
+    (concat
+     "<!DOCTYPE html><html><head><meta charset='utf-8'><style>"
+     "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;"
+     "font-size:15px;line-height:1.65;max-width:860px;margin:0 auto;"
+     "padding:1.5em 2.5em;background:#fff;color:#1f2328}"
+     "h1,h2,h3,h4,h5,h6{font-weight:600;line-height:1.25;margin-top:1.5em;margin-bottom:.4em}"
+     "h1{font-size:1.8em;border-bottom:1px solid #d1d9e0;padding-bottom:.3em}"
+     "h2{font-size:1.4em;border-bottom:1px solid #d1d9e0;padding-bottom:.25em}"
+     "h3{font-size:1.15em}"
+     "code{background:#f6f8fa;padding:.2em .4em;border-radius:4px;"
+     "font-size:87%;font-family:ui-monospace,'SFMono-Regular',Consolas,'Courier New',monospace}"
+     "pre{background:#f6f8fa;padding:1em 1.2em;border-radius:6px;"
+     "overflow-x:auto;line-height:1.45;margin:1em 0}"
+     "pre code{background:none;padding:0;font-size:100%}"
+     "blockquote{border-left:.25em solid #d1d9e0;margin:.5em 0;padding:0 1em;color:#636c76}"
+     "table{border-collapse:collapse;margin:1em 0}"
+     "th,td{border:1px solid #d1d9e0;padding:6px 13px}"
+     "th{background:#f6f8fa;font-weight:600}"
+     "tr:nth-child(2n){background:#f6f8fa}"
+     "img{max-width:100%}"
+     "a{color:#0969da;text-decoration:none}"
+     "a:hover{text-decoration:underline}"
+     "hr{border:none;border-top:1px solid #d1d9e0;margin:1.5em 0}"
+     "p{margin:.4em 0 .9em}"
+     "ul,ol{padding-left:1.8em}"
+     "li{margin:.2em 0}"
+     "</style></head><body>" body "</body></html>"))
+
+  (defun my/ein-markdown-xwidget-preview ()
+    "Toggle a rendered preview of the current EIN markdown cell in a window below.
+With xwidget: pandoc+MathML HTML rendered by the browser engine.
+Without xwidget: org-mode buffer with colored headings, aligned tables, and
+LaTeX formula images (via org-latex-preview if LaTeX is available).
+Press M-RET again to dismiss."
+    (interactive)
+    (if (and (require 'xwidget nil t)
+             (fboundp 'xwidget-webkit-browse-url))
+        ;; Xwidget: show rendered HTML in a split window below
+        (let* ((preview-name "*ein-md-xw*")
+               (edit-buf (current-buffer))
+               (preview-buf (get-buffer preview-name)))
+          (if preview-buf
+              (progn
+                (when-let ((w (get-buffer-window preview-buf)))
+                  (delete-window w))
+                (kill-buffer preview-buf))
+            (let* ((source (or (my/ein-current-markdown-text)
+                               (buffer-substring-no-properties (point-min) (point-max))))
+                   (html (my/ein-markdown-preview-page (my/markdown-pandoc-html source)))
+                   (tmpfile (or my/ein-markdown-preview-tmpfile
+                                (setq-local my/ein-markdown-preview-tmpfile
+                                            (make-temp-file "ein-md-" nil ".html"))))
+                   (url (concat "file://" tmpfile)))
+              (require 'xwidget)
+              (write-region html nil tmpfile nil 'silent)
+              (let ((xw-buf (save-window-excursion
+                              (xwidget-webkit-browse-url url t)
+                              (current-buffer))))
+                (with-current-buffer xw-buf
+                  (rename-buffer preview-name t))
+                (display-buffer
+                 xw-buf
+                 '((display-buffer-below-selected)
+                   (window-height . 0.45)
+                   (dedicated . t)))
+                (when-let ((w (get-buffer-window edit-buf)))
+                  (select-window w))))))
+      ;; Org-mode preview buffer below
+      (let* ((preview-name "*ein-md-preview*")
+             (edit-buf (current-buffer)))
+        (if (get-buffer preview-name)
+            (progn
+              (when-let ((w (get-buffer-window preview-name)))
+                (delete-window w))
+              (kill-buffer preview-name))
+          (let* ((cell (ignore-errors
+                         (with-timeout (2 nil)
+                           (ein:worksheet-get-current-cell :noerror t))))
+                 (source (if (and cell (ein:markdowncell-p cell))
+                             (ein:cell-get-text cell)
+                           (string-trim (buffer-substring-no-properties
+                                         (point-min) (point-max)))))
+                 (org-content (my/markdown-to-org source)))
+            (with-current-buffer (get-buffer-create preview-name)
+              (let ((inhibit-read-only t))
+                (erase-buffer)
+                (org-mode)
+                (setq-local org-hide-leading-stars t
+                            org-startup-folded nil)
+                (insert org-content)
+                (org-indent-mode 1)
+                (ignore-errors (org-table-map-tables #'org-table-align t))
+                (when (fboundp 'org-latex-preview)
+                  (ignore-errors (org-latex-preview '(16))))
+                (goto-char (point-min))
+                (setq buffer-read-only t))
+              (display-buffer
+               (current-buffer)
+               '((display-buffer-below-selected)
+                 (window-height . 0.4)
+                 (dedicated . t))))
+            (when-let ((w (get-buffer-window edit-buf)))
+              (select-window w)))))))
+
   (defun my/ein-markdown-mode-setup ()
     "Set up editing/rendering keys for EIN markdown edit buffers."
     (setq-local my/ein-markdown-edit-override-mode t)
     (local-set-key (kbd "C-c C-v") #'my/ein-toggle-markdown-render)
     (local-set-key (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
     (local-set-key (kbd "RET") #'my/ein-markdown-edit-rendered-at-point)
-    (local-set-key (kbd "M-RET") #'my/markdown-render-buffer-with-pandoc)
+    (local-set-key (kbd "M-RET") #'my/ein-render-current-markdown-formulas)
     (when (fboundp 'evil-local-set-key)
-      (evil-local-set-key '(normal visual insert) (kbd "C-c C-v") #'my/ein-toggle-markdown-render)
-      (evil-local-set-key '(normal visual insert) (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
-      (evil-local-set-key '(normal visual insert) (kbd "RET") #'my/ein-markdown-edit-rendered-at-point)
-      (evil-local-set-key '(normal visual insert) (kbd "M-RET") #'my/markdown-render-buffer-with-pandoc))
+      (dolist (state '(normal visual insert))
+        (evil-local-set-key state (kbd "C-c C-v") #'my/ein-toggle-markdown-render)
+        (evil-local-set-key state (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
+        (evil-local-set-key state (kbd "RET") #'my/ein-markdown-edit-rendered-at-point)
+        (evil-local-set-key state (kbd "M-RET") #'my/ein-render-current-markdown-formulas)))
     (when (require 'markdown-mode nil t)
       (my/markdown-visual-table-align-mode 1)))
 
@@ -2183,6 +2480,9 @@ Runs synchronously; returns after the kill signals are sent."
   (defun my/ein-render-current-markdown-formulas ()
     "Refresh markdown table and formula previews in EIN markdown edit or notebook buffers."
     (interactive)
+    (when (and (boundp 'my/markdown-html-render-overlays)
+               my/markdown-html-render-overlays)
+      (my/markdown-clear-html-render))
     (cond
      ((and (derived-mode-p 'ein:markdown-mode 'markdown-mode)
            (fboundp 'my/markdown-render-current-buffer))
@@ -2226,15 +2526,16 @@ Runs synchronously; returns after the kill signals are sent."
               (forward-line 1)))))))
 
   (defun my/ein-current-markdown-text ()
-    "Return markdown text at point without letting EIN state hang Emacs."
-    (cond
-     ((derived-mode-p 'ein:markdown-mode 'markdown-mode)
-      (string-trim (buffer-substring-no-properties (point-min) (point-max))))
-     (t
-      (let ((cell (with-timeout (2 nil)
-                    (ein:worksheet-get-current-cell :noerror t))))
-        (when (and cell (ein:markdowncell-p cell))
-          (ein:cell-get-text cell))))))
+    "Return markdown text of the current EIN markdown cell (cell API first)."
+    (or
+     (when (fboundp 'ein:worksheet-get-current-cell)
+       (ignore-errors
+         (let ((cell (with-timeout (2 nil)
+                       (ein:worksheet-get-current-cell :noerror t))))
+           (when (and cell (ein:markdowncell-p cell))
+             (ein:cell-get-text cell)))))
+     (when (derived-mode-p 'ein:markdown-mode 'markdown-mode)
+       (string-trim (buffer-substring-no-properties (point-min) (point-max))))))
 
   (defun my/ein-toggle-markdown-render ()
     "Toggle a side preview of the current markdown cell with SVG formula overlays."
@@ -2284,7 +2585,7 @@ Runs synchronously; returns after the kill signals are sent."
     (define-key ein:markdown-mode-map (kbd "C-c C-v") #'my/ein-toggle-markdown-render)
     (define-key ein:markdown-mode-map (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
     (define-key ein:markdown-mode-map (kbd "RET") #'my/ein-markdown-edit-rendered-at-point)
-    (define-key ein:markdown-mode-map (kbd "M-RET") #'my/markdown-render-buffer-with-pandoc))
+    (define-key ein:markdown-mode-map (kbd "M-RET") #'my/ein-render-current-markdown-formulas))
   (when (fboundp 'evil-define-key*)
     (evil-define-key* '(normal visual insert) ein:notebook-mode-map
       (kbd "C-c C-v") #'my/ein-toggle-markdown-render
@@ -2293,13 +2594,80 @@ Runs synchronously; returns after the kill signals are sent."
       (evil-define-key* '(normal visual insert) ein:markdown-mode-map
         (kbd "C-c C-v") #'my/ein-toggle-markdown-render
         (kbd "RET") #'my/ein-markdown-edit-rendered-at-point
-        (kbd "M-RET") #'my/markdown-render-buffer-with-pandoc
+        (kbd "M-RET") #'my/ein-render-current-markdown-formulas
         (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas))
     (evil-define-key* 'normal ein:notebook-mode-map
       (kbd "RET") #'my/ein-notebook-ret
       (kbd "SPC") #'my/ein-execute-cell-and-preview-markdown))
 
   )
+
+(defun my/ein-start-jupyter (&optional directory)
+  "Start a managed Jupyter server on a free local port and open notebooks."
+  (interactive
+   (progn
+     (my/ein-load)
+     (list (read-directory-name "Notebook directory: "
+                                ein:jupyter-default-notebook-directory
+                                ein:jupyter-default-notebook-directory
+                                t))))
+  (my/ein-load)
+  (unless (my/ein-managed-live-p)
+    (my/ein-stop-current-process))
+  (when-let ((buf (get-buffer *ein:jupyter-server-buffer-name*)))
+    (let ((kill-buffer-query-functions nil))
+      (kill-buffer buf)))
+  (let* ((port (my/ein-free-local-port))
+         (url (format "http://127.0.0.1:%s" port))
+         (token (my/ein-random-token))
+         (ein:jupyter-server-args
+          (append ein:jupyter-server-args
+                  (list (format "--IdentityProvider.token=%s" token)
+                        (format "--NotebookApp.token=%s" token)))))
+    (setq my/ein-managed-token token
+          my/ein-managed-url url)
+    (ein:jupyter-server-start
+     (my/ein--jupyter-command)
+     (file-name-as-directory (expand-file-name directory))
+     t nil
+     port)
+    (cl-loop repeat 40
+             until (my/ein-jupyter-live-process-p)
+             do (sleep-for 0 100))
+    (my/ein-login-managed-server)))
+
+(defun my/ein-open-running-server ()
+  "Open the managed EIN Jupyter server, starting one when needed."
+  (interactive)
+  (my/ein-load)
+  (if (my/ein-managed-live-p)
+      (my/ein-login-managed-server)
+    (my/ein-start-jupyter ein:jupyter-default-notebook-directory)))
+
+(defun my/ein-restart-jupyter (&optional directory)
+  "Stop any EIN Jupyter process, then start a fresh managed local server."
+  (interactive
+   (progn
+     (my/ein-load)
+     (list (read-directory-name "Notebook directory: "
+                                (or (ein:jupyter-running-notebook-directory)
+                                    ein:jupyter-default-notebook-directory)
+                                ein:jupyter-default-notebook-directory
+                                t))))
+  (my/ein-load)
+  (my/ein-stop-current-process)
+  (setq my/ein-managed-url nil
+        my/ein-managed-token nil)
+  (my/ein-start-jupyter directory))
+
+(defun my/ein-stop-jupyter ()
+  "Stop the EIN-managed local Jupyter server and clear recorded auth state."
+  (interactive)
+  (my/ein-load)
+  (setq my/ein-managed-url nil
+        my/ein-managed-token nil)
+  (my/ein-stop-current-process)
+  (message "Stopped EIN Jupyter server"))
 
 (map! :leader
       :prefix ("j" . "jupyter")
