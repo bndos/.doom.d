@@ -1442,10 +1442,10 @@ If there is a region, use it for the code actions; otherwise use point."
     overlay)
 
   (defun my/markdown-style--hide (beg end)
-    "Hide source marker text between BEG and END."
+    "Dim source marker text between BEG and END without hiding it."
     (when (< beg end)
       (let ((overlay (make-overlay beg end nil t nil)))
-        (overlay-put overlay 'display "")
+        (overlay-put overlay 'face 'shadow)
         (overlay-put overlay 'priority 8)
         (my/markdown-style--push overlay))))
 
@@ -1460,10 +1460,12 @@ If there is a region, use it for the code actions; otherwise use point."
 
   (defun my/markdown-render-style-overlays (&optional beg end)
     "Render lightweight markdown styling in-place without changing buffer text."
-    (let ((beg (or beg (point-min)))
-          (end (or end (point-max))))
-      (my/markdown-clear-style-overlays beg end)
-      (save-excursion
+    (unless (and (fboundp 'my/ein-python-cell-buffer-p)
+                 (my/ein-python-cell-buffer-p))
+      (let ((beg (or beg (point-min)))
+            (end (or end (point-max))))
+        (my/markdown-clear-style-overlays beg end)
+        (save-excursion
         (goto-char beg)
         (while (re-search-forward "^\\([ \t]*\\)\\(#\\{1,6\\}\\)[ \t]+\\(.+?\\)[ \t]*#*[ \t]*$" end t)
           (let* ((level (length (match-string 2)))
@@ -1496,7 +1498,7 @@ If there is a region, use it for the code actions; otherwise use point."
                                              'markdown-code-face
                                            'font-lock-constant-face))
               (overlay-put overlay 'priority 9)
-              (my/markdown-style--push overlay)))))))
+              (my/markdown-style--push overlay))))))))
 
   (defun my/markdown-render-latex-previews-region (beg end)
     "Render all TeX formulas between BEG and END as SVG overlays."
@@ -2512,6 +2514,9 @@ Runs synchronously; returns after the kill signals are sent."
 
   (defun my/ein-python-lsp-setup ()
     "Enable file-backed lsp-proxy support in EIN Python cell buffers."
+    (when (my/ein-python-cell-buffer-p)
+      (when (fboundp 'my/ein-clear-markdown-render-in-current-buffer)
+        (my/ein-clear-markdown-render-in-current-buffer)))
     (when (and (my/ein-python-cell-buffer-p)
                (require 'lsp-proxy nil t))
       (let ((created-file nil))
