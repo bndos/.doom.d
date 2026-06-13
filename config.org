@@ -1267,6 +1267,7 @@ If there is a region, use it for the code actions; otherwise use point."
 
   (defun my/markdown-visual-table-align--render-table (beg end)
     "Show an aligned rendering of the table between BEG and END."
+    (my/markdown-visual-table-align-clear-region beg end)
     (let* ((text (buffer-substring-no-properties beg end))
            (aligned-lines (my/markdown-visual-table-align--aligned-lines text))
            (line-bounds (my/markdown-visual-table-align--line-bounds beg end)))
@@ -1460,10 +1461,11 @@ If there is a region, use it for the code actions; otherwise use point."
 
   (defun my/markdown-render-style-overlays (&optional beg end)
     "Render lightweight markdown styling in-place without changing buffer text."
-    (unless (and (fboundp 'my/ein-python-cell-buffer-p)
-                 (my/ein-python-cell-buffer-p))
-      (let ((beg (or beg (point-min)))
-            (end (or end (point-max))))
+    (let ((beg (or beg (point-min)))
+          (end (or end (point-max))))
+      (if (and (fboundp 'my/ein-python-cell-buffer-p)
+               (my/ein-python-cell-buffer-p))
+          (my/markdown-clear-style-overlays beg end)
         (my/markdown-clear-style-overlays beg end)
         (save-excursion
         (goto-char beg)
@@ -1504,7 +1506,10 @@ If there is a region, use it for the code actions; otherwise use point."
     "Render all TeX formulas between BEG and END as SVG overlays."
     (interactive "r")
     (my/markdown-clear-latex-previews beg end)
-    (let ((count 0))
+    (if (and (fboundp 'my/ein-python-cell-buffer-p)
+             (my/ein-python-cell-buffer-p))
+        0
+      (let ((count 0))
       (dolist (range (my/markdown-latex-preview-ranges beg end))
         (pcase-let ((`(,start ,finish ,formula ,display) range))
           (unless (string-empty-p formula)
@@ -1534,7 +1539,7 @@ If there is a region, use it for the code actions; otherwise use point."
                   (cl-incf count))
               (error
                (message "Skipping formula preview: %s" (error-message-string err)))))))
-      count))
+        count)))
 
   (defun my/markdown-clear-latex-preview-at-point ()
     "Reveal editable TeX source at point by removing a formula preview overlay."
@@ -1745,7 +1750,9 @@ If there is a region, use it for the code actions; otherwise use point."
     "Refresh visual markdown table overlays only between BEG and END."
     (interactive "r")
     (my/markdown-visual-table-align-clear-region beg end)
-    (save-excursion
+    (unless (and (fboundp 'my/ein-python-cell-buffer-p)
+                 (my/ein-python-cell-buffer-p))
+      (save-excursion
       (goto-char beg)
       (while (< (point) end)
         (if-let ((bounds (my/markdown-visual-table-align--table-bounds)))
@@ -1753,7 +1760,7 @@ If there is a region, use it for the code actions; otherwise use point."
                   (table-end (min end (cdr bounds))))
               (my/markdown-visual-table-align--render-table table-beg table-end)
               (goto-char (cdr bounds)))
-          (forward-line 1)))))
+          (forward-line 1))))))
 
   (defun my/markdown-visual-table-align-schedule (&rest _)
     "Schedule a visual table alignment refresh for the current buffer."
@@ -2134,12 +2141,22 @@ If there is a region, use it for the code actions; otherwise use point."
 
 (defvar my/ein-managed-url nil)
 (defvar my/ein-managed-token nil)
+(defvar ein:output-area-inlined-image-use-file-cache t)
 
 (defun my/ein-default-notebook-directory ()
-  "Return the default notebook directory for managed EIN servers."
-  (cond ((file-directory-p (expand-file-name "~/Projects/"))
-         (expand-file-name "~/Projects/"))
-        (t (expand-file-name "~/"))))
+  "Return the current project root or `default-directory' for EIN servers."
+  (file-name-as-directory
+   (expand-file-name
+    (or (when (fboundp 'project-current)
+          (when-let ((project (project-current nil)))
+            (if (fboundp 'project-root)
+                (project-root project)
+              (car (project-roots project)))))
+        (when (and (fboundp 'projectile-project-root)
+                   (ignore-errors (projectile-project-p)))
+          (ignore-errors (projectile-project-root)))
+        default-directory
+        "~/"))))
 
 (defun my/ein-query-add-managed-token (settings url)
   "Add the managed Jupyter token to EIN API requests for our server."
@@ -2169,7 +2186,8 @@ If there is a region, use it for the code actions; otherwise use point."
         ein:jupyter-default-notebook-directory (my/ein-default-notebook-directory)
         ein:notebooklist-login-timeout 20000
         ein:jupyter-server-args '("--no-browser" "--ip=127.0.0.1")
-        ein:output-area-inlined-images nil
+        ein:output-area-inlined-images t
+        ein:output-area-inlined-image-use-file-cache t
         ein:worksheet-warn-obsolesced-keybinding nil)
   (when (fboundp 'ein:query-prepare-header)
     (advice-remove 'ein:query-prepare-header
@@ -2289,7 +2307,8 @@ If there is a region, use it for the code actions; otherwise use point."
         ein:jupyter-default-notebook-directory (my/ein-default-notebook-directory)
         ein:notebooklist-login-timeout 20000
         ein:jupyter-server-args '("--no-browser" "--ip=127.0.0.1")
-        ein:output-area-inlined-images nil
+        ein:output-area-inlined-images t
+        ein:output-area-inlined-image-use-file-cache t
         ein:worksheet-warn-obsolesced-keybinding nil)
 
   (defvar my/ein-managed-url nil)
@@ -2658,6 +2677,39 @@ Do not clear the base notebook buffer: that is where rendered markdown cells liv
   (defvar-local my/ein-render-markdown-cell-align-source t
     "Whether rendering an EIN markdown cell may realign table source text.")
 
+  (defun my/ein-markdown-edit-block-bounds ()
+    "Return editable markdown block bounds in an EIN markdown edit buffer."
+    (let ((origin (point))
+          (beg (point-min))
+          (end (point-max)))
+      (save-excursion
+        (when (re-search-backward "^markdown:[ \t]*$" nil t)
+          (setq beg (min (point-max) (1+ (line-end-position))))))
+      (save-excursion
+        (goto-char origin)
+        (when (re-search-forward "^\\(?:markdown:[ \t]*$\\|In \\[.*\\]:\\)" nil t)
+          (setq end (line-beginning-position))))
+      (cons beg end)))
+
+  (defun my/ein-render-markdown-edit-block ()
+    "Refresh markdown render overlays only for the current EIN markdown edit block."
+    (my/ein-clear-markdown-render-in-current-buffer)
+    (pcase-let ((`(,beg . ,end) (my/ein-markdown-edit-block-bounds)))
+      (when (< beg end)
+        (when (and my/ein-render-markdown-cell-align-source
+                   (fboundp 'my/markdown-align-table-at-point-noerror))
+          (save-excursion
+            (goto-char beg)
+            (when (re-search-forward "^[ \t]*|.*|[ \t]*$" end t)
+              (my/markdown-align-table-at-point-noerror))))
+        (when (fboundp 'my/markdown-render-style-overlays)
+          (my/markdown-render-style-overlays beg end))
+        (when (fboundp 'my/markdown-visual-table-align-refresh-region)
+          (setq my/markdown-visual-table-align-editing nil)
+          (my/markdown-visual-table-align-refresh-region beg end))
+        (when (fboundp 'my/markdown-render-latex-previews-region)
+          (my/markdown-render-latex-previews-region beg end)))))
+
   (defun my/ein-render-markdown-cell-region (cell)
     "Refresh visual markdown previews for CELL in the current notebook buffer."
     (when (fboundp 'my/markdown-render-style-overlays)
@@ -2720,10 +2772,10 @@ Do not clear the base notebook buffer: that is where rendered markdown cells liv
         (unless (and cell (ein:markdowncell-p cell))
           (user-error "Not in a markdown cell"))
         (my/ein-clear-markdown-render-in-sibling-cell-buffers notebook-key)
-        ;; Render the visible edit buffer as well as the owner notebook cell.
-        ;; Otherwise old table overlays in the edit buffer remain visible while
-        ;; only the hidden notebook buffer gets refreshed.
-        (my/markdown-render-current-buffer)
+        ;; Render only the current markdown block in the visible edit buffer.
+        ;; Some EIN edit buffers contain the whole notebook text; whole-buffer
+        ;; rendering makes Python comments look like markdown headings.
+        (my/ein-render-markdown-edit-block)
         (with-current-buffer notebook-buffer
           (my/ein-render-markdown-cell-region cell))))
      ((and (derived-mode-p 'ein:markdown-mode 'markdown-mode)
