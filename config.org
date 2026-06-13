@@ -2135,9 +2135,7 @@ If there is a region, use it for the code actions; otherwise use point."
 
 (defun my/ein-default-notebook-directory ()
   "Return the default notebook directory for managed EIN servers."
-  (cond ((file-directory-p (expand-file-name "~/Projects/calibrars/notebooks/"))
-         (expand-file-name "~/Projects/calibrars/notebooks/"))
-        ((file-directory-p (expand-file-name "~/Projects/"))
+  (cond ((file-directory-p (expand-file-name "~/Projects/"))
          (expand-file-name "~/Projects/"))
         (t (expand-file-name "~/"))))
 
@@ -2169,7 +2167,7 @@ If there is a region, use it for the code actions; otherwise use point."
         ein:jupyter-default-notebook-directory (my/ein-default-notebook-directory)
         ein:notebooklist-login-timeout 20000
         ein:jupyter-server-args '("--no-browser" "--ip=127.0.0.1")
-        ein:output-area-inlined-images t
+        ein:output-area-inlined-images nil
         ein:worksheet-warn-obsolesced-keybinding nil)
   (when (fboundp 'ein:query-prepare-header)
     (advice-remove 'ein:query-prepare-header
@@ -2286,15 +2284,10 @@ If there is a region, use it for the code actions; otherwise use point."
 
   (setq ein:jupyter-server-command (or (executable-find "jupyter") "jupyter")
         ein:jupyter-server-use-subcommand "notebook"
-        ein:jupyter-default-notebook-directory
-        (cond ((file-directory-p (expand-file-name "~/Projects/calibrars/notebooks/"))
-               (expand-file-name "~/Projects/calibrars/notebooks/"))
-              ((file-directory-p (expand-file-name "~/Projects/"))
-               (expand-file-name "~/Projects/"))
-              (t (expand-file-name "~/")))
+        ein:jupyter-default-notebook-directory (my/ein-default-notebook-directory)
         ein:notebooklist-login-timeout 20000
         ein:jupyter-server-args '("--no-browser" "--ip=127.0.0.1")
-        ein:output-area-inlined-images t
+        ein:output-area-inlined-images nil
         ein:worksheet-warn-obsolesced-keybinding nil)
 
   (defvar my/ein-managed-url nil)
@@ -2540,6 +2533,37 @@ Runs synchronously; returns after the kill signals are sent."
 
   (add-hook 'python-mode-hook #'my/ein-python-lsp-setup)
 
+  (defvar my/python-mode-mret-fallback nil)
+  (defvar my/python-mode-ccl-fallback nil)
+
+  (defun my/ein-python-mret ()
+    "Execute EIN Python cells and advance; otherwise dispatch to the previous Python M-RET binding."
+    (interactive)
+    (if (my/ein-python-cell-buffer-p)
+        (progn
+          (call-interactively #'ein:worksheet-execute-cell)
+          (my/ein-goto-next-input-noerror))
+      (if (and my/python-mode-mret-fallback
+               (not (eq my/python-mode-mret-fallback #'my/ein-python-mret)))
+          (call-interactively my/python-mode-mret-fallback)
+        (user-error "No Python M-RET binding configured"))))
+
+  (defun my/ein-python-ccl ()
+    "Do not run markdown rendering in EIN Python cells."
+    (interactive)
+    (if (my/ein-python-cell-buffer-p)
+        (user-error "C-c C-l is only for markdown cells")
+      (if (and my/python-mode-ccl-fallback
+               (not (eq my/python-mode-ccl-fallback #'my/ein-python-ccl)))
+          (call-interactively my/python-mode-ccl-fallback)
+        (user-error "No Python C-c C-l binding configured"))))
+
+  (with-eval-after-load 'python
+    (setq my/python-mode-mret-fallback (lookup-key python-mode-map (kbd "M-RET"))
+          my/python-mode-ccl-fallback (lookup-key python-mode-map (kbd "C-c C-l")))
+    (define-key python-mode-map (kbd "M-RET") #'my/ein-python-mret)
+    (define-key python-mode-map (kbd "C-c C-l") #'my/ein-python-ccl))
+
   (defvar my/ein-markdown-preview-window-width 0.80
     "Fraction of frame width used by the EIN markdown preview side window.")
 
@@ -2567,8 +2591,44 @@ Runs synchronously; returns after the kill signals are sent."
       (my/markdown-visual-table-align-refresh)
       (length my/markdown-visual-table-align-overlays)))
 
+  (defun my/ein-clear-markdown-overlay-categories (&optional beg end)
+    "Delete markdown render overlays by category in the current buffer."
+    (let ((beg (or beg (point-min)))
+          (end (or end (point-max)))
+          (categories '(my/markdown-html-render
+                        my/markdown-style
+                        my/markdown-rendered-table-pipe-align
+                        my/markdown-visual-table-align
+                        my/markdown-latex-preview)))
+      (dolist (overlay (overlays-in beg end))
+        (when (memq (overlay-get overlay 'category) categories)
+          (delete-overlay overlay)))))
+
+  (defun my/ein-buffer-notebook-key (&optional buffer)
+    "Return the base EIN notebook buffer name for BUFFER, or nil."
+    (with-current-buffer (or buffer (current-buffer))
+      (let ((name (string-trim-left (buffer-name))))
+        (when (and (string-prefix-p "*ein: " name)
+                   (string-match "\.ipynb\*" name))
+          (substring name 0 (match-end 0))))))
+
+
+  (defun my/ein-clear-markdown-render-in-sibling-cell-buffers (&optional key)
+    "Clear stale markdown render overlays from EIN Python edit buffers for KEY.
+Do not clear the base notebook buffer: that is where rendered markdown cells live."
+    (let ((key (or key (my/ein-buffer-notebook-key))))
+      (when key
+        (dolist (buffer (buffer-list))
+          (when (and (buffer-live-p buffer)
+                     (string= key (or (my/ein-buffer-notebook-key buffer) "")))
+            (with-current-buffer buffer
+              (when (and (fboundp 'my/ein-python-cell-buffer-p)
+                         (my/ein-python-cell-buffer-p))
+                (my/ein-clear-markdown-render-in-current-buffer))))))))
+
   (defun my/ein-clear-markdown-render-in-current-buffer ()
     "Remove local markdown render overlays from the current buffer."
+    (my/ein-clear-markdown-overlay-categories)
     (when (boundp 'my/markdown-html-render-overlays)
       (my/markdown-clear-html-render))
     (when (boundp 'my/markdown-style-overlays)
@@ -2578,7 +2638,20 @@ Runs synchronously; returns after the kill signals are sent."
     (when (boundp 'my/markdown-visual-table-align-overlays)
       (my/markdown-visual-table-align-clear))
     (when (boundp 'my/markdown-latex-preview-overlays)
-      (my/markdown-clear-latex-previews)))
+      (my/markdown-clear-latex-previews))
+    (when (boundp 'my/markdown-html-render-overlays)
+      (setq my/markdown-html-render-overlays nil))
+    (when (boundp 'my/markdown-style-overlays)
+      (setq my/markdown-style-overlays nil))
+    (when (boundp 'my/markdown-rendered-table-pipe-align-overlays)
+      (setq my/markdown-rendered-table-pipe-align-overlays nil))
+    (when (boundp 'my/markdown-visual-table-align-overlays)
+      (setq my/markdown-visual-table-align-overlays nil))
+    (when (boundp 'my/markdown-latex-preview-overlays)
+      (setq my/markdown-latex-preview-overlays nil)))
+
+  (defvar-local my/ein-render-markdown-cell-align-source t
+    "Whether rendering an EIN markdown cell may realign table source text.")
 
   (defun my/ein-render-markdown-cell-region (cell)
     "Refresh visual markdown previews for CELL in the current notebook buffer."
@@ -2593,10 +2666,11 @@ Runs synchronously; returns after the kill signals are sent."
       ;; comments as markdown.  Render only this markdown cell's bounds.
       (when (bound-and-true-p my/markdown-visual-table-align-mode)
         (my/markdown-visual-table-align-mode -1))
-      (save-excursion
-        (goto-char (ein:cell-input-pos-min cell))
-        (when (re-search-forward "^[ \t]*|.*|[ \t]*$" (ein:cell-input-pos-max cell) t)
-          (my/markdown-align-table-at-point-noerror)))
+      (when my/ein-render-markdown-cell-align-source
+        (save-excursion
+          (goto-char (ein:cell-input-pos-min cell))
+          (when (re-search-forward "^[ \t]*|.*|[ \t]*$" (ein:cell-input-pos-max cell) t)
+            (my/markdown-align-table-at-point-noerror))))
       (setq my/markdown-visual-table-align-editing nil)
       (my/markdown-visual-table-align-refresh-region
        (ein:cell-input-pos-min cell)
@@ -2636,9 +2710,11 @@ Runs synchronously; returns after the kill signals are sent."
            (fboundp 'ein:worksheet-get-current-cell))
       (let ((cell (with-timeout (2 nil)
                     (ein:worksheet-get-current-cell :noerror t)))
-            (notebook-buffer (buffer-base-buffer)))
+            (notebook-buffer (buffer-base-buffer))
+            (notebook-key (my/ein-buffer-notebook-key)))
         (unless (and cell (ein:markdowncell-p cell))
           (user-error "Not in a markdown cell"))
+        (my/ein-clear-markdown-render-in-sibling-cell-buffers notebook-key)
         ;; Render the visible edit buffer as well as the owner notebook cell.
         ;; Otherwise old table overlays in the edit buffer remain visible while
         ;; only the hidden notebook buffer gets refreshed.
@@ -2718,14 +2794,19 @@ Runs synchronously; returns after the kill signals are sent."
         (and cell (ein:markdowncell-p cell))))))
 
   (defun my/ein-render-current-markdown-and-next ()
-    "Render markdown with the cached preview path, then move to the next block."
+    "Render markdown cells; execute code cells instead of treating them as markdown."
     (interactive)
     (if (my/ein-markdown-context-p)
         (progn
           (my/ein-render-current-markdown-formulas)
           (my/ein-goto-next-input-noerror))
-      (my/ein-clear-markdown-render-in-current-buffer)
-      (message "Current EIN cell is not markdown; skipping markdown render")))
+      (if (and (fboundp 'my/ein-python-cell-buffer-p)
+               (my/ein-python-cell-buffer-p)
+               (fboundp 'ein:worksheet-execute-cell))
+          (progn
+            (call-interactively #'ein:worksheet-execute-cell)
+            (my/ein-goto-next-input-noerror))
+        (my/ein-goto-next-input-noerror))))
   (defun my/ein-align-markdown-preview-tables ()
     "Align markdown pipe tables in the preview copy only."
     (when (and (fboundp 'markdown-table-align)
