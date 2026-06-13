@@ -2691,11 +2691,23 @@ Do not clear the base notebook buffer: that is where rendered markdown cells liv
           (setq end (line-beginning-position))))
       (cons beg end)))
 
+  (defun my/ein-clear-markdown-render-region (beg end)
+    "Remove local markdown render overlays between BEG and END."
+    (my/ein-clear-markdown-overlay-categories beg end)
+    (when (boundp 'my/markdown-style-overlays)
+      (my/markdown-clear-style-overlays beg end))
+    (when (boundp 'my/markdown-rendered-table-pipe-align-overlays)
+      (my/markdown-rendered-table-pipe-align-clear beg end))
+    (when (boundp 'my/markdown-visual-table-align-overlays)
+      (my/markdown-visual-table-align-clear-region beg end))
+    (when (boundp 'my/markdown-latex-preview-overlays)
+      (my/markdown-clear-latex-previews beg end)))
+
   (defun my/ein-render-markdown-edit-block ()
     "Refresh markdown render overlays only for the current EIN markdown edit block."
-    (my/ein-clear-markdown-render-in-current-buffer)
     (pcase-let ((`(,beg . ,end) (my/ein-markdown-edit-block-bounds)))
       (when (< beg end)
+        (my/ein-clear-markdown-render-region beg end)
         (when (and my/ein-render-markdown-cell-align-source
                    (fboundp 'my/markdown-align-table-at-point-noerror))
           (save-excursion
@@ -2777,7 +2789,8 @@ Do not clear the base notebook buffer: that is where rendered markdown cells liv
         ;; rendering makes Python comments look like markdown headings.
         (my/ein-render-markdown-edit-block)
         (with-current-buffer notebook-buffer
-          (my/ein-render-markdown-cell-region cell))))
+          (my/ein-render-markdown-cell-region cell))
+        cell))
      ((and (derived-mode-p 'ein:markdown-mode 'markdown-mode)
            (fboundp 'my/markdown-render-current-buffer))
       (my/markdown-render-current-buffer))
@@ -2787,7 +2800,8 @@ Do not clear the base notebook buffer: that is where rendered markdown cells liv
                     (ein:worksheet-get-current-cell :noerror t))))
         (unless (and cell (ein:markdowncell-p cell))
           (user-error "Not in a markdown cell"))
-        (my/ein-render-markdown-cell-region cell)))
+        (my/ein-render-markdown-cell-region cell)
+        cell))
      (t
       (user-error "Markdown rendering helpers are not available"))))
 
@@ -2812,8 +2826,11 @@ Do not clear the base notebook buffer: that is where rendered markdown cells liv
             (set-window-buffer window notebook-buffer)
           (delete-window window)))))
 
-  (defun my/ein-goto-next-input-noerror ()
-    "Move to the next EIN input block from notebook or cell edit buffers."
+  (defun my/ein-goto-next-input-noerror (&optional anchor-cell)
+    "Move to the next EIN input block from notebook or cell edit buffers.
+When ANCHOR-CELL is non-nil, move from that exact cell instead of the
+notebook buffer's current ewoc node.  This keeps M-RET stable from indirect
+markdown edit buffers whose point/current node can drift during rendering."
     (when (fboundp 'ein:worksheet-goto-next-input)
       (when-let* ((origin-buffer (current-buffer))
                   (notebook-buffer (my/ein-notebook-buffer-for-current-buffer)))
@@ -2826,8 +2843,13 @@ Do not clear the base notebook buffer: that is where rendered markdown cells liv
             (when-let ((window (get-buffer-window notebook-buffer)))
               (select-window window))
             (with-current-buffer notebook-buffer
-              (when-let ((node (ein:worksheet-get-current-ewoc-node)))
-                (ein:worksheet-goto-next-input node))))))))
+              (cond
+               ((and anchor-cell (fboundp 'ein:cell-next) (fboundp 'ein:cell-goto))
+                (if-let ((next-cell (ein:cell-next anchor-cell)))
+                    (ein:cell-goto next-cell)
+                  (message "No next input")))
+               ((when-let ((node (ein:worksheet-get-current-ewoc-node)))
+                  (ein:worksheet-goto-next-input node))))))))))
 
   (defun my/ein-current-cell-noerror ()
     "Return the current EIN cell without throwing from edit buffers or gaps."
@@ -2835,6 +2857,11 @@ Do not clear the base notebook buffer: that is where rendered markdown cells liv
       (ignore-errors
         (with-timeout (1 nil)
           (ein:worksheet-get-current-cell :noerror t)))))
+
+  (defun my/ein-current-markdown-cell-noerror ()
+    "Return the current EIN markdown cell without throwing."
+    (let ((cell (my/ein-current-cell-noerror)))
+      (and cell (ein:markdowncell-p cell) cell)))
 
   (defun my/ein-markdown-context-p ()
     "Return non-nil only in an actual EIN markdown edit buffer or markdown cell."
@@ -2854,9 +2881,9 @@ Do not clear the base notebook buffer: that is where rendered markdown cells liv
     "Render markdown cells; execute code cells instead of treating them as markdown."
     (interactive)
     (if (my/ein-markdown-context-p)
-        (progn
+        (let ((cell (my/ein-current-markdown-cell-noerror)))
           (my/ein-render-current-markdown-formulas)
-          (my/ein-goto-next-input-noerror))
+          (my/ein-goto-next-input-noerror cell))
       (if (and (fboundp 'my/ein-python-cell-buffer-p)
                (my/ein-python-cell-buffer-p)
                (fboundp 'ein:worksheet-execute-cell))
