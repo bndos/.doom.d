@@ -607,6 +607,8 @@ Falls back to `process-environment` if envrc export fails."
 (defun my-lsp-find-definition ()
   "Go to definition with either lsp-proxy or Eglot, setting a jump point."
   (interactive)
+  (when (fboundp 'my/ein-python-lsp-setup)
+    (my/ein-python-lsp-setup))
   (better-jumper-set-jump)
   (cond
    ((bound-and-true-p lsp-proxy-mode)
@@ -953,7 +955,8 @@ If there is a region, use it for the code actions; otherwise use point."
   (or (copilot-accept-completion)
       (company-indent-or-complete-common nil)))
 
-(use-package! copilot
+(unless (getenv "EIN_REGRESSION_TEST")
+  (use-package! copilot
   :hook
   ;; (org-mode . my/copilot-activate-after-eglot)
   ;; (prog-mode . my/copilot-activate-after-eglot)
@@ -1000,7 +1003,7 @@ If there is a region, use it for the code actions; otherwise use point."
   (dolist (buffer (buffer-list))
     (with-current-buffer buffer
       (my/copilot-disable-large-buffer)))
-  (my/copilot-disable-large-buffer))
+  (my/copilot-disable-large-buffer)))
     #+END_SRC
 
 * markdown
@@ -1009,11 +1012,19 @@ If there is a region, use it for the code actions; otherwise use point."
   (require 'cl-lib)
   (require 'subr-x)
 
+  (set-face-attribute 'markdown-code-face nil :inherit 'default :height 1.0)
+  (when (facep 'markdown-inline-code-face)
+    (set-face-attribute 'markdown-inline-code-face nil :inherit 'default :height 1.0))
+  (when (facep 'markdown-pre-face)
+    (set-face-attribute 'markdown-pre-face nil :inherit 'default :height 1.0))
+  (when (facep 'markdown-language-keyword-face)
+    (set-face-attribute 'markdown-language-keyword-face nil :inherit 'default :height 1.0))
   (with-eval-after-load 'shr
-    (set-face-attribute 'shr-h1 nil :height 1.7 :weight 'bold)
-    (set-face-attribute 'shr-h2 nil :height 1.4 :weight 'bold)
-    (set-face-attribute 'shr-h3 nil :height 1.2 :weight 'bold))
+    (set-face-attribute 'shr-h1 nil :height 2.05 :weight 'bold)
+    (set-face-attribute 'shr-h2 nil :height 1.7 :weight 'bold)
+    (set-face-attribute 'shr-h3 nil :height 1.4 :weight 'bold))
   (defvar-local my/markdown-visual-table-align-overlays nil)
+  (defvar-local my/markdown-rendered-table-pipe-align-overlays nil)
   (defvar-local my/markdown-visual-table-align-timer nil)
   (defvar-local my/markdown-visual-table-align-editing nil)
   (defvar-local my/markdown-latex-preview-overlays nil)
@@ -1084,6 +1095,10 @@ If there is a region, use it for the code actions; otherwise use point."
   (defun my/markdown-visual-table-align-clear ()
     "Remove display-only table alignment overlays in the current buffer."
     (mapc #'delete-overlay my/markdown-visual-table-align-overlays)
+    (dolist (overlay (overlays-in (point-min) (point-max)))
+      (when (eq (overlay-get overlay 'category)
+                'my/markdown-visual-table-align)
+        (delete-overlay overlay)))
     (setq my/markdown-visual-table-align-overlays nil))
   (defun my/markdown-visual-table-align--pipe-table-line-p ()
     "Return non-nil if the current line looks like a pipe table row."
@@ -1264,6 +1279,7 @@ If there is a region, use it for the code actions; otherwise use point."
                            display-line))
              (overlay-put ov 'display "")
              (overlay-put ov 'priority 10)
+             (overlay-put ov 'category 'my/markdown-visual-table-align)
              (push ov my/markdown-visual-table-align-overlays)))
          line-bounds aligned-lines))))
 
@@ -1492,7 +1508,21 @@ If there is a region, use it for the code actions; otherwise use point."
           (unless (string-empty-p formula)
             (condition-case err
                 (let* ((svg (my/markdown-latex-preview-svg formula display))
-                       (image (create-image svg 'svg nil :ascent 'center :scale my/markdown-latex-preview-scale))
+                       (table-formula
+                        (save-excursion
+                          (goto-char start)
+                          (my/markdown-visual-table-align--pipe-table-line-p)))
+                       (source-width
+                        (and table-formula
+                             (max 1 (string-pixel-width
+                                     (buffer-substring-no-properties start finish)))))
+                       (image (if table-formula
+                                  (create-image svg 'svg nil
+                                                :ascent 'center
+                                                :width source-width)
+                                (create-image svg 'svg nil
+                                              :ascent 'center
+                                              :scale my/markdown-latex-preview-scale)))
                        (overlay (make-overlay start finish nil t nil)))
                   (overlay-put overlay 'display image)
                   (overlay-put overlay 'help-echo formula)
@@ -1519,9 +1549,24 @@ If there is a region, use it for the code actions; otherwise use point."
             (seq-filter #'overlay-buffer my/markdown-latex-preview-overlays))
       cleared))
 
+  (defun my/markdown-edit-latex-preview-at-point ()
+    "Reveal only a rendered LaTeX preview at point, without inserting a newline."
+    (interactive)
+    (unless (my/markdown-clear-latex-preview-at-point)
+      (message "No rendered LaTeX preview at point")))
+
+  (defun my/markdown-align-table-at-point-noerror ()
+    "Align the markdown table at point when markdown-mode can do it."
+    (when (and (fboundp 'markdown-table-align)
+               (save-excursion
+                 (beginning-of-line)
+                 (looking-at-p "^[ 	]*|.*|[ 	]*$")))
+      (ignore-errors (markdown-table-align))))
+
   (defun my/markdown-render-current-buffer ()
     "Refresh inline markdown styling, visual tables, and formula previews."
     (interactive)
+    (my/markdown-align-table-at-point-noerror)
     (when (bound-and-true-p my/markdown-html-render-overlays)
       (my/markdown-clear-html-render))
     (let ((table-count 0)
@@ -1533,6 +1578,7 @@ If there is a region, use it for the code actions; otherwise use point."
         (setq table-count (length my/markdown-visual-table-align-overlays)))
       (setq formula-count
             (my/markdown-render-latex-previews-region (point-min) (point-max)))
+      (my/markdown-rendered-table-align-pipes-region (point-min) (point-max))
       (message "Rendered markdown: %s table lines, %s formula previews"
                table-count formula-count)))
 
@@ -1585,7 +1631,8 @@ If there is a region, use it for the code actions; otherwise use point."
   (defun my/markdown-visual-table-align-refresh ()
     "Refresh display-only table alignment overlays in the current buffer."
     (interactive)
-    (when my/markdown-visual-table-align-mode
+    (when (and my/markdown-visual-table-align-mode
+               (not (derived-mode-p 'ein:notebook-mode)))
       (my/markdown-visual-table-align-clear)
       (save-excursion
         (goto-char (point-min))
@@ -1597,22 +1644,114 @@ If there is a region, use it for the code actions; otherwise use point."
                 (goto-char (cdr bounds)))
             (forward-line 1))))))
 
+  (defun my/markdown-visual-table-align--overlay-at-point ()
+    "Return a rendered table overlay at point, if any."
+    (or (seq-find (lambda (overlay)
+                    (eq (overlay-get overlay 'category)
+                        'my/markdown-visual-table-align))
+                  (overlays-at (point)))
+        (seq-find (lambda (overlay)
+                    (and (overlay-buffer overlay)
+                         (memq overlay my/markdown-visual-table-align-overlays)
+                         (>= (point) (overlay-start overlay))
+                         (<= (point) (overlay-end overlay))))
+                  my/markdown-visual-table-align-overlays)))
+
   (defun my/markdown-visual-table-align-clear-at-point ()
     "Reveal the editable markdown table at point by removing its visual overlays."
     (interactive)
-    (when-let ((bounds (my/markdown-visual-table-align--table-bounds)))
-      (let ((beg (car bounds))
-            (end (cdr bounds)))
-        (setq my/markdown-visual-table-align-editing t)
-        (mapc (lambda (overlay)
-                (when (and (overlay-buffer overlay)
-                           (< (overlay-start overlay) end)
-                           (> (overlay-end overlay) beg))
-                  (delete-overlay overlay)))
-              my/markdown-visual-table-align-overlays)
-        (setq my/markdown-visual-table-align-overlays
-              (seq-filter #'overlay-buffer my/markdown-visual-table-align-overlays))
-        t)))
+    (let* ((overlay (my/markdown-visual-table-align--overlay-at-point))
+           (bounds (or (and overlay
+                            (save-excursion
+                              (goto-char (overlay-start overlay))
+                              (my/markdown-visual-table-align--table-bounds)))
+                       (my/markdown-visual-table-align--table-bounds))))
+      (when bounds
+        (let ((beg (car bounds))
+              (end (cdr bounds)))
+          (setq my/markdown-visual-table-align-editing t)
+          (dolist (candidate (overlays-in beg end))
+            (when (eq (overlay-get candidate 'category)
+                      'my/markdown-visual-table-align)
+              (delete-overlay candidate)))
+          (mapc (lambda (candidate)
+                  (when (and (overlay-buffer candidate)
+                             (< (overlay-start candidate) end)
+                             (> (overlay-end candidate) beg))
+                    (delete-overlay candidate)))
+                my/markdown-visual-table-align-overlays)
+          (setq my/markdown-visual-table-align-overlays
+                (seq-filter #'overlay-buffer my/markdown-visual-table-align-overlays))
+          t))))
+  (defun my/markdown-rendered-table-pipe-align-clear (&optional beg end)
+    "Remove rendered table pipe alignment overlays."
+    (let ((beg (or beg (point-min)))
+          (end (or end (point-max))))
+      (mapc (lambda (overlay)
+              (when (and (overlay-buffer overlay)
+                         (< (overlay-start overlay) end)
+                         (> (overlay-end overlay) beg))
+                (delete-overlay overlay)))
+            my/markdown-rendered-table-pipe-align-overlays)
+      (dolist (overlay (overlays-in beg end))
+        (when (eq (overlay-get overlay 'category)
+                  'my/markdown-rendered-table-pipe-align)
+          (delete-overlay overlay)))
+      (setq my/markdown-rendered-table-pipe-align-overlays
+            (seq-filter #'overlay-buffer
+                        my/markdown-rendered-table-pipe-align-overlays))))
+
+  (defun my/markdown-rendered-table-pipe-positions (beg end window)
+    "Return rendered pipe positions between BEG and END in WINDOW."
+    (let (rows)
+      (save-excursion
+        (goto-char beg)
+        (while (< (point) end)
+          (let (pipes)
+            (save-excursion
+              (while (search-forward "|" (line-end-position) t)
+                (let* ((pos (match-beginning 0))
+                       (xy (posn-x-y (posn-at-point pos window))))
+                  (when xy
+                    (push (cons pos (car xy)) pipes)))))
+            (when pipes
+              (push (nreverse pipes) rows)))
+          (forward-line 1)))
+      (nreverse rows)))
+
+  (defun my/markdown-rendered-table-align-pipes-region (beg end)
+    "Clear stale pipe alignment overlays; table alignment is handled by table display overlays."
+    (my/markdown-rendered-table-pipe-align-clear beg end))
+
+
+  (defun my/markdown-visual-table-align-clear-region (beg end)
+    "Remove visual table overlays between BEG and END."
+    (my/markdown-rendered-table-pipe-align-clear beg end)
+    (dolist (candidate (overlays-in beg end))
+      (when (eq (overlay-get candidate 'category)
+                'my/markdown-visual-table-align)
+        (delete-overlay candidate)))
+    (mapc (lambda (overlay)
+            (when (and (overlay-buffer overlay)
+                       (< (overlay-start overlay) end)
+                       (> (overlay-end overlay) beg))
+              (delete-overlay overlay)))
+          my/markdown-visual-table-align-overlays)
+    (setq my/markdown-visual-table-align-overlays
+          (seq-filter #'overlay-buffer my/markdown-visual-table-align-overlays)))
+  (defun my/markdown-visual-table-align-refresh-region (beg end)
+    "Refresh visual markdown table overlays only between BEG and END."
+    (interactive "r")
+    (my/markdown-visual-table-align-clear-region beg end)
+    (save-excursion
+      (goto-char beg)
+      (while (< (point) end)
+        (if-let ((bounds (my/markdown-visual-table-align--table-bounds)))
+            (let ((table-beg (max beg (car bounds)))
+                  (table-end (min end (cdr bounds))))
+              (my/markdown-visual-table-align--render-table table-beg table-end)
+              (goto-char (cdr bounds)))
+          (forward-line 1)))))
 
   (defun my/markdown-visual-table-align-schedule (&rest _)
     "Schedule a visual table alignment refresh for the current buffer."
@@ -1645,7 +1784,6 @@ If there is a region, use it for the code actions; otherwise use point."
 
   (add-hook 'markdown-mode-hook
             (lambda ()
-              (setq-local my/markdown-rendered-edit-override-mode t)
               (my/markdown-visual-table-align-mode 1))))
 #+END_SRC
 
@@ -2039,15 +2177,29 @@ If there is a region, use it for the code actions; otherwise use point."
     (advice-add 'ein:query-prepare-header
                 :around #'my/ein-query-prepare-header-around)))
 
+(defun my/ein-ensure-log-function ()
+  "Make `ein:log' callable from EIN files that did not macroexpand it."
+  (require 'ein-log)
+  (when (macrop 'ein:log)
+    (fset 'ein:log
+          (lambda (level string &rest args)
+            (ein:log-wrapper
+             level
+             (lambda () (apply #'format string args)))))))
+
 (defun my/ein-load ()
   "Load EIN features needed by the managed server commands."
   (require 'ein)
+  (require 'ein-log)
+  (my/ein-ensure-log-function)
   (require 'ein-jupyter)
   (require 'ein-notebook)
   (require 'ein-notebooklist)
   (require 'ein-worksheet)
   (require 'ein-cell)
   (require 'ein-query)
+  (require 'ein-websocket)
+  (my/ein-ensure-log-function)
   (my/ein-configure))
 
 (defun my/ein-free-local-port ()
@@ -2120,12 +2272,16 @@ If there is a region, use it for the code actions; otherwise use point."
    nil))
 
 (after! ein
+  (require 'ein-log)
+  (my/ein-ensure-log-function)
   (require 'ein-jupyter)
   (require 'ein-notebook)
   (require 'ein-notebooklist)
   (require 'ein-worksheet)
   (require 'ein-cell)
   (require 'ein-query)
+  (require 'ein-websocket)
+  (my/ein-ensure-log-function)
   (my/ein-configure)
 
   (setq ein:jupyter-server-command (or (executable-find "jupyter") "jupyter")
@@ -2307,94 +2463,23 @@ Runs synchronously; returns after the kill signals are sent."
      "</style></head><body>" body "</body></html>"))
 
   (defun my/ein-markdown-xwidget-preview ()
-    "Toggle a rendered preview of the current EIN markdown cell in a window below.
-With xwidget: pandoc+MathML HTML rendered by the browser engine.
-Without xwidget: org-mode buffer with colored headings, aligned tables, and
-LaTeX formula images (via org-latex-preview if LaTeX is available).
-Press M-RET again to dismiss."
+    "Compatibility wrapper: M-RET must render inline and advance, never open preview windows."
     (interactive)
-    (if (and (require 'xwidget nil t)
-             (fboundp 'xwidget-webkit-browse-url))
-        ;; Xwidget: show rendered HTML in a split window below
-        (let* ((preview-name "*ein-md-xw*")
-               (edit-buf (current-buffer))
-               (preview-buf (get-buffer preview-name)))
-          (if preview-buf
-              (progn
-                (when-let ((w (get-buffer-window preview-buf)))
-                  (delete-window w))
-                (kill-buffer preview-buf))
-            (let* ((source (or (my/ein-current-markdown-text)
-                               (buffer-substring-no-properties (point-min) (point-max))))
-                   (html (my/ein-markdown-preview-page (my/markdown-pandoc-html source)))
-                   (tmpfile (or my/ein-markdown-preview-tmpfile
-                                (setq-local my/ein-markdown-preview-tmpfile
-                                            (make-temp-file "ein-md-" nil ".html"))))
-                   (url (concat "file://" tmpfile)))
-              (require 'xwidget)
-              (write-region html nil tmpfile nil 'silent)
-              (let ((xw-buf (save-window-excursion
-                              (xwidget-webkit-browse-url url t)
-                              (current-buffer))))
-                (with-current-buffer xw-buf
-                  (rename-buffer preview-name t))
-                (display-buffer
-                 xw-buf
-                 '((display-buffer-below-selected)
-                   (window-height . 0.45)
-                   (dedicated . t)))
-                (when-let ((w (get-buffer-window edit-buf)))
-                  (select-window w))))))
-      ;; Org-mode preview buffer below
-      (let* ((preview-name "*ein-md-preview*")
-             (edit-buf (current-buffer)))
-        (if (get-buffer preview-name)
-            (progn
-              (when-let ((w (get-buffer-window preview-name)))
-                (delete-window w))
-              (kill-buffer preview-name))
-          (let* ((cell (ignore-errors
-                         (with-timeout (2 nil)
-                           (ein:worksheet-get-current-cell :noerror t))))
-                 (source (if (and cell (ein:markdowncell-p cell))
-                             (ein:cell-get-text cell)
-                           (string-trim (buffer-substring-no-properties
-                                         (point-min) (point-max)))))
-                 (org-content (my/markdown-to-org source)))
-            (with-current-buffer (get-buffer-create preview-name)
-              (let ((inhibit-read-only t))
-                (erase-buffer)
-                (org-mode)
-                (setq-local org-hide-leading-stars t
-                            org-startup-folded nil)
-                (insert org-content)
-                (org-indent-mode 1)
-                (ignore-errors (org-table-map-tables #'org-table-align t))
-                (when (fboundp 'org-latex-preview)
-                  (ignore-errors (org-latex-preview '(16))))
-                (goto-char (point-min))
-                (setq buffer-read-only t))
-              (display-buffer
-               (current-buffer)
-               '((display-buffer-below-selected)
-                 (window-height . 0.4)
-                 (dedicated . t))))
-            (when-let ((w (get-buffer-window edit-buf)))
-              (select-window w)))))))
+    (if (fboundp 'my/ein-render-current-markdown-and-next)
+        (my/ein-render-current-markdown-and-next)
+      (user-error "EIN markdown render-and-next command is not loaded")))
 
   (defun my/ein-markdown-mode-setup ()
     "Set up editing/rendering keys for EIN markdown edit buffers."
-    (setq-local my/ein-markdown-edit-override-mode t)
     (local-set-key (kbd "C-c C-v") #'my/ein-toggle-markdown-render)
     (local-set-key (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
-    (local-set-key (kbd "RET") #'my/ein-markdown-edit-rendered-at-point)
-    (local-set-key (kbd "M-RET") #'my/ein-render-current-markdown-formulas)
+    (local-set-key (kbd "M-RET") #'my/ein-render-current-markdown-and-next)
     (when (fboundp 'evil-local-set-key)
       (dolist (state '(normal visual insert))
         (evil-local-set-key state (kbd "C-c C-v") #'my/ein-toggle-markdown-render)
         (evil-local-set-key state (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
-        (evil-local-set-key state (kbd "RET") #'my/ein-markdown-edit-rendered-at-point)
-        (evil-local-set-key state (kbd "M-RET") #'my/ein-render-current-markdown-formulas)))
+        (evil-local-set-key state (kbd "M-RET") #'my/ein-render-current-markdown-and-next))
+      (evil-local-set-key 'normal (kbd "RET") #'my/markdown-edit-rendered-at-point))
     (when (require 'markdown-mode nil t)
       (my/markdown-visual-table-align-mode 1)))
 
@@ -2436,36 +2521,41 @@ Press M-RET again to dismiss."
     "Enable file-backed lsp-proxy support in EIN Python cell buffers."
     (when (and (my/ein-python-cell-buffer-p)
                (require 'lsp-proxy nil t))
-      (unless buffer-file-name
-        (setq-local buffer-file-name (my/ein-python-lsp-temp-file))
-        (setq-local buffer-offer-save nil)
-        (setq-local auto-save-default nil)
-        (setq-local create-lockfiles nil))
-      (my/ein-python-lsp-sync-temp-file)
-      (setq-local lsp-proxy-user-languages-config
-                  (expand-file-name "~/.config/doom/languages.toml"))
-      (unless (bound-and-true-p lsp-proxy-mode)
-        (lsp-proxy-mode 1))
-      (my/ein-python-copilot-open-temp-file)))
+      (let ((created-file nil))
+        (unless buffer-file-name
+          (setq-local buffer-file-name (my/ein-python-lsp-temp-file))
+          (setq-local buffer-offer-save nil)
+          (setq-local auto-save-default nil)
+          (setq-local create-lockfiles nil)
+          (setq created-file t))
+        (my/ein-python-lsp-sync-temp-file)
+        (setq-local lsp-proxy-user-languages-config
+                    (expand-file-name "~/.config/doom/languages.toml"))
+        (if (bound-and-true-p lsp-proxy-mode)
+            (when created-file
+              (lsp-proxy-mode -1)
+              (lsp-proxy-mode 1))
+          (lsp-proxy-mode 1))
+        (my/ein-python-copilot-open-temp-file))))
 
   (add-hook 'python-mode-hook #'my/ein-python-lsp-setup)
 
   (defvar my/ein-markdown-preview-window-width 0.80
     "Fraction of frame width used by the EIN markdown preview side window.")
 
-  (defun my/ein-markdown-edit-rendered-at-point ()
-    "Reveal rendered markdown at point for editing, or insert a newline."
+  (defun my/ein-markdown-edit-latex-at-point ()
+    "Reveal only a rendered LaTeX preview at point in EIN markdown buffers."
     (interactive)
-    (if (fboundp 'my/markdown-edit-rendered-at-point)
-        (my/markdown-edit-rendered-at-point)
-      (newline)))
+    (if (fboundp 'my/markdown-edit-latex-preview-at-point)
+        (my/markdown-edit-latex-preview-at-point)
+      (message "Markdown LaTeX preview helpers are not available")))
 
   (defun my/ein-notebook-ret ()
     "Reveal rendered markdown at point, otherwise move to the next notebook input."
     (interactive)
     (unless (and (fboundp 'my/markdown-clear-rendered-at-point)
                  (my/markdown-clear-rendered-at-point))
-      (ein:worksheet-goto-next-input)))
+      (call-interactively #'ein:worksheet-goto-next-input)))
 
   (defun my/ein-refresh-markdown-tables ()
     "Refresh visual markdown table alignment when available."
@@ -2477,6 +2567,57 @@ Press M-RET again to dismiss."
       (my/markdown-visual-table-align-refresh)
       (length my/markdown-visual-table-align-overlays)))
 
+  (defun my/ein-clear-markdown-render-in-current-buffer ()
+    "Remove local markdown render overlays from the current buffer."
+    (when (boundp 'my/markdown-html-render-overlays)
+      (my/markdown-clear-html-render))
+    (when (boundp 'my/markdown-style-overlays)
+      (my/markdown-clear-style-overlays))
+    (when (boundp 'my/markdown-rendered-table-pipe-align-overlays)
+      (my/markdown-rendered-table-pipe-align-clear))
+    (when (boundp 'my/markdown-visual-table-align-overlays)
+      (my/markdown-visual-table-align-clear))
+    (when (boundp 'my/markdown-latex-preview-overlays)
+      (my/markdown-clear-latex-previews)))
+
+  (defun my/ein-render-markdown-cell-region (cell)
+    "Refresh visual markdown previews for CELL in the current notebook buffer."
+    (when (fboundp 'my/markdown-render-style-overlays)
+      (my/markdown-render-style-overlays
+       (ein:cell-input-pos-min cell)
+       (ein:cell-input-pos-max cell)))
+    (when (and (fboundp 'my/markdown-visual-table-align-mode)
+               (fboundp 'my/markdown-visual-table-align-refresh-region))
+      ;; In the notebook buffer, never enable the table-align minor mode:
+      ;; its after-change hook scans the whole notebook and can treat code
+      ;; comments as markdown.  Render only this markdown cell's bounds.
+      (when (bound-and-true-p my/markdown-visual-table-align-mode)
+        (my/markdown-visual-table-align-mode -1))
+      (save-excursion
+        (goto-char (ein:cell-input-pos-min cell))
+        (when (re-search-forward "^[ \t]*|.*|[ \t]*$" (ein:cell-input-pos-max cell) t)
+          (my/markdown-align-table-at-point-noerror)))
+      (setq my/markdown-visual-table-align-editing nil)
+      (my/markdown-visual-table-align-refresh-region
+       (ein:cell-input-pos-min cell)
+       (ein:cell-input-pos-max cell)))
+    (let ((formula-count
+           (my/markdown-render-latex-previews-region
+            (ein:cell-input-pos-min cell)
+            (ein:cell-input-pos-max cell)))
+          (table-count (if (boundp 'my/markdown-visual-table-align-overlays)
+                           (cl-count-if (lambda (overlay)
+                                          (and (overlay-buffer overlay)
+                                               (< (overlay-start overlay) (ein:cell-input-pos-max cell))
+                                               (> (overlay-end overlay) (ein:cell-input-pos-min cell))))
+                                        my/markdown-visual-table-align-overlays)
+                         0)))
+      (my/markdown-rendered-table-align-pipes-region
+       (ein:cell-input-pos-min cell)
+       (ein:cell-input-pos-max cell))
+      (message "Refreshed %s table lines; rendered %s formula previews"
+               table-count formula-count)))
+
   (defun my/ein-render-current-markdown-formulas ()
     "Refresh markdown table and formula previews in EIN markdown edit or notebook buffers."
     (interactive)
@@ -2484,6 +2625,26 @@ Press M-RET again to dismiss."
                my/markdown-html-render-overlays)
       (my/markdown-clear-html-render))
     (cond
+     ((and (fboundp 'my/ein-python-cell-buffer-p)
+           (my/ein-python-cell-buffer-p))
+      (my/ein-clear-markdown-render-in-current-buffer)
+      (user-error "Not in a markdown cell"))
+     ((and (eq major-mode 'ein:markdown-mode)
+           (buffer-base-buffer)
+           (fboundp 'my/markdown-render-current-buffer)
+           (fboundp 'my/markdown-render-latex-previews-region)
+           (fboundp 'ein:worksheet-get-current-cell))
+      (let ((cell (with-timeout (2 nil)
+                    (ein:worksheet-get-current-cell :noerror t)))
+            (notebook-buffer (buffer-base-buffer)))
+        (unless (and cell (ein:markdowncell-p cell))
+          (user-error "Not in a markdown cell"))
+        ;; Render the visible edit buffer as well as the owner notebook cell.
+        ;; Otherwise old table overlays in the edit buffer remain visible while
+        ;; only the hidden notebook buffer gets refreshed.
+        (my/markdown-render-current-buffer)
+        (with-current-buffer notebook-buffer
+          (my/ein-render-markdown-cell-region cell))))
      ((and (derived-mode-p 'ein:markdown-mode 'markdown-mode)
            (fboundp 'my/markdown-render-current-buffer))
       (my/markdown-render-current-buffer))
@@ -2493,23 +2654,78 @@ Press M-RET again to dismiss."
                     (ein:worksheet-get-current-cell :noerror t))))
         (unless (and cell (ein:markdowncell-p cell))
           (user-error "Not in a markdown cell"))
-        (when (and (fboundp 'my/markdown-visual-table-align-mode)
-                   (fboundp 'my/markdown-visual-table-align-refresh))
-          (unless (bound-and-true-p my/markdown-visual-table-align-mode)
-            (my/markdown-visual-table-align-mode 1))
-          (setq my/markdown-visual-table-align-editing nil)
-          (my/markdown-visual-table-align-refresh))
-        (let ((formula-count
-               (my/markdown-render-latex-previews-region
-                (ein:cell-input-pos-min cell)
-                (ein:cell-input-pos-max cell)))
-              (table-count (if (boundp 'my/markdown-visual-table-align-overlays)
-                               (length my/markdown-visual-table-align-overlays)
-                             0)))
-          (message "Refreshed %s table lines; rendered %s formula previews"
-                   table-count formula-count))))
+        (my/ein-render-markdown-cell-region cell)))
      (t
       (user-error "Markdown rendering helpers are not available"))))
+
+  (defun my/ein-notebook-buffer-for-current-buffer ()
+    "Return the owning EIN notebook buffer for the current edit/notebook buffer."
+    (or (buffer-base-buffer)
+        (let* ((name (buffer-name))
+               (trimmed (string-trim-left name))
+               (cell-suffix (string-match "\[[^]]+\]\'" trimmed)))
+          (when (and cell-suffix (string-prefix-p "*ein: " trimmed))
+            (get-buffer (substring trimmed 0 cell-suffix))))
+        (when (and (string-prefix-p "*ein: " (buffer-name))
+                   (string-suffix-p "*" (buffer-name)))
+          (current-buffer))))
+
+  (defun my/ein--close-extra-edit-windows (edit-buffer notebook-buffer keep-window)
+    "Replace duplicate EDIT-BUFFER windows with NOTEBOOK-BUFFER except KEEP-WINDOW."
+    (dolist (window (window-list nil 'no-minibuf))
+      (when (and (not (eq window keep-window))
+                 (eq (window-buffer window) edit-buffer))
+        (if (one-window-p nil nil)
+            (set-window-buffer window notebook-buffer)
+          (delete-window window)))))
+
+  (defun my/ein-goto-next-input-noerror ()
+    "Move to the next EIN input block from notebook or cell edit buffers."
+    (when (fboundp 'ein:worksheet-goto-next-input)
+      (when-let* ((origin-buffer (current-buffer))
+                  (notebook-buffer (my/ein-notebook-buffer-for-current-buffer)))
+        (ignore-errors
+          (with-timeout (1 nil)
+            (unless (eq origin-buffer notebook-buffer)
+              (set-window-buffer (selected-window) notebook-buffer)
+              (my/ein--close-extra-edit-windows
+               origin-buffer notebook-buffer (selected-window)))
+            (when-let ((window (get-buffer-window notebook-buffer)))
+              (select-window window))
+            (with-current-buffer notebook-buffer
+              (when-let ((node (ein:worksheet-get-current-ewoc-node)))
+                (ein:worksheet-goto-next-input node))))))))
+
+  (defun my/ein-current-cell-noerror ()
+    "Return the current EIN cell without throwing from edit buffers or gaps."
+    (when (fboundp 'ein:worksheet-get-current-cell)
+      (ignore-errors
+        (with-timeout (1 nil)
+          (ein:worksheet-get-current-cell :noerror t)))))
+
+  (defun my/ein-markdown-context-p ()
+    "Return non-nil only in an actual EIN markdown edit buffer or markdown cell."
+    (cond
+     ((and (fboundp 'my/ein-python-cell-buffer-p)
+           (my/ein-python-cell-buffer-p))
+      nil)
+     ((eq major-mode 'ein:markdown-mode)
+      t)
+     ((derived-mode-p 'python-mode)
+      nil)
+     (t
+      (let ((cell (my/ein-current-cell-noerror)))
+        (and cell (ein:markdowncell-p cell))))))
+
+  (defun my/ein-render-current-markdown-and-next ()
+    "Render markdown with the cached preview path, then move to the next block."
+    (interactive)
+    (if (my/ein-markdown-context-p)
+        (progn
+          (my/ein-render-current-markdown-formulas)
+          (my/ein-goto-next-input-noerror))
+      (my/ein-clear-markdown-render-in-current-buffer)
+      (message "Current EIN cell is not markdown; skipping markdown render")))
   (defun my/ein-align-markdown-preview-tables ()
     "Align markdown pipe tables in the preview copy only."
     (when (and (fboundp 'markdown-table-align)
@@ -2526,15 +2742,12 @@ Press M-RET again to dismiss."
               (forward-line 1)))))))
 
   (defun my/ein-current-markdown-text ()
-    "Return markdown text of the current EIN markdown cell (cell API first)."
+    "Return markdown text only for an actual EIN markdown cell/edit buffer."
     (or
-     (when (fboundp 'ein:worksheet-get-current-cell)
-       (ignore-errors
-         (let ((cell (with-timeout (2 nil)
-                       (ein:worksheet-get-current-cell :noerror t))))
-           (when (and cell (ein:markdowncell-p cell))
-             (ein:cell-get-text cell)))))
-     (when (derived-mode-p 'ein:markdown-mode 'markdown-mode)
+     (let ((cell (my/ein-current-cell-noerror)))
+       (when (and cell (ein:markdowncell-p cell))
+         (ein:cell-get-text cell)))
+     (when (derived-mode-p 'ein:markdown-mode)
        (string-trim (buffer-substring-no-properties (point-min) (point-max))))))
 
   (defun my/ein-toggle-markdown-render ()
@@ -2573,6 +2786,7 @@ Press M-RET again to dismiss."
         :nvi "C-c C-v" #'my/ein-toggle-markdown-render
         :n "SPC" #'my/ein-execute-cell-and-preview-markdown
         :nvi "C-c C-l" #'my/ein-render-current-markdown-formulas
+        :nvi "M-RET" #'my/ein-render-current-markdown-and-next
         :n "RET" #'my/ein-notebook-ret
         :n "S-<return>" #'ein:worksheet-execute-cell
         :n "]c" #'ein:worksheet-goto-next-input
@@ -2580,22 +2794,27 @@ Press M-RET again to dismiss."
 
   (define-key ein:notebook-mode-map (kbd "C-c C-v") #'my/ein-toggle-markdown-render)
   (define-key ein:notebook-mode-map (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
+  (define-key ein:notebook-mode-map (kbd "M-RET") #'my/ein-render-current-markdown-and-next)
   (define-key ein:notebook-mode-map (kbd "RET") #'my/ein-notebook-ret)
   (when (boundp 'ein:markdown-mode-map)
     (define-key ein:markdown-mode-map (kbd "C-c C-v") #'my/ein-toggle-markdown-render)
     (define-key ein:markdown-mode-map (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
-    (define-key ein:markdown-mode-map (kbd "RET") #'my/ein-markdown-edit-rendered-at-point)
-    (define-key ein:markdown-mode-map (kbd "M-RET") #'my/ein-render-current-markdown-formulas))
+    (define-key ein:markdown-mode-map (kbd "RET") nil)
+    (define-key ein:markdown-mode-map (kbd "M-RET") #'my/ein-render-current-markdown-and-next))
   (when (fboundp 'evil-define-key*)
     (evil-define-key* '(normal visual insert) ein:notebook-mode-map
       (kbd "C-c C-v") #'my/ein-toggle-markdown-render
-      (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
+      (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas
+      (kbd "M-RET") #'my/ein-render-current-markdown-and-next)
     (when (boundp 'ein:markdown-mode-map)
       (evil-define-key* '(normal visual insert) ein:markdown-mode-map
         (kbd "C-c C-v") #'my/ein-toggle-markdown-render
-        (kbd "RET") #'my/ein-markdown-edit-rendered-at-point
-        (kbd "M-RET") #'my/ein-render-current-markdown-formulas
-        (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas))
+        (kbd "M-RET") #'my/ein-render-current-markdown-and-next
+        (kbd "C-c C-l") #'my/ein-render-current-markdown-formulas)
+      (evil-define-key* 'normal ein:markdown-mode-map
+        (kbd "RET") #'my/markdown-edit-rendered-at-point)
+      (evil-define-key* 'insert ein:markdown-mode-map
+        (kbd "RET") nil))
     (evil-define-key* 'normal ein:notebook-mode-map
       (kbd "RET") #'my/ein-notebook-ret
       (kbd "SPC") #'my/ein-execute-cell-and-preview-markdown))
