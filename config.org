@@ -161,7 +161,7 @@
 
 (add-hook 'doom-load-theme-hook
           (lambda ()
-            (set-cursor-color "#ddfb04")))
+            (set-cursor-color "#ffed00")))
 
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
@@ -1024,7 +1024,7 @@ If there is a region, use it for the code actions; otherwise use point."
           markdown-xwidget-code-block-theme "github-dark")
 
     (defun my/markdown-xwidget-header-html (orig-fn mermaid-theme)
-      "Normalize Pandoc Mermaid blocks before Mermaid 11 parses them."
+      "Normalize Mermaid blocks from common Markdown renderers before Mermaid parses them."
       (concat
        (replace-regexp-in-string
         "startOnLoad: true,"
@@ -1033,11 +1033,31 @@ If there is a region, use it for the code actions; otherwise use point."
         t t)
        "<script type=\"text/javascript\">
           document.addEventListener(\"DOMContentLoaded\", async () => {
-            document.querySelectorAll(\"pre.mermaid\").forEach((pre) => {
+            const mermaidSelector = [
+              \"pre.mermaid\",
+              \"pre > code.language-mermaid\",
+              \"pre > code.lang-mermaid\",
+              \"pre > code.mermaid\",
+              \"div.sourceCode.mermaid pre > code\"
+            ].join(\", \");
+
+            document.querySelectorAll(mermaidSelector).forEach((node) => {
+              const pre = node.tagName === \"PRE\" ? node : node.closest(\"pre\");
+              if (!pre || pre.dataset.processed === \"true\") return;
+
               const code = pre.querySelector(\"code\");
-              if (code) pre.textContent = code.textContent;
+              const source = code ? code.textContent : pre.textContent;
+              pre.classList.add(\"mermaid\");
+              pre.textContent = source;
             });
-            if (window.mermaid) await mermaid.run({ querySelector: \"pre.mermaid\" });
+
+            if (window.mermaid) {
+              try {
+                await mermaid.run({ querySelector: \"pre.mermaid:not([data-processed=\\\"true\\\"])\" });
+              } catch (error) {
+                console.error(\"Mermaid render failed\", error);
+              }
+            }
           });
         </script>"))
 
