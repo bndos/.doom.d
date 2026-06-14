@@ -159,12 +159,44 @@
     '(compilation objed-state misc-info persp-name battery grip irc mu4e gnus github debug repl lsp minor-modes input-method indent-info buffer-encoding major-mode process vcs check time "     "))
   )
 
-(add-hook 'doom-load-theme-hook
-          (lambda ()
-            (set-cursor-color "#ffed00")))
+(defvar my/cursor-color "#ffed00")
+
+(defun my/apply-terminal-cursor-color (&optional color)
+  (unless (display-graphic-p)
+    (send-string-to-terminal (format "\e]12;%s\a" (or color my/cursor-color)))))
+
+(defun my/reset-terminal-cursor-color ()
+  (unless (display-graphic-p)
+    (send-string-to-terminal "\e]112\a")))
+
+(defun my/apply-cursor-color (&optional frame)
+  (let ((frame (or frame (selected-frame))))
+    (modify-frame-parameters frame `((cursor-color . ,my/cursor-color)))
+    (set-face-background 'cursor my/cursor-color frame)
+    (with-selected-frame frame
+      (ignore-errors
+        (set-cursor-color my/cursor-color))
+      (my/apply-terminal-cursor-color))))
+
+(add-to-list 'default-frame-alist `(cursor-color . ,my/cursor-color))
+(add-hook 'doom-load-theme-hook #'my/apply-cursor-color)
+(add-hook 'after-make-frame-functions #'my/apply-cursor-color)
+(add-hook 'window-setup-hook #'my/apply-cursor-color)
+(add-hook 'server-after-make-frame-hook #'my/apply-cursor-color)
+(add-hook 'kill-emacs-hook #'my/reset-terminal-cursor-color)
+(my/apply-cursor-color)
+
+(after! evil
+  (setq evil-normal-state-cursor `(box ,my/cursor-color)
+        evil-insert-state-cursor `(bar ,my/cursor-color)
+        evil-visual-state-cursor `(hollow ,my/cursor-color)
+        evil-emacs-state-cursor `(box ,my/cursor-color)
+        evil-motion-state-cursor `(box ,my/cursor-color)
+        evil-replace-state-cursor `(hbar ,my/cursor-color)))
 
 (custom-set-faces!
   '(default :background "#000000" :foreground "#ffffff")
+  '(cursor :background "#ffed00" :foreground "#000000")
   ;; '(ivy-minibuffer-match-face-1 :background "#ff79c6" :foreground "#000000")
   ;; '(ivy-minibuffer-match-face-2 :background "#8be9fd" :foreground "#000000")
   ;; '(ivy-minibuffer-match-face-3 :background "#ff79c6" :foreground "#000000")
