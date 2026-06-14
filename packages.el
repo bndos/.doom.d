@@ -43,6 +43,10 @@
 (package! breadcrumb)
 (package! engrave-faces)
 (package! org-ref)
+(package! markdown-xwidget
+  :recipe (:host github
+           :repo "cfclrk/markdown-xwidget"
+           :files (:defaults "resources")))
 (package! lsp-proxy :recipe (:host github :repo "jadestrong/lsp-proxy"
                              :files ("*.el")))
 (package! shell-maker)

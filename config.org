@@ -1012,6 +1012,40 @@ If there is a region, use it for the code actions; otherwise use point."
   (require 'cl-lib)
   (require 'subr-x)
 
+  (use-package! markdown-xwidget
+    :commands markdown-xwidget-preview-mode
+    :bind (:map markdown-mode-command-map
+                ("x" . markdown-xwidget-preview-mode))
+    :config
+    (setq markdown-xwidget-command (or (executable-find "pandoc")
+                                      markdown-command)
+          markdown-xwidget-github-theme "dark"
+          markdown-xwidget-mermaid-theme "dark"
+          markdown-xwidget-code-block-theme "github-dark")
+
+    (defun my/markdown-xwidget-header-html (orig-fn mermaid-theme)
+      "Normalize Pandoc Mermaid blocks before Mermaid 11 parses them."
+      (concat
+       (replace-regexp-in-string
+        "startOnLoad: true,"
+        "startOnLoad: false,"
+        (funcall orig-fn mermaid-theme)
+        t t)
+       "<script type=\"text/javascript\">
+          document.addEventListener(\"DOMContentLoaded\", async () => {
+            document.querySelectorAll(\"pre.mermaid\").forEach((pre) => {
+              const code = pre.querySelector(\"code\");
+              if (code) pre.textContent = code.textContent;
+            });
+            if (window.mermaid) await mermaid.run({ querySelector: \"pre.mermaid\" });
+          });
+        </script>"))
+
+    (unless (advice-member-p (function my/markdown-xwidget-header-html)
+                             (quote markdown-xwidget-header-html))
+      (advice-add (quote markdown-xwidget-header-html)
+                  :around (function my/markdown-xwidget-header-html))))
+
   (set-face-attribute 'markdown-code-face nil :inherit 'default :height 1.0)
   (when (facep 'markdown-inline-code-face)
     (set-face-attribute 'markdown-inline-code-face nil :inherit 'default :height 1.0))
