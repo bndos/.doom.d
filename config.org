@@ -621,6 +621,39 @@ Falls back to `process-environment` if envrc export fails."
   (add-hook 'lsp-proxy-mode-hook
             (lambda ()
               (setq-local flycheck-checker 'lsp-proxy)))
+
+  (defvar-local my/lsp-proxy-format-on-save--running nil)
+
+  (defun my/lsp-proxy-format-buffer-before-save ()
+    "Format the current lsp-proxy buffer synchronously before saving."
+    (when (and (bound-and-true-p lsp-proxy-mode)
+               (not my/lsp-proxy-format-on-save--running))
+      (let ((my/lsp-proxy-format-on-save--running t))
+        (with-demoted-errors "lsp-proxy format-on-save failed: %s"
+          (when-let ((edits
+                      (lsp-proxy--request
+                       'textDocument/formatting
+                       (lsp-proxy--build-params
+                        (list
+                         :options (list
+                                   :tabSize (symbol-value (lsp-proxy--get-indent-width major-mode))
+                                   :insertSpaces (not indent-tabs-mode)
+                                   :trimTrailingWhitespace lsp-proxy-trim-trailing-whitespace
+                                   :insertFinalNewline lsp-proxy-insert-final-newline
+                                   :trimFinalNewlines lsp-proxy-trim-final-newlines)
+                         :textDocument (lsp-proxy--TextDocumentIdentifier)))
+                       :timeout 2)))
+            (unless (seq-empty-p edits)
+              (eglot--apply-text-edits edits)))))))
+
+  (defun my/enable-lsp-proxy-format-on-save ()
+    (add-hook 'before-save-hook #'my/lsp-proxy-format-buffer-before-save nil t))
+
+  (add-hook 'lsp-proxy-mode-hook #'my/enable-lsp-proxy-format-on-save)
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (bound-and-true-p lsp-proxy-mode)
+        (my/enable-lsp-proxy-format-on-save))))
   (add-hook! '(
                tsx-ts-mode-hook
                js-ts-mode-hook
