@@ -8,22 +8,19 @@
             ""
             ))
          (longest-line (apply #'max (mapcar #'length banner))))
-    (put-text-property
-     (point)
-     (dolist (line banner (point))
-       (insert (+doom-dashboard--center
-                +doom-dashboard--width
-                (concat
-                 line (make-string (max 0 (- longest-line (length line)))
-                                   32)))
-               "\n"))
-     'face 'doom-dashboard-banner)))
+    (propertize
+     (string-join
+      (mapcar (lambda (line)
+                (concat line (make-string (max 0 (- longest-line (length line)))
+                                          32)))
+              banner)
+      "\n")
+     'face '+dashboard-banner)))
 
-
-(setq +doom-dashboard-ascii-banner-fn 'my-custom-banner)
-(setq +doom-dashboard-functions '(doom-dashboard-widget-banner
-                                  doom-dashboard-widget-shortmenu
-                                  doom-dashboard-widget-footer))
+(setq +dashboard-ascii-banner-fn 'my-custom-banner)
+(setq +dashboard-functions '(+dashboard-widget-banner
+                                  +dashboard-widget-shortmenu
+                                  +dashboard-widget-footer))
 ;; (setq fancy-splash-image (concat doom-private-dir "doom.xpm"))
 
 (setq recentf-menu-filter 'recentf-show-basenames)
@@ -94,8 +91,8 @@
 ;; (setq doom-theme 'doom-tokyo-night)
 ;; (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
-(setq doom-theme 'doom-feather-dark)
-;; (setq doom-theme 'doom-challenger-deep)
+;; (setq doom-theme 'doom-feather-dark)
+(setq doom-theme 'doom-challenger-deep)
 (setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size my-preferred-font-size)
        doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size my-preferred-font-size)
        doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 50))
@@ -207,7 +204,7 @@
   '(lsp-proxy-highlight-symbol-face :background "#331212" :inherit bold)
   '(pulse-highlight-face :background "#331212" :inherit bold)
   '(pulse-highlight-start-face :background "#331212" :inherit bold)
-  '(doom-dashboard-banner :foreground "#fafaf3")
+  '(+dashboard-banner :foreground "#fafaf3")
   ;; '(tree-sitter-hl-face:type.builtin :inherit 'font-lock-type-face)
   ;; '(tree-sitter-hl-face:type.builtin :foreground "#ffffff")
   '(tree-sitter-hl-face:constant :foreground "#ffffff")
