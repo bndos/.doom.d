@@ -78,7 +78,11 @@
 (add-hook 'after-init-hook #'bndos-terminal-clipboard-enable)
 
 
-(defvar my-preferred-font-size 11)
+(setq my-preferred-font-family "Comic Mono"
+      my-preferred-font-size 13)
+
+(defun my/preferred-font-name ()
+  (format "%s-%s" my-preferred-font-family my-preferred-font-size))
 ;; Color on compile buffer
 (require 'ansi-color)
 (defun my/ansi-colorize-buffer ()
@@ -93,9 +97,9 @@
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-feather-dark)
 (setq doom-theme 'doom-challenger-deep)
-(setq! doom-font (font-spec :family "Comic Mono" :weight 'normal :size my-preferred-font-size)
-       doom-variable-pitch-font (font-spec :family "Comic Mono" :weight 'normal :size my-preferred-font-size)
-       doom-big-font (font-spec :family "Comic Mono" :weight 'normal :size 50))
+(setq! doom-font (font-spec :family my-preferred-font-family :weight 'normal :size my-preferred-font-size)
+       doom-variable-pitch-font (font-spec :family my-preferred-font-family :weight 'normal :size my-preferred-font-size)
+       doom-big-font (font-spec :family my-preferred-font-family :weight 'normal :size 50))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'bold))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
@@ -107,7 +111,10 @@
 (add-to-list 'default-frame-alist '(width . 350))
 
 (add-to-list 'default-frame-alist
-             '(font . "Comic Mono-11"))
+             `(font . ,(my/preferred-font-name)))
+
+(when (display-graphic-p)
+  (set-frame-font (my/preferred-font-name) nil t))
 
 
 (add-to-list 'default-frame-alist '(internal-border-width . 20))
