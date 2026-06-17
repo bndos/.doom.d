@@ -1046,8 +1046,15 @@ If there is a region, use it for the code actions; otherwise use point."
         ("S-<tab>" . 'copilot-accept-completion-by-word)
         )
   :config
-  (setq copilot-indent-offset-warning-disable t
-        copilot-max-char-warning-disable t)
+  (setq copilot-server-executable
+        (file-name-concat copilot-install-dir "bin" "copilot-language-server")
+        copilot-indent-offset-warning-disable t
+        copilot-max-char-warning-disable t
+        copilot-lsp-settings
+        '(:github (:copilot (:enable (:* t
+                                      :plaintext t
+                                      :markdown t
+                                      :rust t)))))
 
   (defun my/copilot-buffer-too-large-p ()
     "Return non-nil when the current buffer is too large for useful Copilot completions."
@@ -1066,32 +1073,16 @@ If there is a region, use it for the code actions; otherwise use point."
 
   (add-hook 'copilot-mode-hook #'my/copilot-disable-large-buffer)
 
-  (defun my/copilot-prune-opened-buffers (&rest _)
-    "Remove dead buffers from Copilot's internal opened-buffer list."
-    (when (boundp 'copilot--opened-buffers)
-      (setq copilot--opened-buffers
-            (seq-filter #'buffer-live-p copilot--opened-buffers))))
+  (defun my/copilot-inline-completion-params-add-version (params)
+    "Include document version in Copilot inline completion requests."
+    (when-let ((text-document (plist-get params :textDocument)))
+      (setq params
+            (plist-put params :textDocument
+                       (plist-put text-document :version copilot--doc-version))))
+    params)
 
-  (defun my/copilot-reset-opened-buffers-after-server-start (&rest _)
-    "A fresh Copilot server has no documents open yet."
-    (when (boundp 'copilot--opened-buffers)
-      (setq copilot--opened-buffers nil)))
-
-  (defun my/copilot-ensure-current-buffer-open ()
-    "Make regular Copilot reopen the current buffer after stale server state."
-    (when (and (bound-and-true-p copilot-mode)
-               (not (my/copilot-buffer-too-large-p))
-               (fboundp 'copilot--ensure-doc-open))
-      (my/copilot-prune-opened-buffers)
-      (unless (and (fboundp 'copilot--connection-alivep)
-                   (copilot--connection-alivep))
-        (setq copilot--opened-buffers
-              (delq (current-buffer) copilot--opened-buffers)))
-      (copilot--ensure-doc-open)))
-
-  (advice-add 'copilot--start-server
-              :after #'my/copilot-reset-opened-buffers-after-server-start)
-  (add-hook 'copilot-mode-hook #'my/copilot-ensure-current-buffer-open)
+  (advice-add 'copilot--inline-completion-params
+              :filter-return #'my/copilot-inline-completion-params-add-version)
 
   (defun my/copilot-activate-after-eglot ()
     "Activate copilot-mode after eglot is initialized."
