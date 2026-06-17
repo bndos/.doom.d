@@ -618,6 +618,7 @@ Falls back to `process-environment` if envrc export fails."
   (setq lsp-proxy-user-languages-config
         (expand-file-name "~/.config/doom/languages.toml"))
 
+  (setq lsp-proxy-copilot-server-name nil)
   (setq lsp-proxy-diagnostics-provider :flycheck)
   (add-hook 'lsp-proxy-mode-hook
             (lambda ()
@@ -1028,6 +1029,8 @@ If there is a region, use it for the code actions; otherwise use point."
   ;; (prog-mode . my/copilot-activate-after-eglot)
   (prog-mode . copilot-mode)
   (org-mode . copilot-mode)
+  (markdown-mode . copilot-mode)
+  (gfm-mode . copilot-mode)
   :bind (("S-<tab>" . 'copilot-accept-completion-by-word)
          ("S-<return>" . 'copilot-accept-completion)
          :map copilot-completion-map
@@ -1062,6 +1065,33 @@ If there is a region, use it for the code actions; otherwise use point."
       (copilot-mode -1)))
 
   (add-hook 'copilot-mode-hook #'my/copilot-disable-large-buffer)
+
+  (defun my/copilot-prune-opened-buffers (&rest _)
+    "Remove dead buffers from Copilot's internal opened-buffer list."
+    (when (boundp 'copilot--opened-buffers)
+      (setq copilot--opened-buffers
+            (seq-filter #'buffer-live-p copilot--opened-buffers))))
+
+  (defun my/copilot-reset-opened-buffers-after-server-start (&rest _)
+    "A fresh Copilot server has no documents open yet."
+    (when (boundp 'copilot--opened-buffers)
+      (setq copilot--opened-buffers nil)))
+
+  (defun my/copilot-ensure-current-buffer-open ()
+    "Make regular Copilot reopen the current buffer after stale server state."
+    (when (and (bound-and-true-p copilot-mode)
+               (not (my/copilot-buffer-too-large-p))
+               (fboundp 'copilot--ensure-doc-open))
+      (my/copilot-prune-opened-buffers)
+      (unless (and (fboundp 'copilot--connection-alivep)
+                   (copilot--connection-alivep))
+        (setq copilot--opened-buffers
+              (delq (current-buffer) copilot--opened-buffers)))
+      (copilot--ensure-doc-open)))
+
+  (advice-add 'copilot--start-server
+              :after #'my/copilot-reset-opened-buffers-after-server-start)
+  (add-hook 'copilot-mode-hook #'my/copilot-ensure-current-buffer-open)
 
   (defun my/copilot-activate-after-eglot ()
     "Activate copilot-mode after eglot is initialized."
