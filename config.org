@@ -213,6 +213,10 @@
   '(header-line :background "#000000")
   '(ein:basecell-input-area-face :background "#0f0f0f")
   '(markdown-code-face :inherit default)
+  ;; Emacs 31/Doom theme workaround: the default doom-themes Gnus face chain can
+  ;; form an inheritance cycle when child frames are created by Corfu/Flycheck.
+  '(gnus-group-news-low :inherit nil :foreground "#545577" :weight normal)
+  '(gnus-group-news-low-empty :inherit nil :foreground "#444444" :weight normal)
 
   '(magit-header-line :background "#000000" :box nil)
   ;; High-contrast Magit diff colors for terminal frames.
@@ -1127,6 +1131,45 @@ If there is a region, use it for the code actions; otherwise use point."
                              (quote markdown-xwidget-header-html))
       (advice-add (quote markdown-xwidget-header-html)
                   :around (function my/markdown-xwidget-header-html))))
+
+  (after! xwidget
+    (defvar-local my/xwidget-webkit-search-string "")
+
+    (defun my/xwidget-webkit-search-read (reverse)
+      "Search the current WebKit xwidget using a normal minibuffer prompt."
+      (let ((query (read-string (if reverse "Search backward: " "Search: ")
+                                my/xwidget-webkit-search-string)))
+        (setq my/xwidget-webkit-search-string query)
+        (xwidget-webkit-search query
+                               (xwidget-webkit-current-session)
+                               t reverse t)))
+
+    (defun my/xwidget-webkit-search-forward ()
+      (interactive)
+      (my/xwidget-webkit-search-read nil))
+
+    (defun my/xwidget-webkit-search-backward ()
+      (interactive)
+      (my/xwidget-webkit-search-read t))
+
+    (defun my/xwidget-webkit-search-next ()
+      (interactive)
+      (xwidget-webkit-next-result (xwidget-webkit-current-session)))
+
+    (defun my/xwidget-webkit-search-previous ()
+      (interactive)
+      (xwidget-webkit-previous-result (xwidget-webkit-current-session)))
+
+    (map! :map xwidget-webkit-mode-map
+          "C-s" #'my/xwidget-webkit-search-forward
+          "C-r" #'my/xwidget-webkit-search-backward
+          "n" #'my/xwidget-webkit-search-next
+          "N" #'my/xwidget-webkit-search-previous)
+
+    (after! evil
+      (evil-define-key* '(normal motion) xwidget-webkit-mode-map
+        (kbd "n") #'my/xwidget-webkit-search-next
+        (kbd "N") #'my/xwidget-webkit-search-previous)))
 
   (set-face-attribute 'markdown-code-face nil :inherit 'default :height 1.0)
   (when (facep 'markdown-inline-code-face)
