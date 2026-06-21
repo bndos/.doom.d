@@ -489,7 +489,23 @@
     "Return the file directory relative to dape's cwd. This is used by Delve debugger."
     (concat "./" (file-relative-name default-directory (funcall dape-cwd-fn))))
 
+  (defun my/dape-python-command ()
+    "Return the project Python executable for Dape."
+    (let* ((root (or (ignore-errors (projectile-project-root))
+                     default-directory))
+           (venv-python (expand-file-name ".venv/bin/python" root)))
+      (if (file-executable-p venv-python)
+          venv-python
+        "python")))
+
+  (defun my/dape-use-project-python ()
+    "Make built-in debugpy configs prefer the project virtualenv."
+    (dolist (key '(debugpy debugpy-module))
+      (when-let ((entry (assq key dape-configs)))
+        (setcdr entry (plist-put (cdr entry) 'command #'my/dape-python-command)))))
+
   ;; inside your dape-config
+  (my/dape-use-project-python)
   (add-to-list 'dape-configs
                `(go-test
                  modes (go-mode go-ts-mode)
@@ -633,12 +649,38 @@ Falls back to `process-environment` if envrc export fails."
 
   (defvar-local my/lsp-proxy-format-on-save--running nil)
 
+  (defun my/lsp-proxy-apply-code-action-edit (action)
+    "Apply ACTION's edit if the LSP server returned one."
+    (let* ((item (plist-get action :lsp_item))
+           (edit (plist-get item :edit)))
+      (when edit
+        (lsp-proxy--apply-workspace-edit edit this-command)
+        t)))
+
+  (defun my/lsp-proxy-organize-imports ()
+    "Organize imports in the current buffer via LSP code actions."
+    (when (and (bound-and-true-p lsp-proxy-mode)
+               (derived-mode-p 'python-mode 'python-ts-mode))
+      (with-demoted-errors "lsp-proxy organize-imports failed: %s"
+        (let ((actions
+               (lsp-proxy--request
+                'textDocument/codeAction
+                (lsp-proxy--build-params
+                 (list
+                  :textDocument (lsp-proxy--TextDocumentIdentifier)
+                  :range (lsp-proxy--region-range (point-min) (point-max))
+                  :context (list :diagnostics (vector)
+                                 :only (vector "source.organizeImports"))))
+                :timeout 2)))
+          (seq-some #'my/lsp-proxy-apply-code-action-edit actions)))))
+
   (defun my/lsp-proxy-format-buffer-before-save ()
     "Format the current lsp-proxy buffer synchronously before saving."
     (when (and (bound-and-true-p lsp-proxy-mode)
                (not my/lsp-proxy-format-on-save--running))
       (let ((my/lsp-proxy-format-on-save--running t))
         (with-demoted-errors "lsp-proxy format-on-save failed: %s"
+          (my/lsp-proxy-organize-imports)
           (when-let ((edits
                       (lsp-proxy--request
                        'textDocument/formatting
@@ -816,35 +858,10 @@ If there is a region, use it for the code actions; otherwise use point."
 * ruff
 #+BEGIN_SRC emacs-lisp
 ;; ruff
-(use-package lazy-ruff
-  :defer t
-  :hook (python-mode . lazy-ruff-mode)
-  :config
-  (after! python
-    (map! :map python-mode-map
-          "C-c f" 'lazy-ruff-lint-format-buffer)
-    )
-  (defun lazy-ruff-lint-format-buffer ()
-    "Format the current Python buffer using ruff before saving."
-    (interactive)
-    (unless (derived-mode-p 'python-mode 'python-base-mode)
-      (user-error "Only python buffers can be linted with ruff"))
-    (let ((temp-file (make-temp-file "ruff-tmp" nil ".py")))
-      ;; Write buffer to temporary file, format it, and replace buffer contents.
-      (write-region nil nil temp-file)
-      (lazy-ruff-run-commands temp-file
-                              (eq lazy-ruff-only-format-buffer t)
-                              (eq lazy-ruff-only-check-buffer t))
-
-      (let ((tmp-buf (generate-new-buffer " *temp*")))
-        (with-current-buffer tmp-buf (insert-file-contents temp-file))
-        (replace-buffer-contents tmp-buf)
-        (kill-buffer tmp-buf))
-      ;; Clean up temporary file.
-      (delete-file temp-file)
-      )
-    )
-  )
+(after! python
+  (map! :map python-mode-map
+        "C-c f" #'my-lsp-format-buffer
+        "C-c a" #'my-lsp-code-actions))
 #+END_SRC
 
 * dart

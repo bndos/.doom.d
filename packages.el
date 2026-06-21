@@ -38,8 +38,6 @@
   :recipe (:host github
            :repo "bndos/emacs-ipython-notebook"
            :files ("lisp/*.el")))
-(package! lazy-ruff)
-(package! flymake-ruff)
 (package! breadcrumb)
 (package! engrave-faces)
 (package! org-ref)

@@ -1,5 +1,6 @@
 [language-server]
 ty = { command = "ty", args = ["server"], config = {} }
+ruff = { command = "ruff", args = ["server"], config = {} }
 terraform-ls = { command = "terraform-ls", args = ["serve"], config = {} }
 taplo = { command = "taplo", args = ["lsp", "stdio"] }
 bash-language-server = { command = "bash-language-server", args = ["start"] }
@@ -192,9 +193,13 @@ language-servers = ["css-ls"]
 
 [[language]]
 name = "python"
+language-id = "python"
 file-types = ["py", "pyi", "py3", "pyw", "ptl", "rpy", "cpy", "ipy", "pyt", { glob = ".python_history" }, { glob = ".pythonstartup" }, { glob = ".pythonrc" }, { glob = "SConstruct" }, { glob = "SConscript" }]
 roots = ["pyproject.toml", "setup.py", "poetry.lock", "pyrightconfig.json"]
-language-servers = [ "ty" ]
+language-servers = [
+  { name = "ty", except-features = [ "format" ] },
+  { name = "ruff", only-features = [ "diagnostics", "pull-diagnostics", "code-action", "format" ] },
+]
 
 [[language]]
 name = "terraform-ls"
