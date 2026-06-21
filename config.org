@@ -995,6 +995,21 @@ If there is a region, use it for the code actions; otherwise use point."
 (map! "C-c C-n" #'my-open-file-manager-here)
 
 ;;; Dired integration
+(after! dired
+  (defun my/dired-prune-invalid-buffers (&rest _)
+    "Drop malformed or dead entries from `dired-buffers'."
+    (setq dired-buffers
+          (cl-remove-if-not
+           (lambda (entry)
+             (and (consp entry)
+                  (stringp (car entry))
+                  (bufferp (cdr entry))
+                  (buffer-live-p (cdr entry))))
+           dired-buffers)))
+
+  (advice-add #'dired-find-buffer-nocreate :before #'my/dired-prune-invalid-buffers)
+  (advice-add #'dired-buffers-for-dir :before #'my/dired-prune-invalid-buffers))
+
 (after! dired-x
   (defun dired-open-in-external-app ()
     "Open marked files in their default external app."
