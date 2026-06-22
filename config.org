@@ -641,7 +641,7 @@ Falls back to `process-environment` if envrc export fails."
   (setq lsp-proxy-user-languages-config
         (expand-file-name "~/.config/doom/languages.toml"))
 
-  (setq lsp-proxy-copilot-server-name nil)
+  (setq lsp-proxy-copilot-server-name "copilot")
   (setq lsp-proxy-diagnostics-provider :flycheck)
   (add-hook 'lsp-proxy-mode-hook
             (lambda ()
