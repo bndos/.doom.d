@@ -3378,6 +3378,23 @@ markdown edit buffers whose point/current node can drift during rendering."
         '("codex-acp"
           "-c" "approval_policy=\"never\""
           "-c" "sandbox_mode=\"danger-full-access\""))
+  (defun my/agent-shell-ret-dwim ()
+    (interactive)
+    (let* ((pos (point))
+           (map (or (get-text-property pos 'keymap)
+                    (and (> pos (point-min))
+                         (get-text-property (1- pos) 'keymap))))
+           (cmd (and map
+                     (or (lookup-key map (kbd "RET"))
+                         (lookup-key map (kbd "<return>"))))))
+      (if (commandp cmd)
+          (call-interactively cmd)
+        (newline))))
+
+  (map! :map agent-shell-mode-map
+        :n "RET" #'my/agent-shell-ret-dwim
+        :n "<return>" #'my/agent-shell-ret-dwim)
+
   (setq agent-shell-session-strategy 'prompt)
   (setq agent-shell-google-authentication
         (agent-shell-google-make-authentication :login t)))
