@@ -830,12 +830,27 @@ If there is a region, use it for the code actions; otherwise use point."
    (t
     (message "No LSP backend active in this buffer, or Eglot has no diagnostics function."))))
 
-(defun my-lsp-format-buffer ()
-  "Format the current buffer with lsp-proxy."
+(defun my-lsp-proxy-active-p ()
+  "Return non-nil when lsp-proxy has an attached server for this buffer."
+  (and (bound-and-true-p lsp-proxy-mode)
+       (bound-and-true-p lsp-proxy--has-any-servers)))
+
+(defun my-format-buffer ()
+  "Format the current buffer using the active backend, with non-LSP fallbacks."
   (interactive)
-  (if (bound-and-true-p lsp-proxy-mode)
-      (call-interactively #'lsp-proxy-format-buffer)
-    (message "No lsp-proxy backend active in this buffer.")))
+  (cond
+   ((my-lsp-proxy-active-p)
+    (call-interactively #'lsp-proxy-format-buffer))
+   ((bound-and-true-p eglot--managed-mode)
+    (call-interactively #'eglot-format-buffer))
+   ((bound-and-true-p apheleia-mode)
+    (call-interactively #'apheleia-format-buffer))
+   ((fboundp '+format/buffer)
+    (call-interactively #'+format/buffer))
+   (t
+    (indent-region (point-min) (point-max)))))
+
+(defalias 'my-lsp-format-buffer #'my-format-buffer)
 
 ;; ---------------------------------------
 ;; GLOBAL KEYBINDINGS (use only once)
