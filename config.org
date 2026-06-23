@@ -657,6 +657,15 @@ Falls back to `process-environment` if envrc export fails."
         (lsp-proxy--apply-workspace-edit edit this-command)
         t)))
 
+  (defun my/lsp-proxy-ruff-organize-imports-action-p (action)
+    "Return non-nil when ACTION is Ruff's organize-imports action."
+    (let* ((server (plist-get action :language_server_name))
+           (item (plist-get action :lsp_item))
+           (kind (plist-get item :kind)))
+      (and (equal server "ruff")
+           (or (equal kind "source.organizeImports")
+               (equal kind "source.organizeImports.ruff")))))
+
   (defun my/lsp-proxy-organize-imports ()
     "Organize imports in the current buffer via LSP code actions."
     (when (and (bound-and-true-p lsp-proxy-mode)
@@ -672,7 +681,9 @@ Falls back to `process-environment` if envrc export fails."
                   :context (list :diagnostics (vector)
                                  :only (vector "source.organizeImports"))))
                 :timeout 2)))
-          (seq-some #'my/lsp-proxy-apply-code-action-edit actions)))))
+          (seq-some #'my/lsp-proxy-apply-code-action-edit
+                    (seq-filter #'my/lsp-proxy-ruff-organize-imports-action-p
+                                actions))))))
 
   (defun my/lsp-proxy-format-buffer-before-save ()
     "Format the current lsp-proxy buffer synchronously before saving."
