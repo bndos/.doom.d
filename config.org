@@ -90,16 +90,16 @@
     (ansi-color-apply-on-region (point-min) (point-max))))
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
-;; (setq doom-theme 'doom-snazzy)
+(setq doom-theme 'doom-snazzy)
 ;; (setq doom-theme 'doom-outrun-electric)
 ;; (setq doom-theme 'doom-tokyo-night)
 ;; (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-feather-dark)
-(setq doom-theme 'doom-challenger-deep)
-(setq! doom-font (font-spec :family my-preferred-font-family :weight 'normal :size my-preferred-font-size)
-       doom-variable-pitch-font (font-spec :family my-preferred-font-family :weight 'normal :size my-preferred-font-size)
-       doom-big-font (font-spec :family my-preferred-font-family :weight 'normal :size 50))
+;; (setq doom-theme 'doom-challenger-deep)
+;; (setq! doom-font (font-spec :family my-preferred-font-family :weight 'normal :size my-preferred-font-size)
+;;        doom-variable-pitch-font (font-spec :family my-preferred-font-family :weight 'normal :size my-preferred-font-size)
+;;        doom-big-font (font-spec :family my-preferred-font-family :weight 'normal :size 50))
 (setq! doom-unicode-font (font-spec :family "MesloLGS NF" :weight 'bold))
 
 (set-fontset-font "fontset-default" '(#xf000 . #xf23a) "all-the-icons")
@@ -110,11 +110,11 @@
 (add-to-list 'default-frame-alist '(height . 80))
 (add-to-list 'default-frame-alist '(width . 350))
 
-(add-to-list 'default-frame-alist
-             `(font . ,(my/preferred-font-name)))
+;; (add-to-list 'default-frame-alist
+;;              `(font . ,(my/preferred-font-name)))
 
-(when (display-graphic-p)
-  (set-frame-font (my/preferred-font-name) nil t))
+;; (when (display-graphic-p)
+;;   (set-frame-font (my/preferred-font-name) nil t))
 
 
 (add-to-list 'default-frame-alist '(internal-border-width . 20))
@@ -127,8 +127,8 @@
 ;; (set-fringe-mode 10)
 ;; (setq-default left-fringe-width  10)
 ;; (setq-default right-fringe-width 10)
-(setq doom-themes-enable-bold t
-      doom-themes-enable-italic t)
+;; (setq doom-themes-enable-bold t
+;;       doom-themes-enable-italic t)
 (after! persp-mode
   (tab-bar-mode 1)
   (setq tab-bar-show t
@@ -269,8 +269,8 @@
   ;; '(ivy-current-match :background "#ff79c6" :foreground "#000000" :inherit bold)
   '(vertico-current :background "#573495")
   '(font-lock-comment-face :foreground "#545577")
-  '(font-lock-variable-name-face :foreground "#fe5dee")
-  '(font-lock-string-face :foreground "#35a389")
+  ;; '(font-lock-variable-name-face :foreground "#fe5dee")
+  ;; (font-lock-string-face :foreground "#35a389")
   '(hl-line :background "#272737")
   ;; '(region :background "#355461")
   '(tab-bar-tab :weight bold :foreground "#ff79c6" :background "#000000")
