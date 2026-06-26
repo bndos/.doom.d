@@ -58,6 +58,7 @@
 (package! tabspaces)
 (package! xclip)
 (package! csv-mode)
+(package! eldoc-box)
 (package! treesit-auto)
 (package! dape :recipe (:host github :repo "bndos/dape"))
 (package! cmake-mode)
