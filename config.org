@@ -424,7 +424,38 @@
         eldoc-box-only-multi-line nil
         eldoc-box-max-pixel-width 900
         eldoc-box-max-pixel-height 500
-        eldoc-echo-area-use-multiline-p nil))
+        eldoc-echo-area-use-multiline-p nil)
+  (set-face-attribute 'eldoc-box-body nil
+                      :background "#050505"
+                      :foreground "#f5f5f5")
+  (set-face-attribute 'eldoc-box-border nil
+                      :background "#3a3a3a")
+  (defun my/dark-doc-code-faces ()
+    "Use dark, readable code/link faces in documentation buffers."
+    (dolist (face '(markdown-code-face
+                    markdown-inline-code-face
+                    markdown-pre-face
+                    markdown-language-keyword-face))
+      (when (facep face)
+        (face-remap-add-relative
+         face '(:background "#161616" :foreground "#ffffff"))))
+    (face-remap-add-relative
+     'link '(:foreground "#8be9fd" :underline t))
+    (face-remap-add-relative
+     'button '(:foreground "#8be9fd" :underline t))
+    (face-remap-add-relative
+     'help-key-binding '(:background "#161616" :foreground "#ffffff" :box nil)))
+  (defun my/eldoc-box-style-buffer (_origin-buffer)
+    "Use dark, readable faces inside eldoc-box popups."
+    (my/dark-doc-code-faces))
+  (add-hook 'eldoc-box-buffer-setup-hook #'my/eldoc-box-style-buffer)
+  (map! :leader
+        :desc "Scroll Eldoc popup down" "c J" #'eldoc-box-scroll-up
+        :desc "Scroll Eldoc popup up" "c K" #'eldoc-box-scroll-down
+        :desc "Quit Eldoc popup" "c Q" #'eldoc-box-quit-frame))
+
+(add-hook 'help-mode-hook #'my/dark-doc-code-faces)
+(add-hook 'lsp-proxy-help-mode-hook #'my/dark-doc-code-faces)
 
 (use-package! breadcrumb
   :ensure t
@@ -1267,13 +1298,29 @@ If there is a region, use it for the code actions; otherwise use point."
         (kbd "n") #'my/xwidget-webkit-search-next
         (kbd "N") #'my/xwidget-webkit-search-previous)))
 
-  (set-face-attribute 'markdown-code-face nil :inherit 'default :height 1.0)
+  (set-face-attribute 'markdown-code-face nil
+                      :inherit 'fixed-pitch
+                      :height 1.0
+                      :background "#161616"
+                      :foreground "#ffffff")
   (when (facep 'markdown-inline-code-face)
-    (set-face-attribute 'markdown-inline-code-face nil :inherit 'default :height 1.0))
+    (set-face-attribute 'markdown-inline-code-face nil
+                        :inherit 'fixed-pitch
+                        :height 1.0
+                        :background "#161616"
+                        :foreground "#ffffff"))
   (when (facep 'markdown-pre-face)
-    (set-face-attribute 'markdown-pre-face nil :inherit 'default :height 1.0))
+    (set-face-attribute 'markdown-pre-face nil
+                        :inherit 'fixed-pitch
+                        :height 1.0
+                        :background "#161616"
+                        :foreground "#ffffff"))
   (when (facep 'markdown-language-keyword-face)
-    (set-face-attribute 'markdown-language-keyword-face nil :inherit 'default :height 1.0))
+    (set-face-attribute 'markdown-language-keyword-face nil
+                        :inherit 'fixed-pitch
+                        :height 1.0
+                        :background "#161616"
+                        :foreground "#ffffff"))
   (with-eval-after-load 'shr
     (set-face-attribute 'shr-h1 nil :height 2.05 :weight 'bold)
     (set-face-attribute 'shr-h2 nil :height 1.7 :weight 'bold)
