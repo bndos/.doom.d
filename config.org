@@ -220,6 +220,8 @@
   '(header-line :background "#000000")
   '(ein:basecell-input-area-face :background "#0f0f0f")
   '(markdown-code-face :inherit default)
+  '(markdown-highlight-face :background "#331212" :foreground "#ffffff")
+  '(help-key-binding :background "#161616" :foreground "#ffffff" :box nil)
   ;; Emacs 31/Doom theme workaround: the default doom-themes Gnus face chain can
   ;; form an inheritance cycle when child frames are created by Corfu/Flycheck.
   '(gnus-group-news-low :inherit nil :foreground "#545577" :weight normal)
@@ -298,9 +300,9 @@
   '(spaceline-evil-visual :background "#8be9fd" :foreground "#000000")
 
   '(region :background "#3d1212")
-  '(xref-match :foreground "#000000" :background "#2b458d")
+  '(xref-match :foreground "#ffffff" :background "#2b458d")
 
-  '(highlight :background "#ff79c6" :foreground "#000000")
+  '(highlight :background "#331212" :foreground "#ffffff")
 
   '(company-tooltip :background "#101010")
   '(company-tooltip-common-selection :background "#ff79c6" :foreground "#000000")
@@ -416,6 +418,99 @@
 
 * lsp/flymake
 #+BEGIN_SRC emacs-lisp
+(defun my/dark-doc-code-faces ()
+  "Use dark, readable code/link faces in documentation buffers."
+  (dolist (face '(markdown-code-face
+                  markdown-inline-code-face
+                  markdown-pre-face
+                  markdown-language-keyword-face))
+    (when (facep face)
+      (face-remap-add-relative
+       face '(:background "#161616" :foreground "#ffffff"))))
+  (dolist (face '(highlight
+                  markdown-highlight-face))
+    (when (facep face)
+      (face-remap-add-relative
+       face '(:background "#331212" :foreground "#ffffff"))))
+  (face-remap-add-relative
+   'link '(:foreground "#8be9fd" :underline t))
+  (face-remap-add-relative
+   'button '(:foreground "#8be9fd" :underline t))
+  (face-remap-add-relative
+   'help-key-binding '(:background "#161616" :foreground "#ffffff" :box nil)))
+
+(defun my/dark-doc--light-color-p (color)
+  "Return non-nil when COLOR is visually light."
+  (when-let ((rgb (and (stringp color) (ignore-errors (color-values color)))))
+    (> (/ (+ (* 0.2126 (nth 0 rgb))
+             (* 0.7152 (nth 1 rgb))
+             (* 0.0722 (nth 2 rgb)))
+          65535.0)
+       0.55)))
+
+(defun my/dark-doc--face-light-bg-p (face)
+  "Return non-nil when FACE has a light background."
+  (and (facep face)
+       (my/dark-doc--light-color-p
+        (face-attribute face :background nil t))))
+
+(defun my/dark-doc--sanitize-face-value (value)
+  "Darken light backgrounds inside a face property VALUE."
+  (cond
+   ((and (symbolp value)
+         (my/dark-doc--face-light-bg-p value))
+    (face-remap-add-relative value '(:background "#161616" :foreground "#ffffff"))
+    value)
+   ((and (consp value)
+         (keywordp (car value)))
+    (if (my/dark-doc--light-color-p (plist-get value :background))
+        (plist-put (plist-put (copy-sequence value) :background "#161616")
+                   :foreground "#ffffff")
+      value))
+   ((consp value)
+    (mapcar #'my/dark-doc--sanitize-face-value value))
+   (t value)))
+
+(defun my/dark-doc-sanitize-buffer ()
+  "Remove light face backgrounds from the current documentation buffer."
+  (my/dark-doc-code-faces)
+  (when (fboundp 'font-lock-ensure)
+    (font-lock-ensure))
+  (let ((inhibit-read-only t))
+    (save-excursion
+      (goto-char (point-min))
+      (while (< (point) (point-max))
+        (let ((next (or (next-property-change (point) nil (point-max))
+                        (point-max))))
+          (dolist (prop '(face font-lock-face mouse-face))
+            (when-let ((value (get-text-property (point) prop)))
+              (let ((clean (my/dark-doc--sanitize-face-value value)))
+                (unless (equal clean value)
+                  (put-text-property (point) next prop clean)))))
+          (goto-char next))))
+    (dolist (overlay (overlays-in (point-min) (point-max)))
+      (dolist (prop '(face font-lock-face mouse-face))
+        (when-let ((value (overlay-get overlay prop)))
+          (let ((clean (my/dark-doc--sanitize-face-value value)))
+            (unless (equal clean value)
+              (overlay-put overlay prop clean))))))))
+
+(defun my/dark-doc-sanitize-lsp-proxy-help-buffer ()
+  "Sanitize the async lsp-proxy hover help buffer when it exists."
+  (when-let ((buffer (get-buffer "*lsp-proxy-help*")))
+    (with-current-buffer buffer
+      (my/dark-doc-sanitize-buffer))))
+
+(defun my/dark-doc-sanitize-lsp-proxy-help-buffer-soon (&rest _)
+  "Schedule sanitizing after async lsp-proxy hover documentation renders."
+  (run-at-time 0.05 nil #'my/dark-doc-sanitize-lsp-proxy-help-buffer)
+  (run-at-time 0.25 nil #'my/dark-doc-sanitize-lsp-proxy-help-buffer)
+  (run-at-time 0.75 nil #'my/dark-doc-sanitize-lsp-proxy-help-buffer))
+
+(defun my/eldoc-box-style-buffer (_origin-buffer)
+  "Use dark, readable faces inside eldoc-box popups."
+  (my/dark-doc-sanitize-buffer))
+
 (use-package! eldoc-box
   :hook ((eglot-managed-mode . eldoc-box-hover-at-point-mode)
          (lsp-proxy-mode . eldoc-box-hover-at-point-mode))
@@ -430,32 +525,20 @@
                       :foreground "#f5f5f5")
   (set-face-attribute 'eldoc-box-border nil
                       :background "#3a3a3a")
-  (defun my/dark-doc-code-faces ()
-    "Use dark, readable code/link faces in documentation buffers."
-    (dolist (face '(markdown-code-face
-                    markdown-inline-code-face
-                    markdown-pre-face
-                    markdown-language-keyword-face))
-      (when (facep face)
-        (face-remap-add-relative
-         face '(:background "#161616" :foreground "#ffffff"))))
-    (face-remap-add-relative
-     'link '(:foreground "#8be9fd" :underline t))
-    (face-remap-add-relative
-     'button '(:foreground "#8be9fd" :underline t))
-    (face-remap-add-relative
-     'help-key-binding '(:background "#161616" :foreground "#ffffff" :box nil)))
-  (defun my/eldoc-box-style-buffer (_origin-buffer)
-    "Use dark, readable faces inside eldoc-box popups."
-    (my/dark-doc-code-faces))
   (add-hook 'eldoc-box-buffer-setup-hook #'my/eldoc-box-style-buffer)
   (map! :leader
         :desc "Scroll Eldoc popup down" "c J" #'eldoc-box-scroll-up
         :desc "Scroll Eldoc popup up" "c K" #'eldoc-box-scroll-down
         :desc "Quit Eldoc popup" "c Q" #'eldoc-box-quit-frame))
 
-(add-hook 'help-mode-hook #'my/dark-doc-code-faces)
-(add-hook 'lsp-proxy-help-mode-hook #'my/dark-doc-code-faces)
+(add-hook 'help-mode-hook #'my/dark-doc-sanitize-buffer)
+(add-hook 'lsp-proxy-help-mode-hook #'my/dark-doc-sanitize-buffer)
+
+(with-eval-after-load 'lsp-proxy
+  (unless (advice-member-p #'my/dark-doc-sanitize-lsp-proxy-help-buffer-soon
+                           #'lsp-proxy-describe-thing-at-point)
+    (advice-add #'lsp-proxy-describe-thing-at-point
+                :after #'my/dark-doc-sanitize-lsp-proxy-help-buffer-soon)))
 
 (use-package! breadcrumb
   :ensure t
@@ -1322,6 +1405,16 @@ If there is a region, use it for the code actions; otherwise use point."
                         :background "#161616"
                         :foreground "#ffffff"))
   (with-eval-after-load 'shr
+    (when (facep 'shr-code)
+      (set-face-attribute 'shr-code nil
+                          :inherit 'fixed-pitch
+                          :background "#161616"
+                          :foreground "#ffffff"))
+    (when (facep 'shr-preformatted)
+      (set-face-attribute 'shr-preformatted nil
+                          :inherit 'fixed-pitch
+                          :background "#161616"
+                          :foreground "#ffffff"))
     (set-face-attribute 'shr-h1 nil :height 2.05 :weight 'bold)
     (set-face-attribute 'shr-h2 nil :height 1.7 :weight 'bold)
     (set-face-attribute 'shr-h3 nil :height 1.4 :weight 'bold))
