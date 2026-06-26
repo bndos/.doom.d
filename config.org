@@ -511,9 +511,37 @@
   "Use dark, readable faces inside eldoc-box popups."
   (my/dark-doc-sanitize-buffer))
 
+(defun my/eldoc-disable-echo-area ()
+  "Keep Eldoc from writing documentation into the echo area."
+  (when (boundp 'eldoc-display-functions)
+    (setq-local eldoc-display-functions
+                (remove #'eldoc-display-in-echo-area eldoc-display-functions))))
+
+(defun my/eldoc-box-help-at-point ()
+  "Show documentation at point in an Eldoc child frame without focusing it."
+  (interactive)
+  (require 'eldoc)
+  (require 'eldoc-box)
+  (my/eldoc-disable-echo-area)
+  (when (and (fboundp 'eldoc-box-quit-frame)
+             (get-buffer " *eldoc-box*"))
+    (ignore-errors (eldoc-box-quit-frame)))
+  (add-hook 'eldoc-display-functions
+            #'eldoc-box--help-at-point-async-update 0 t)
+  (eldoc-box-help-at-point)
+  (eldoc-print-current-symbol-info t))
+
 (use-package! eldoc-box
-  :hook ((eglot-managed-mode . eldoc-box-hover-at-point-mode)
-         (lsp-proxy-mode . eldoc-box-hover-at-point-mode))
+  :commands (eldoc-box-help-at-point
+             eldoc-box-scroll-up
+             eldoc-box-scroll-down
+             eldoc-box-quit-frame)
+  :init
+  (map! :leader
+        :desc "Show Eldoc popup" "c h" #'my/eldoc-box-help-at-point
+        :desc "Scroll Eldoc popup down" "c J" #'eldoc-box-scroll-up
+        :desc "Scroll Eldoc popup up" "c K" #'eldoc-box-scroll-down
+        :desc "Quit Eldoc popup" "c Q" #'eldoc-box-quit-frame)
   :config
   (setq eldoc-box-clear-with-C-g t
         eldoc-box-only-multi-line nil
@@ -526,13 +554,27 @@
   (set-face-attribute 'eldoc-box-border nil
                       :background "#3a3a3a")
   (add-hook 'eldoc-box-buffer-setup-hook #'my/eldoc-box-style-buffer)
-  (map! :leader
-        :desc "Scroll Eldoc popup down" "c J" #'eldoc-box-scroll-up
-        :desc "Scroll Eldoc popup up" "c K" #'eldoc-box-scroll-down
-        :desc "Quit Eldoc popup" "c Q" #'eldoc-box-quit-frame))
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (when (bound-and-true-p eldoc-box-hover-at-point-mode)
+        (eldoc-box-hover-at-point-mode -1))
+      (when (bound-and-true-p eldoc-box-hover-mode)
+        (eldoc-box-hover-mode -1))
+      (when (bound-and-true-p eldoc-box-mouse-mode)
+        (eldoc-box-mouse-mode -1)))))
 
 (add-hook 'help-mode-hook #'my/dark-doc-sanitize-buffer)
 (add-hook 'lsp-proxy-help-mode-hook #'my/dark-doc-sanitize-buffer)
+(remove-hook 'eglot-managed-mode-hook #'eldoc-box-hover-at-point-mode)
+(remove-hook 'lsp-proxy-mode-hook #'eldoc-box-hover-at-point-mode)
+(with-eval-after-load 'eldoc
+  (setq-default eldoc-display-functions
+                (remove #'eldoc-display-in-echo-area
+                        (default-value 'eldoc-display-functions)))
+  (add-hook 'eldoc-mode-hook #'my/eldoc-disable-echo-area)
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (my/eldoc-disable-echo-area))))
 
 (with-eval-after-load 'lsp-proxy
   (unless (advice-member-p #'my/dark-doc-sanitize-lsp-proxy-help-buffer-soon
