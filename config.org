@@ -219,9 +219,13 @@
   '(lsp-bridge-inlay-hint-face :foreground "#444444")
   '(header-line :background "#000000")
   '(ein:basecell-input-area-face :background "#0f0f0f")
-  '(markdown-code-face :inherit default)
-  '(markdown-highlight-face :background "#331212" :foreground "#ffffff")
+  '(markdown-code-face :inherit fixed-pitch :height 1.0 :background "#161616" :foreground "#ffffff")
+  '(markdown-inline-code-face :inherit fixed-pitch :height 1.0 :background "#161616" :foreground "#ffffff")
+  '(markdown-pre-face :inherit fixed-pitch :height 1.0 :background "#161616" :foreground "#ffffff")
+  '(markdown-language-keyword-face :inherit fixed-pitch :height 1.0 :background "#161616" :foreground "#ffffff")
+  '(markdown-highlight-face :inherit highlight :background "#331212" :foreground "#ffffff")
   '(help-key-binding :background "#161616" :foreground "#ffffff" :box nil)
+  '(shr-code :inherit fixed-pitch :background "#161616" :foreground "#ffffff")
   ;; Emacs 31/Doom theme workaround: the default doom-themes Gnus face chain can
   ;; form an inheritance cycle when child frames are created by Corfu/Flycheck.
   '(gnus-group-news-low :inherit nil :foreground "#545577" :weight normal)
@@ -418,99 +422,6 @@
 
 * lsp/flymake
 #+BEGIN_SRC emacs-lisp
-(defun my/dark-doc-code-faces ()
-  "Use dark, readable code/link faces in documentation buffers."
-  (dolist (face '(markdown-code-face
-                  markdown-inline-code-face
-                  markdown-pre-face
-                  markdown-language-keyword-face))
-    (when (facep face)
-      (face-remap-add-relative
-       face '(:background "#161616" :foreground "#ffffff"))))
-  (dolist (face '(highlight
-                  markdown-highlight-face))
-    (when (facep face)
-      (face-remap-add-relative
-       face '(:background "#331212" :foreground "#ffffff"))))
-  (face-remap-add-relative
-   'link '(:foreground "#8be9fd" :underline t))
-  (face-remap-add-relative
-   'button '(:foreground "#8be9fd" :underline t))
-  (face-remap-add-relative
-   'help-key-binding '(:background "#161616" :foreground "#ffffff" :box nil)))
-
-(defun my/dark-doc--light-color-p (color)
-  "Return non-nil when COLOR is visually light."
-  (when-let ((rgb (and (stringp color) (ignore-errors (color-values color)))))
-    (> (/ (+ (* 0.2126 (nth 0 rgb))
-             (* 0.7152 (nth 1 rgb))
-             (* 0.0722 (nth 2 rgb)))
-          65535.0)
-       0.55)))
-
-(defun my/dark-doc--face-light-bg-p (face)
-  "Return non-nil when FACE has a light background."
-  (and (facep face)
-       (my/dark-doc--light-color-p
-        (face-attribute face :background nil t))))
-
-(defun my/dark-doc--sanitize-face-value (value)
-  "Darken light backgrounds inside a face property VALUE."
-  (cond
-   ((and (symbolp value)
-         (my/dark-doc--face-light-bg-p value))
-    (face-remap-add-relative value '(:background "#161616" :foreground "#ffffff"))
-    value)
-   ((and (consp value)
-         (keywordp (car value)))
-    (if (my/dark-doc--light-color-p (plist-get value :background))
-        (plist-put (plist-put (copy-sequence value) :background "#161616")
-                   :foreground "#ffffff")
-      value))
-   ((consp value)
-    (mapcar #'my/dark-doc--sanitize-face-value value))
-   (t value)))
-
-(defun my/dark-doc-sanitize-buffer ()
-  "Remove light face backgrounds from the current documentation buffer."
-  (my/dark-doc-code-faces)
-  (when (fboundp 'font-lock-ensure)
-    (font-lock-ensure))
-  (let ((inhibit-read-only t))
-    (save-excursion
-      (goto-char (point-min))
-      (while (< (point) (point-max))
-        (let ((next (or (next-property-change (point) nil (point-max))
-                        (point-max))))
-          (dolist (prop '(face font-lock-face mouse-face))
-            (when-let ((value (get-text-property (point) prop)))
-              (let ((clean (my/dark-doc--sanitize-face-value value)))
-                (unless (equal clean value)
-                  (put-text-property (point) next prop clean)))))
-          (goto-char next))))
-    (dolist (overlay (overlays-in (point-min) (point-max)))
-      (dolist (prop '(face font-lock-face mouse-face))
-        (when-let ((value (overlay-get overlay prop)))
-          (let ((clean (my/dark-doc--sanitize-face-value value)))
-            (unless (equal clean value)
-              (overlay-put overlay prop clean))))))))
-
-(defun my/dark-doc-sanitize-lsp-proxy-help-buffer ()
-  "Sanitize the async lsp-proxy hover help buffer when it exists."
-  (when-let ((buffer (get-buffer "*lsp-proxy-help*")))
-    (with-current-buffer buffer
-      (my/dark-doc-sanitize-buffer))))
-
-(defun my/dark-doc-sanitize-lsp-proxy-help-buffer-soon (&rest _)
-  "Schedule sanitizing after async lsp-proxy hover documentation renders."
-  (run-at-time 0.05 nil #'my/dark-doc-sanitize-lsp-proxy-help-buffer)
-  (run-at-time 0.25 nil #'my/dark-doc-sanitize-lsp-proxy-help-buffer)
-  (run-at-time 0.75 nil #'my/dark-doc-sanitize-lsp-proxy-help-buffer))
-
-(defun my/eldoc-box-style-buffer (_origin-buffer)
-  "Use dark, readable faces inside eldoc-box popups."
-  (my/dark-doc-sanitize-buffer))
-
 (defun my/eldoc-disable-echo-area ()
   "Keep Eldoc from writing documentation into the echo area."
   (when (boundp 'eldoc-display-functions)
@@ -553,7 +464,6 @@
                       :foreground "#f5f5f5")
   (set-face-attribute 'eldoc-box-border nil
                       :background "#3a3a3a")
-  (add-hook 'eldoc-box-buffer-setup-hook #'my/eldoc-box-style-buffer)
   (dolist (buffer (buffer-list))
     (with-current-buffer buffer
       (when (bound-and-true-p eldoc-box-hover-at-point-mode)
@@ -562,9 +472,6 @@
         (eldoc-box-hover-mode -1))
       (when (bound-and-true-p eldoc-box-mouse-mode)
         (eldoc-box-mouse-mode -1)))))
-
-(add-hook 'help-mode-hook #'my/dark-doc-sanitize-buffer)
-(add-hook 'lsp-proxy-help-mode-hook #'my/dark-doc-sanitize-buffer)
 (remove-hook 'eglot-managed-mode-hook #'eldoc-box-hover-at-point-mode)
 (remove-hook 'lsp-proxy-mode-hook #'eldoc-box-hover-at-point-mode)
 (with-eval-after-load 'eldoc
@@ -575,12 +482,6 @@
   (dolist (buffer (buffer-list))
     (with-current-buffer buffer
       (my/eldoc-disable-echo-area))))
-
-(with-eval-after-load 'lsp-proxy
-  (unless (advice-member-p #'my/dark-doc-sanitize-lsp-proxy-help-buffer-soon
-                           #'lsp-proxy-describe-thing-at-point)
-    (advice-add #'lsp-proxy-describe-thing-at-point
-                :after #'my/dark-doc-sanitize-lsp-proxy-help-buffer-soon)))
 
 (use-package! breadcrumb
   :ensure t
@@ -1423,40 +1324,7 @@ If there is a region, use it for the code actions; otherwise use point."
         (kbd "n") #'my/xwidget-webkit-search-next
         (kbd "N") #'my/xwidget-webkit-search-previous)))
 
-  (set-face-attribute 'markdown-code-face nil
-                      :inherit 'fixed-pitch
-                      :height 1.0
-                      :background "#161616"
-                      :foreground "#ffffff")
-  (when (facep 'markdown-inline-code-face)
-    (set-face-attribute 'markdown-inline-code-face nil
-                        :inherit 'fixed-pitch
-                        :height 1.0
-                        :background "#161616"
-                        :foreground "#ffffff"))
-  (when (facep 'markdown-pre-face)
-    (set-face-attribute 'markdown-pre-face nil
-                        :inherit 'fixed-pitch
-                        :height 1.0
-                        :background "#161616"
-                        :foreground "#ffffff"))
-  (when (facep 'markdown-language-keyword-face)
-    (set-face-attribute 'markdown-language-keyword-face nil
-                        :inherit 'fixed-pitch
-                        :height 1.0
-                        :background "#161616"
-                        :foreground "#ffffff"))
   (with-eval-after-load 'shr
-    (when (facep 'shr-code)
-      (set-face-attribute 'shr-code nil
-                          :inherit 'fixed-pitch
-                          :background "#161616"
-                          :foreground "#ffffff"))
-    (when (facep 'shr-preformatted)
-      (set-face-attribute 'shr-preformatted nil
-                          :inherit 'fixed-pitch
-                          :background "#161616"
-                          :foreground "#ffffff"))
     (set-face-attribute 'shr-h1 nil :height 2.05 :weight 'bold)
     (set-face-attribute 'shr-h2 nil :height 1.7 :weight 'bold)
     (set-face-attribute 'shr-h3 nil :height 1.4 :weight 'bold))
