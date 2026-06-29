@@ -335,6 +335,35 @@
       window-divider-default-places t)
 (window-divider-mode 1)
 
+(defun my/apply-tty-subtle-window-separators (&optional frame)
+  "Add a quiet horizontal cue between stacked TTY windows.
+
+TTY frames do not render GUI bottom dividers like graphical frames do. Keep the
+existing mode-line colors and add only a muted overline."
+  (dolist (frame (if frame (list frame) (frame-list)))
+    (unless (display-graphic-p frame)
+      (with-selected-frame frame
+        (set-face-attribute 'mode-line nil
+                            :background "#060606"
+                            :foreground 'unspecified
+                            :box nil
+                            :overline "#1b111c")
+        (set-face-attribute 'mode-line-active nil
+                            :background "#060606"
+                            :foreground 'unspecified
+                            :box nil
+                            :overline "#241725")
+        (set-face-attribute 'mode-line-inactive nil
+                            :background "#040404"
+                            :foreground 'unspecified
+                            :box nil
+                            :overline "#1b111c")))))
+
+(add-hook 'window-setup-hook #'my/apply-tty-subtle-window-separators)
+(add-hook 'server-after-make-frame-hook #'my/apply-tty-subtle-window-separators)
+(add-hook 'doom-load-theme-hook #'my/apply-tty-subtle-window-separators)
+(my/apply-tty-subtle-window-separators)
+
 ;; (use-package! tree-sitter
 ;;   :defer t
 ;;   :config
