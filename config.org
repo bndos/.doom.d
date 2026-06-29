@@ -2306,7 +2306,7 @@ If there is a region, use it for the code actions; otherwise use point."
    ("COMMIT_EDITMSG" display-buffer-in-side-window
     (side . left) (slot . 2) (window-width . 0.2) (dedicated . side)
     (preserve-size . (t . nil)))
-   ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^*leetcode\\|^*compilation\\|^*Flutter\\|^*pytest\\|^*docker-build-output\\|^*ein:[^ ]\\|^*MATLAB\\|^* docker container" display-buffer-in-side-window
+   ("\\*\\(?:help\\|grep\\|Completions\\|org-python-session\\|Python\\)\\*\\|^\\*leetcode\\|^\\*compilation\\|^\\*Flutter\\|^\\*pytest\\|^\\*docker-build-output\\|^\\*ein:[^ ]\\|^\\*MATLAB\\|^\\* docker container" display-buffer-in-side-window
     (side . top) (slot . 4) (preserve-size . (t . nil)) (window-height . 0.15) (dedicated . side))
 
    ("\\*\\(?:shell\\|vterm\\)\\*" display-buffer-in-side-window
@@ -2347,6 +2347,41 @@ If there is a region, use it for the code actions; otherwise use point."
 
 (map! "M-V" #'projectile-vterm)
 
+(defvar my/vterm-compile-origin-frame nil)
+
+(defun my/vterm-compile-command-from-file (file)
+  "Run the zsh command payload in FILE through `compile'.
+
+FILE is written by a zsh ZLE widget.  The first line is the working directory;
+the rest of the file is the command to compile."
+  (interactive "fCommand payload: ")
+  (let* ((payload (with-temp-buffer
+                    (insert-file-contents file)
+                    (buffer-string)))
+         (line-end (string-match-p "\n" payload))
+         (directory (if line-end
+                        (substring payload 0 line-end)
+                      default-directory))
+         (command (string-trim
+                   (if line-end
+                       (substring payload (1+ line-end))
+                     payload))))
+    (ignore-errors
+      (delete-file file))
+    (unless (file-directory-p directory)
+      (user-error "Compile directory does not exist: %s" directory))
+    (when (string-empty-p command)
+      (user-error "No command to compile"))
+    (let ((default-directory (file-name-as-directory (expand-file-name directory))))
+      (setq compile-command command)
+      (when (boundp 'compile-history)
+        (add-to-history 'compile-history command))
+      (let ((buffer (compile command)))
+        (when (frame-live-p my/vterm-compile-origin-frame)
+          (with-selected-frame my/vterm-compile-origin-frame
+            (display-buffer buffer)))
+        buffer))))
+
 (use-package! vterm
   :defer t
   :commands (vterm vterm-other-window)
@@ -2359,6 +2394,39 @@ If there is a region, use it for the code actions; otherwise use point."
   (setq vterm-buffer-name-string nil)
   :config
   (defvar-local my/vterm-terminal-title nil)
+
+  (defun my/vterm-ensure-emacs-server ()
+    "Return a server name for the Emacs instance that owns this vterm."
+    (require 'server)
+    (unless (process-live-p server-process)
+      (when (server-running-p server-name)
+        (setq server-name (format "emacs-vterm-%s" (emacs-pid))))
+      (server-start))
+    server-name)
+
+  (defun my/vterm-emacsclient-environment ()
+    "Environment that lets vterm shell commands call back into this Emacs."
+    (list (format "EMACS_SERVER_NAME=%s" (my/vterm-ensure-emacs-server))
+          (format "EMACS_SERVER_PID=%s" (emacs-pid))))
+
+  (defun my/vterm-mode-with-emacsclient-environment (fn &rest args)
+    "Start vterm with an emacsclient target for this Emacs instance."
+    (let ((vterm-environment (append (my/vterm-emacsclient-environment)
+                                     vterm-environment)))
+      (apply fn args)))
+
+  (advice-remove #'vterm-mode #'my/vterm-mode-with-emacsclient-environment)
+  (advice-add #'vterm-mode :around #'my/vterm-mode-with-emacsclient-environment)
+
+  (defun my/vterm-send-alt-return ()
+    "Send an Alt-Return sequence through vterm for zsh to handle."
+    (interactive)
+    (setq my/vterm-compile-origin-frame (selected-frame))
+    (vterm-send-string "\e\r"))
+
+  (define-key vterm-mode-map (kbd "M-RET") #'my/vterm-send-alt-return)
+  (define-key vterm-mode-map (kbd "M-<return>") #'my/vterm-send-alt-return)
+  (define-key vterm-mode-map (kbd "C-<return>") #'my/vterm-send-alt-return)
 
   (defun my/vterm-header-line ()
     (setq-local header-line-format
