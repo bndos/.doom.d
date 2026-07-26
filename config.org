@@ -1135,16 +1135,28 @@ If there is a region, use it for the code actions; otherwise use point."
 
 ;;; Dired integration
 (after! dired
+  (defun my/dired-buffer-entry-valid-p (entry)
+    "Return non-nil when ENTRY is a valid `dired-buffers' entry."
+    (and (consp entry)
+         (stringp (car entry))
+         (bufferp (cdr entry))
+         (buffer-live-p (cdr entry))))
+
   (defun my/dired-prune-invalid-buffers (&rest _)
     "Drop malformed or dead entries from `dired-buffers'."
     (setq dired-buffers
-          (cl-remove-if-not
-           (lambda (entry)
-             (and (consp entry)
-                  (stringp (car entry))
-                  (bufferp (cdr entry))
-                  (buffer-live-p (cdr entry))))
-           dired-buffers)))
+          (cl-remove-if-not #'my/dired-buffer-entry-valid-p dired-buffers)))
+
+  (defun my/dired-register-buffer (directory buffer)
+    "Register live Dired BUFFER for DIRECTORY without malformed entries."
+    (when (and (stringp directory)
+               (bufferp buffer)
+               (buffer-live-p buffer))
+      (let ((key (file-name-as-directory (expand-file-name directory))))
+        (my/dired-prune-invalid-buffers)
+        (if-let ((entry (assoc key dired-buffers)))
+            (setcdr entry buffer)
+          (push (cons key buffer) dired-buffers)))))
 
   (advice-add #'dired-find-buffer-nocreate :before #'my/dired-prune-invalid-buffers)
   (advice-add #'dired-buffers-for-dir :before #'my/dired-prune-invalid-buffers))
@@ -1163,6 +1175,31 @@ If there is a region, use it for the code actions; otherwise use point."
   (setq dirvish-hide-details t)
   (setq dirvish-side-window-parameters
         '((no-delete-other-windows . t)))
+
+  (defun my/dirvish-dired-noselect-safe-a (fn original-dired-noselect dir-or-list &optional flags re)
+    "Keep Dirvish from poisoning `dired-buffers' when it fails to create a buffer.
+
+Dirvish records the target directory in `dired-buffers' before it has a live
+buffer.  If buffer creation returns nil, later Dired calls fail with
+`wrong-type-argument stringp nil'.  Recover by pruning the bad entry and using
+plain `dired-noselect' for this call."
+    (let ((directory (if (consp dir-or-list) (car dir-or-list) dir-or-list)))
+      (condition-case err
+          (prog1 (funcall fn original-dired-noselect dir-or-list flags re)
+            (my/dired-prune-invalid-buffers))
+        (error
+         (my/dired-prune-invalid-buffers)
+         (if (and (eq (car-safe err) 'wrong-type-argument)
+                  (eq (nth 1 err) 'stringp)
+                  (null (nth 2 err))
+                  (stringp directory))
+             (let ((buffer (funcall original-dired-noselect dir-or-list flags)))
+               (my/dired-register-buffer directory buffer)
+               buffer)
+           (signal (car err) (cdr err)))))))
+
+  (advice-remove #'dirvish-dired-noselect-a #'my/dirvish-dired-noselect-safe-a)
+  (advice-add #'dirvish-dired-noselect-a :around #'my/dirvish-dired-noselect-safe-a)
   )
 #+END_SRC
 
