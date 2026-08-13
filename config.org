@@ -3199,6 +3199,13 @@ markdown edit buffers whose point/current node can drift during rendering."
         '("codex-acp"
           "-c" "approval_policy=\"never\""
           "-c" "sandbox_mode=\"danger-full-access\""))
+  ;; Keep ACP streaming responsive.  The Codex process runs externally, but
+  ;; agent-shell still renders every streamed update in Emacs' UI thread.
+  (setq agent-shell-show-busy-indicator nil
+        agent-shell-transcript-file-path-function nil
+        agent-shell-highlight-blocks nil)
+  (with-eval-after-load 'agent-shell-markdown
+    (setq agent-shell-markdown-prettify-tables nil))
   (defun my/agent-shell-ret-dwim ()
     (interactive)
     (let* ((pos (point))
