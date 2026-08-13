@@ -214,7 +214,7 @@ name = "rust"
 file-types = ["rs"]
 roots = ["Cargo.toml", "Cargo.lock"]
 language-servers = [
-  { name = "rust-analyzer", library-directories = ["~/.cargo/registry/src", "~/.rustup/toolchains"] }
+  { name = "rust-analyzer", support-workspace = ["Cargo.toml"], library-directories = ["~/.cargo/registry/src", "~/.rustup/toolchains"] }
 ]
 
 [[language]]
@@ -223,7 +223,7 @@ language-id = "rust"
 file-types = ["rs"]
 roots = ["Cargo.toml", "Cargo.lock"]
 language-servers = [
-  { name = "rust-analyzer", library-directories = ["~/.cargo/registry/src", "~/.rustup/toolchains"] }
+  { name = "rust-analyzer", support-workspace = ["Cargo.toml"], library-directories = ["~/.cargo/registry/src", "~/.rustup/toolchains"] }
 ]
 
 [[language]]
