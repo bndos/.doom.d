@@ -2100,6 +2100,9 @@ the rest of the file is the command to compile."
   :defer t
   :commands (vterm vterm-other-window)
   :init
+  (when (eq system-type 'darwin)
+    (setenv "CC" "/usr/bin/cc")
+    (setq vterm-module-cmake-args "-DCMAKE_C_COMPILER=/usr/bin/cc"))
   (setq vterm-shell "zsh")
   (setq vterm-environment '("COLORTERM=truecolor" "NO_COLOR"))
   ;; Keep vterm buffer names stable for persp-mode.  Agent CLIs can emit
