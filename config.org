@@ -90,10 +90,11 @@
     (ansi-color-apply-on-region (point-min) (point-max))))
 (add-hook 'compilation-filter-hook 'my/ansi-colorize-buffer)
 ;; Theme
-(setq doom-theme 'doom-snazzy)
+;; (setq doom-theme 'doom-snazzy)
+;; (setq doom-theme 'doom-snazzy)
 ;; (setq doom-theme 'doom-outrun-electric)
 ;; (setq doom-theme 'doom-tokyo-night)
-;; (setq doom-theme 'doom-ephemeral)
+ (setq doom-theme 'doom-ephemeral)
 ;; (setq doom-theme 'doom-dracula)
 ;; (setq doom-theme 'doom-feather-dark)
 ;; (setq doom-theme 'doom-challenger-deep)
@@ -403,6 +404,27 @@ existing mode-line colors and add only a muted overline."
               js-ts-mode-hook
               rjsx-mode-hook
               typescript-mode-hook))
+  (add-hook hk (lambda () (when (fboundp 'apheleia-mode) (apheleia-mode 1)))))
+
+(dolist (dir '("~/.nix-profile/bin"
+               "/nix/var/nix/profiles/default/bin"))
+  (let ((expanded (expand-file-name dir)))
+    (when (file-directory-p expanded)
+      (add-to-list 'exec-path expanded)
+      (setenv "PATH" (concat expanded path-separator (getenv "PATH"))))))
+
+(after! eglot
+  (add-to-list 'eglot-server-programs '(nix-mode . ("nixd")))
+  (add-to-list 'eglot-server-programs '(nix-ts-mode . ("nixd"))))
+
+(after! nix-mode
+  ;; Doom's Nix module defaults `nix-format-buffer' to nixfmt.  Use the
+  ;; formatter installed in the Nix profile instead.
+  (setq nix-nixfmt-bin "alejandra")
+  (set-formatter! 'alejandra '("alejandra" "-q")
+    :modes '(nix-mode nix-ts-mode)))
+
+(dolist (hk '(nix-mode-hook nix-ts-mode-hook))
   (add-hook hk (lambda () (when (fboundp 'apheleia-mode) (apheleia-mode 1)))))
 
 
@@ -2037,9 +2059,12 @@ With prefix ARG, enable when ARG is positive and disable otherwise."
 * projectile
 #+BEGIN_SRC emacs-lisp
 ;; projectile
-(use-package! projectile
-  :config
-  (setq projectile-indexing-method 'alien))
+(after! projectile
+  (setq projectile-indexing-method 'alien
+        projectile-enable-caching nil
+        projectile-generic-command nil
+        projectile-git-use-fd nil
+        projectile-async-indexing nil))
 #+END_SRC
 
 * vterm
@@ -3205,7 +3230,7 @@ markdown edit buffers whose point/current node can drift during rendering."
         agent-shell-transcript-file-path-function nil
         agent-shell-highlight-blocks nil)
   (with-eval-after-load 'agent-shell-markdown
-    (setq agent-shell-markdown-prettify-tables nil))
+    (setq agent-shell-markdown-prettify-tables t))
   (defun my/agent-shell-ret-dwim ()
     (interactive)
     (let* ((pos (point))
