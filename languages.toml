@@ -9,6 +9,7 @@ jdtls = { command = "jdtls" }
 dart = { command = "dart", args = ["language-server", "--client-id=emacs.lsp-proxy"] }
 clangd = { command = "clangd" }
 solargraph = { command = "solargraph", args = ["stdio"] }
+metal-analyzer = { command = "/Users/brando/.local/bin/metal-analyzer" }
 
 [language-server.css-ls]
 command = "vscode-css-language-server"
@@ -329,6 +330,20 @@ language-servers = [ "clangd" ]
 name = "cpp"
 file-types = ["cc", "hh", "c++", "cpp", "hpp", "h", "ipp", "tpp", "cxx", "hxx", "ixx", "txx", "ino", "C", "H", "cu", "cuh", "cppm", "h++", "ii", "inl", { glob = ".hpp.in" }, { glob = ".h.in" }]
 language-servers = [ "clangd" ]
+
+[[language]]
+name = "objc"
+language-id = "objective-cpp"
+file-types = ["m", "mm"]
+roots = ["compile_commands.json", "compile_flags.txt", ".clangd", ".git"]
+language-servers = [ "clangd" ]
+
+[[language]]
+name = "metal"
+language-id = "metal"
+file-types = ["metal"]
+roots = ["compile_commands.json", "compile_flags.txt", ".git"]
+language-servers = [ "metal-analyzer" ]
 
 [[language]]
 name = "ruby"

@@ -47,6 +47,8 @@
            :files (:defaults "resources")))
 (package! lsp-proxy :recipe (:host github :repo "jadestrong/lsp-proxy"
                              :files ("*.el")))
+(package! metal-mode :recipe (:host github :repo "masfj/metal-mode"
+                              :files ("metal-mode.el")))
 (package! shell-maker)
 (package! acp :recipe (:host github :repo "xenodium/acp.el"
                        :files("*.el")))

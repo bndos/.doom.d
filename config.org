@@ -437,6 +437,15 @@ existing mode-line colors and add only a muted overline."
           (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src" nil nil))))
 #+END_SRC
 
+* Objective-C++ and Metal
+#+BEGIN_SRC emacs-lisp
+(add-to-list 'auto-mode-alist '("\\.m\\'" . objc-mode))
+(add-to-list 'auto-mode-alist '("\\.mm\\'" . objc-mode))
+
+(use-package! metal-mode
+  :mode ("\\.metal\\'" . metal-mode))
+#+END_SRC
+
 * evil
 #+BEGIN_SRC emacs-lisp
 ;; evil
@@ -834,6 +843,15 @@ Falls back to `process-environment` if envrc export fails."
     (with-current-buffer buf
       (when (bound-and-true-p lsp-proxy-mode)
         (my/enable-lsp-proxy-format-on-save))))
+
+  (defun my/maybe-enable-lsp-proxy ()
+    (when (and (fboundp 'envrc--find-env-dir)
+               (envrc--find-env-dir)
+               (not (eq (bound-and-true-p envrc--status) 'on)))
+      (envrc-mode 1))
+    (unless (eq (bound-and-true-p envrc--status) 'error)
+      (lsp-proxy-mode 1)))
+
   (add-hook! '(
                tsx-ts-mode-hook
                js-ts-mode-hook
@@ -847,7 +865,9 @@ Falls back to `process-environment` if envrc export fails."
                rust-mode-hook
                c-mode-hook
                c++-mode-hook
-               ) #'lsp-proxy-mode))
+               metal-mode-hook
+               objc-mode-hook
+               ) #'my/maybe-enable-lsp-proxy))
 
 (defun my-lsp-find-definition ()
   "Go to definition with either lsp-proxy or Eglot, setting a jump point."
