@@ -8,6 +8,7 @@ vscode-json-language-server = { command = "vscode-json-language-server", args = 
 jdtls = { command = "jdtls" }
 dart = { command = "dart", args = ["language-server", "--client-id=emacs.lsp-proxy"] }
 clangd = { command = "clangd" }
+mlir-lsp = { command = "mlir-lsp-server" }
 solargraph = { command = "solargraph", args = ["stdio"] }
 metal-analyzer = { command = "/Users/brando/.local/bin/metal-analyzer" }
 
@@ -324,12 +325,19 @@ language-servers = [ { name = "dart", library-directories = ["~/.pub-cache"]} ]
 [[language]]
 name = "c"
 file-types = ["c"]
-language-servers = [ "clangd" ]
+language-servers = [ { name = "clangd", library-directories = ["/nix/store"] } ]
 
 [[language]]
 name = "cpp"
 file-types = ["cc", "hh", "c++", "cpp", "hpp", "h", "ipp", "tpp", "cxx", "hxx", "ixx", "txx", "ino", "C", "H", "cu", "cuh", "cppm", "h++", "ii", "inl", { glob = ".hpp.in" }, { glob = ".h.in" }]
-language-servers = [ "clangd" ]
+language-servers = [ { name = "clangd", library-directories = ["/nix/store"] } ]
+
+[[language]]
+name = "mlir"
+language-id = "mlir"
+file-types = ["mlir"]
+roots = [".git"]
+language-servers = [ "mlir-lsp" ]
 
 [[language]]
 name = "objc"
