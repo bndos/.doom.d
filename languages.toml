@@ -206,7 +206,8 @@ language-servers = [
 ]
 
 [[language]]
-name = "terraform-ls"
+name = "terraform"
+language-id = "terraform"
 file-types = ["tf"]
 roots = ["main.tf", ".terraform", ".git"]
 language-servers = [ "terraform-ls" ]
