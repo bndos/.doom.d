@@ -41,6 +41,11 @@
 (package! breadcrumb)
 (package! engrave-faces)
 (package! org-ref)
+(package! org-draw
+  :recipe (:host github
+           :repo "larrasket/org-draw"
+           :files ("org-draw.el" "web")))
+(package! ob-mermaid)
 (package! markdown-xwidget
   :recipe (:host github
            :repo "cfclrk/markdown-xwidget"

@@ -875,6 +875,7 @@ Falls back to `process-environment` if envrc export fails."
                metal-mode-hook
                objc-mode-hook
                mlir-mode-hook
+               terraform-mode-hook
                ) #'my/maybe-enable-lsp-proxy))
 
 (defun my-lsp-find-definition ()
@@ -2230,6 +2231,18 @@ the rest of the file is the command to compile."
   :config
   (add-to-list 'org-latex-engraved-options '("linenos" "true")))
 
+(use-package! org-draw
+  :after org
+  :commands (org-draw org-draw-edit org-draw-setup)
+  :custom
+  (org-draw-directory "figures")
+  (org-draw-require-pairing t)
+  (org-draw-open-browser t)
+  :bind (:map org-mode-map
+              ("C-c d d" . org-draw)
+              ("C-c d e" . org-draw-edit)
+              ("C-c d s" . org-draw-setup)))
+
 (after! org
   (map! :map org-mode-map :n "g k" #'org-up-element)
   (map! :map org-mode-map :n "g j" #'org-down-element)
@@ -2282,11 +2295,26 @@ the rest of the file is the command to compile."
 
 ;; make org-roam directory ~/Dropbox/org-roam
 (setq org-roam-directory "~/Dropbox/org-roam")
+
+;; Reuse the system browser instead of Puppeteer's versioned browser cache.
+(when-let ((chrome (or (executable-find "google-chrome")
+                       (executable-find "chromium")
+                       (executable-find "chromium-browser"))))
+  (setenv "PUPPETEER_EXECUTABLE_PATH" chrome))
+
 (org-babel-do-load-languages
  'org-babel-load-languages
  '((emacs-lisp . t)
    (python . t)
-   (jupyter . t)))
+   (jupyter . t)
+   (mermaid . t)))
+
+(after! ob-mermaid
+  (setq ob-mermaid-default-config-file
+        (expand-file-name "mermaid-config-emacs.json" doom-user-dir))
+  (add-to-list 'org-babel-default-header-args:mermaid '(:theme . "dark"))
+  (add-to-list 'org-babel-default-header-args:mermaid
+               '(:background-color . "transparent")))
 
 (use-package! olivetti
   :defer t
