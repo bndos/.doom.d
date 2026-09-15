@@ -2296,6 +2296,44 @@ the rest of the file is the command to compile."
 ;; make org-roam directory ~/Dropbox/org-roam
 (setq org-roam-directory "~/Dropbox/org-roam")
 
+;; Scale inline images to the current Org text area.  A fractional fallback is
+;; more reliable for SVGs than forcing every image to a fixed pixel width.
+;; Keeping it in a list still lets #+ATTR_ORG: :width ... override it.
+(setq org-image-actual-width '(0.9)
+      org-image-max-width 'window)
+
+(defvar my/org-inline-image-max-height 0.8
+  "Maximum inline image height as a fraction of the Org window height.")
+
+(defun my/org-create-inline-svg-natively (original file width)
+  "Use native SVG rendering and constrain images to the Org window."
+  (let ((image (funcall original file width)))
+    (if (and image
+             (member (downcase (or (file-name-extension file) ""))
+                     (list "svg" "svgz")))
+        (let* ((window (or (get-buffer-window (current-buffer) t)
+                           (selected-window)))
+               (max-height
+                (floor (* my/org-inline-image-max-height
+                          (window-body-height window t))))
+               (properties (copy-sequence (cdr image))))
+          (setq properties (plist-put properties :type (quote svg)))
+          (setq properties (plist-put properties :max-height max-height))
+          (cons (car image) properties))
+      image)))
+
+(after! ol
+  (advice-remove (quote org--create-inline-image)
+                 (function my/org-create-inline-svg-natively))
+  (advice-add (quote org--create-inline-image) :around
+              (function my/org-create-inline-svg-natively)))
+
+;; ImageMagick drops text from Mermaid's native-label SVGs.  Keep SVG files on
+;; Emacs's built-in librsvg renderer, including when opened in `image-mode'.
+(after! image-mode
+  (dolist (type '(SVG SVGZ))
+    (add-to-list 'imagemagick-types-inhibit type)))
+
 ;; Reuse the system browser instead of Puppeteer's versioned browser cache.
 (when-let ((chrome (or (executable-find "google-chrome")
                        (executable-find "chromium")
@@ -2309,12 +2347,37 @@ the rest of the file is the command to compile."
    (jupyter . t)
    (mermaid . t)))
 
+(defun my/mermaid-preserve-svg-label-spacing (_body params)
+  "Preserve spaces in native Mermaid SVG labels for librsvg."
+  (when-let* ((output (cdr (assq :file params)))
+              (file (expand-file-name output))
+              ((string-equal (downcase (or (file-name-extension file) "")) "svg"))
+              ((file-exists-p file)))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (unless (save-excursion
+                (goto-char (point-min))
+                (search-forward "xml:space=\"preserve\" class=\"text-inner-tspan\"" nil t))
+        (goto-char (point-min))
+        (while (search-forward "class=\"text-inner-tspan\"" nil t)
+          (replace-match "xml:space=\"preserve\" class=\"text-inner-tspan\"" t t))
+        (write-region (point-min) (point-max) file nil (quote silent))))
+    (clear-image-cache file)
+    (when-let ((buffer (find-buffer-visiting file)))
+      (with-current-buffer buffer
+        (unless (buffer-modified-p)
+          (revert-buffer t t t))))))
+
 (after! ob-mermaid
   (setq ob-mermaid-default-config-file
         (expand-file-name "mermaid-config-emacs.json" doom-user-dir))
   (add-to-list 'org-babel-default-header-args:mermaid '(:theme . "dark"))
-  (add-to-list 'org-babel-default-header-args:mermaid
-               '(:background-color . "transparent")))
+  (add-to-list (quote org-babel-default-header-args:mermaid)
+               (quote (:background-color . "transparent")))
+  (advice-remove (quote org-babel-execute:mermaid)
+                 (function my/mermaid-preserve-svg-label-spacing))
+  (advice-add (quote org-babel-execute:mermaid) :after
+              (function my/mermaid-preserve-svg-label-spacing)))
 
 (use-package! olivetti
   :defer t
