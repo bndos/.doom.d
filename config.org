@@ -477,6 +477,29 @@ existing mode-line colors and add only a muted overline."
 #+BEGIN_SRC emacs-lisp
 ;; consult
 (setq consult-fontify-max-size 1024)
+
+(defun my/consult-xref-sort-by-file-and-line (candidates)
+  "Sort Consult Xref CANDIDATES by file, then numeric line number."
+  (cl-stable-sort
+   (copy-sequence candidates)
+   (lambda (candidate-a candidate-b)
+     (let* ((xref-a (get-text-property 0 (quote consult-xref) candidate-a))
+            (xref-b (get-text-property 0 (quote consult-xref) candidate-b))
+            (location-a (xref-item-location xref-a))
+            (location-b (xref-item-location xref-b))
+            (file-a (xref-location-group location-a))
+            (file-b (xref-location-group location-b))
+            (line-a (or (xref-location-line location-a) 0))
+            (line-b (or (xref-location-line location-b) 0)))
+       (or (string-lessp file-a file-b)
+           (and (string-equal file-a file-b)
+                (< line-a line-b)))))))
+
+(after! consult-xref
+  (advice-remove (quote consult-xref--candidates)
+                 (function my/consult-xref-sort-by-file-and-line))
+  (advice-add (quote consult-xref--candidates) :filter-return
+              (function my/consult-xref-sort-by-file-and-line)))
 #+END_SRC
 
 * kubed
@@ -1285,7 +1308,8 @@ plain `dired-noselect' for this call."
   "Enable Copilot in supported buffers when the global toggle is on."
   (when (and (fboundp 'copilot-mode)
              (my/copilot-buffer-supported-p))
-    (copilot-mode 1)))
+    (copilot-mode 1)
+    (copilot-nes-mode 1)))
 
 (defun my/copilot-disable-all-buffers ()
   "Disable Copilot in every live buffer."
