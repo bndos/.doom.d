@@ -6,6 +6,8 @@
   "Whether Copilot auto-enables in supported buffers.  See `bndos/copilot-toggle'.")
 
 (map! :leader :desc "Toggle Copilot globally" "t C" #'bndos/copilot-toggle)
+;; Global, so major-mode S-RET bindings (e.g. org tables) still win.
+(map! "S-<return>" #'copilot-accept-completion)
 
 ;; The EIN test daemon shouldn't spawn a Copilot server.
 (unless (getenv "EIN_REGRESSION_TEST")
@@ -27,7 +29,6 @@
 
   (map! :map copilot-mode-map
         "S-<tab>"    #'copilot-accept-completion-by-word
-        "S-<return>" #'copilot-accept-completion
         :map copilot-completion-map
         "TAB"        #'copilot-accept-completion
         "S-<return>" #'copilot-accept-completion

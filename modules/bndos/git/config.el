@@ -2,7 +2,7 @@
 
 (add-load-path! "lisp")
 
-(after! magit
+(after! transient
   (setq transient-display-buffer-action '(display-buffer-in-side-window (side . bottom))))
 
 (use-package! magit-treediff

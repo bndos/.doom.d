@@ -47,7 +47,11 @@
               (executable-find "wl-paste"))
          'wayland)
         ((and (getenv "DISPLAY") (executable-find "xclip"))
-         'x11)))
+         'x11)
+        ((and (featurep :system 'macos)
+              (executable-find "pbcopy")
+              (executable-find "pbpaste"))
+         'macos)))
 
 (defun bndos-clipboard-copy (text)
   (pcase (bndos-clipboard--backend)
@@ -57,7 +61,10 @@
     ('x11 (with-temp-buffer
             (insert text)
             (call-process-region (point-min) (point-max) "xclip"
-                                 nil nil nil "-selection" "clipboard"))))
+                                 nil nil nil "-selection" "clipboard")))
+    ('macos (with-temp-buffer
+              (insert text)
+              (call-process-region (point-min) (point-max) "pbcopy"))))
   text)
 
 (defun bndos-clipboard-paste ()
@@ -65,12 +72,13 @@
     (when (zerop (pcase (bndos-clipboard--backend)
                    ('wayland (call-process "wl-paste" nil t nil "--no-newline"))
                    ('x11 (call-process "xclip" nil t nil "-selection" "clipboard" "-o"))
+                   ('macos (call-process "pbpaste" nil t nil))
                    (_ 1)))
       (buffer-string))))
 
 ;;;###autoload
 (defun bndos-clipboard-enable-h ()
-  "Route kills and yanks through wl-copy/xclip in terminal Emacs."
+  "Route kills and yanks through wl-copy/xclip/pbcopy in terminal Emacs."
   (when (and (not (equal (getenv "BNDOS_TERMINAL_CLIPBOARD") "0"))
              (not (display-graphic-p))
              (bndos-clipboard--backend))

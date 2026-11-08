@@ -59,7 +59,7 @@
 (add-hook 'eldoc-mode-hook #'bndos-eldoc-disable-echo-area-h)
 
 (use-package! eldoc-box
-  :defer t
+  :commands (eldoc-box-scroll-up eldoc-box-scroll-down eldoc-box-quit-frame)
   :init
   (map! :leader
         :desc "Show Eldoc popup"        "c h" #'bndos/eldoc-box-help-at-point

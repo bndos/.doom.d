@@ -6,6 +6,19 @@
 ;; Must be set before evil loads.
 (setq evil-respect-visual-line-mode t)
 
+;; Homebrew's libgccjit can't find gcc's libemutls_w, so native-comp trampolines
+;; (built whenever a primitive like `kill-buffer' is advised) fail to link.
+;; Point the driver at the gcc whose major version matches libgccjit.
+(when (featurep :system 'macos)
+  (with-eval-after-load 'comp
+    (when-let* ((jit (file-truename "/opt/homebrew/opt/libgccjit"))
+                (major (car (split-string (file-name-nondirectory jit) "\\.")))
+                (lib (car (file-expand-wildcards
+                           (format "/opt/homebrew/Cellar/gcc/%s.*/lib/gcc/current/gcc/*/%s/libemutls_w.a"
+                                   major major)))))
+      (add-to-list 'native-comp-driver-options
+                   (concat "-L" (file-name-directory lib)) t))))
+
 (doom! :completion
        corfu
        vertico
