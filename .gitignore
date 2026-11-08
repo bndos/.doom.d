@@ -1,6 +1,11 @@
 .DS_Store
 .idea
 *.log
+*.elc
 tmp/
 
-config.el
+# Machine-local state written by Emacs
+custom.el
+
+# Local checkout of the EIN fork (installed from GitHub via the ein module)
+emacs-ipython-notebook/
