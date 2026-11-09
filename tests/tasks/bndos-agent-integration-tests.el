@@ -160,7 +160,7 @@
   (bndos-task-ensure-record (bndos-test-git wt "rev-parse" "--path-format=absolute" "--git-common-dir")
                             wt (bndos-test-git wt "branch" "--show-current")))
 
-(ert-deftest bndos-integration-ai-review-runs-in-a-new-agent-session ()
+(ert-deftest bndos-integration-ai-findings-become-threads-the-worker-can-answer ()
   (bndos-test-with-hydra
     (bndos-test-with-repo repo
       (let* ((result (bndos-test-start repo "rv"))
@@ -177,22 +177,43 @@
                        (cl-function (lambda (&rest _) (bndos-task-agent--hydra-config "bndos-stub"))))
                       ((symbol-function 'read-string) (lambda (&rest _) "")))
               (bndos/task-review-ai-review))
-            (bndos-proc-wait (lambda () (seq-find (lambda (r) (eq (plist-get (cdr r) :status) :ok)) hutch--results)) 30)
-            (let* ((result (cdr (car hutch--results)))
-                   (findings (plist-get result :findings)))
-              (should (eq (plist-get result :status) :ok))
-              (should (seq-find (lambda (f) (equal (plist-get f :title) "stub finding")) findings))
-              (should (seq-find (lambda (f) (eq (plist-get f :type) 'lgtm)) findings))))
-          ;; A new conversation, not the worker's; the worker's session is untouched.
+            (bndos-proc-wait (lambda () (equal (plist-get bndos-task-review--ai :status) "done")) 30)
+            (should (equal (plist-get bndos-task-review--ai :status) "done")))
+          (let* ((threads (plist-get (bndos-task-store-load key) :threads))
+                 (finding (car threads)))
+            ;; One thread per finding (the lgtm file adds none), by ai:AGENT, on the file.
+            (should (= (length threads) 1))
+            (should (equal (plist-get finding :author) "ai:bndos-stub"))
+            (should (equal (plist-get finding :kind) "finding"))
+            (should (equal (plist-get finding :title) "stub finding"))
+            (should (equal (bndos-task-get finding :anchor :line) 1))
+            (should (member (bndos-task-get finding :anchor :path) '("v.txt" "w.txt")))
+            ;; It's shown in the diff like any thread and reached with ]t.
+            (with-current-buffer review
+              (goto-char (point-min))
+              (bndos/task-review-next-thread)
+              (should (equal (bndos-task-review--thread-at-point) (plist-get finding :id)))
+              (should (string-match-p "stub finding" (buffer-substring (line-beginning-position) (line-end-position)))))
+            ;; And it goes to the worker (not the reviewer) like your comments.
+            (let ((snapshot (bndos-test-await (lambda (cb) (bndos-task-git-snapshot wt cb)))))
+              (bndos-task-agent-submit key (list (plist-get finding :id)) "implement"
+                                       :snapshot snapshot :base '(:ref "main")))
+            (bndos-proc-wait (lambda () (equal (plist-get (bndos-task-thread (bndos-task-store-load key) (plist-get finding :id)) :state)
+                                               "addressed"))
+                             30)
+            (should (equal (plist-get (bndos-task-thread (bndos-task-store-load key) (plist-get finding :id)) :state)
+                           "addressed"))
+            (should (equal (bndos-test-git wt "config" "branch.rv.bndos-session") worker)))
+          ;; The reviewer was a separate conversation, still open.
           (let ((reviewer (seq-find (lambda (b) (and (not (memq b (hash-table-values bndos-task-agent--shells)))
                                                      (string-match-p "Stub" (buffer-name b))))
                                     (agent-shell-buffers))))
             (unwind-protect
                 (progn
                   (should reviewer)
-                  (should-not (equal (agent-shell-session-id :shell-buffer reviewer) worker))
-                  (should (equal (bndos-test-git wt "config" "branch.rv.bndos-session") worker)))
+                  (should-not (equal (agent-shell-session-id :shell-buffer reviewer) worker)))
               (bndos-test-kill-shell reviewer)
+              (bndos-test-kill-shell (bndos-task-agent-buffer (bndos-task-store-load key)))
               (kill-buffer review))))))))
 
 (ert-deftest bndos-integration-a-task-opened-before-any-refresh-attaches-to-its-session ()

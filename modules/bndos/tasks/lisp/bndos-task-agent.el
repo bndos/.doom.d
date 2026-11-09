@@ -475,6 +475,13 @@ An attached shell is used as is; otherwise one is attached (see
      (if-let* ((sel (plist-get anchor :selection)))
          (format "Selected diff:\n```diff\n%s\n```\n" sel) "")
      (format "\n%s\n" (plist-get thread :body))
+     (if-let* ((suggestion (plist-get thread :suggestion)))
+         (format "Suggested change (from the reviewer; apply it, adapt it, or explain why not):\n```diff\n%s\n```\n"
+                 (string-trim-right
+                  (or (plist-get suggestion :patch)
+                      (concat (replace-regexp-in-string "^" "-" (plist-get suggestion :old)) "\n"
+                              (replace-regexp-in-string "^" "+" (plist-get suggestion :new))))))
+       "")
      (let ((replies (seq-take (reverse (seq-filter (lambda (r) (not (equal (plist-get r :kind) "state")))
                                                    (plist-get thread :replies)))
                               4)))

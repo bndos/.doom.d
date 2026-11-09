@@ -87,8 +87,16 @@ disappeared stay (=worktree gone=) while they have discussion or a session.
 
 ** Review buffer
 
-Actions are on =C-c C-<key>=, like pr-review's, so they work the same with
-a region selected (evil visual state) and never shadow navigation.
+The buffer is in evil's normal state (=ESC=, =v= / =V= selections, counts as
+usual).  Actions are on =C-c C-<key>=, like pr-review's, so they work the
+same on a selected region and never shadow navigation.
+
+The diff's code is coloured by each file's major mode (as in pr-review;
+=bndos-task-review-syntax-highlight=), and every unresolved thread is shown
+as a block under its line: state, author, title, the comment wrapped to the
+window, a suggested edit, and the latest replies.  Threads on a whole file
+or on lines outside the diff sit under the file's heading.  The Discussion
+section groups all threads by state (resolved folded).
 
 | Key                    | Action                                                            |
 |------------------------+-------------------------------------------------------------------|
@@ -100,16 +108,18 @@ a region selected (evil visual state) and never shadow navigation.
 | =C-c C-q=              | ask the agent about the region / line (a thread, discussion only) |
 | =C-c C-i=              | instruction to the agent (it may edit)                            |
 | =C-c C-y=              | put the region / line / file in the agent-shell's input, unsent   |
+| =]t= / =[t=            | next / previous thread in the diff (yours, the agent's, AI's)     |
+| =C-c C-j=              | pick any thread from a list (open first, resolved too) and go there |
+| =C-c C-p=              | apply the suggested edit of the thread at point                   |
 | =C-c C-o=              | open the task's agent-shell                                       |
 | =C-c C-t=              | mark the thread at point for =C-c C-s=                            |
 | =C-c C-d= / =C-c C-u=  | resolve / reopen the thread at point                              |
 | =C-c C-l= / =C-c C-n=  | choose scope / toggle the latest iteration                        |
 | =C-c C-b=              | change the recorded parent                                        |
 | =g t= / =C-c C-e=      | toggle the following file tree                                    |
-| =]t= =[t=              | next / previous inline thread marker                              |
 | =C-c C-a=              | approve (records it; doesn't publish)                             |
 | =C-c C-h=              | AI review by a new agent session (see below)                      |
-| =m= =x= =A= =D= =C-c C-k= | Hutch's own suggestion keys, on AI findings                    |
+| =C-c C-k=              | cancel a running AI review                                        |
 
 You keep your place: refreshes and agent updates leave point, column and
 scroll where they were, picking a file in the tree returns to where you last
@@ -118,10 +128,14 @@ were in it, and those jumps (and =]t= / =[t=) are recorded, so =C-o= goes back.
 =C-c C-h= has an agent review the whole task: it asks for the agent (any
 agent-shell config, so a different harness from the worker's is fine) and
 optionally a model, then starts a new conversation in a read-only mode
-(Claude =plan=, Codex =read-only=), with no memory of the worker's.  Its
-findings appear as Hutch findings (apply, discard, ...), separate from the
-threads; Hutch's gates downgrade a suggested edit that doesn't match the file
-to a comment.  The reviewer's agent-shell stays open to ask about a finding.
+(Claude =plan=, Codex =read-only=), with no memory of the worker's.  Each
+finding becomes a thread by =ai:<agent>= (kind =finding=), exactly like your
+comments: shown inline, reached with =]t= / =C-c C-j=, sent to the worker with
+=C-c C-s= (with its suggested edit), replied to, resolved.  =C-c C-p= applies a
+suggested edit yourself (it must still match the file exactly once; Hutch's
+gates already turn a suggestion that doesn't match into a plain comment).
+The header shows the review's progress; the reviewer's agent-shell stays
+open to ask it about a finding.
 
 Drafts open in a small buffer: =C-c C-c= submits, =C-c C-k= discards.
 

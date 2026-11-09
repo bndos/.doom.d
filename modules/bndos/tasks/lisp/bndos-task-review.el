@@ -85,8 +85,13 @@
 (defface bndos-task-review-thread-resolved '((t :inherit shadow))
   "Resolved threads."
   :group 'bndos-task)
-(defface bndos-task-review-inline '((t :inherit font-lock-doc-face :extend t))
-  "Inline thread markers under diff lines."
+(defface bndos-task-review-inline
+  '((((background dark)) :background "#232733" :extend t)
+    (t :background "#f4f1ea" :extend t))
+  "Background of discussion blocks shown in the diff."
+  :group 'bndos-task)
+(defface bndos-task-review-author '((t :inherit font-lock-constant-face))
+  "Authors of threads and replies."
   :group 'bndos-task)
 
 
@@ -147,6 +152,9 @@
   "C-c C-e" #'bndos/task-review-toggle-tree
   "C-c C-a" #'bndos/task-review-approve
   "C-c C-h" #'bndos/task-review-ai-review
+  "C-c C-j" #'bndos/task-review-jump-to-thread
+  "C-c C-k" #'bndos/task-review-ai-cancel
+  "C-c C-p" #'bndos/task-review-apply-suggestion
   "]"       #'bndos/task-review-next-thread
   "["       #'bndos/task-review-previous-thread)
 
@@ -156,7 +164,8 @@
   "C-c C-c" #'bndos/task-review-comment
   "C-c C-t" #'bndos/task-review-mark
   "C-c C-d" #'bndos/task-review-resolve
-  "C-c C-u" #'bndos/task-review-reopen)
+  "C-c C-u" #'bndos/task-review-reopen
+  "C-c C-p" #'bndos/task-review-apply-suggestion)
 
 (define-derived-mode bndos-task-review-mode hutch-mode "Task-Review"
   "Review of a task worktree: discussion threads and the task's diff.
@@ -510,7 +519,7 @@ stale for the reviewer to check.  Nothing is deleted."
                                 (insert (format ", %d commit%s since" n (if (= n 1) "" "s"))))))
                           (insert "\n" (bndos-task-review--label "Scope")
                                   (propertize (car scope-info) 'font-lock-face 'bold)
-                                  ": " (cadr scope-info) "  (s: change, I: latest iteration)\n")
+                                  ": " (cadr scope-info) "  (C-c C-l changes it, C-c C-n: latest iteration)\n")
                           (when (plist-get data :from)
                             (insert (bndos-task-review--label "Compare")
                                     (format "%s -> %s" (bndos-task-review--short (plist-get data :from))
@@ -547,9 +556,14 @@ stale for the reviewer to check.  Nothing is deleted."
                             (insert (propertize (format "Error: %s\n" err) 'font-lock-face 'bndos-task-review-warning)))
                           (when-let* ((err (plist-get data :range-error)))
                             (insert (propertize (format "Scope unavailable: %s\n" err) 'font-lock-face 'bndos-task-review-warning)))
-                          (when hutch--scopes
-                            (insert (propertize "AI findings below come from a separate reviewer session (C-c C-h); they're separate from the discussion threads.\n"
-                                                'font-lock-face 'shadow)))
+                          (when-let* ((ai bndos-task-review--ai))
+                            (insert (bndos-task-review--label "AI review")
+                                    (propertize (format "%s: %s" (plist-get ai :agent) (plist-get ai :message))
+                                                'font-lock-face (pcase (plist-get ai :status)
+                                                                  ("failed" 'bndos-task-review-warning)
+                                                                  ("running" 'shadow)
+                                                                  (_ 'success)))
+                                    "\n"))
                           (insert "\n"))))
 
 (defun bndos-task-review--thread-counts (threads)
@@ -581,56 +595,136 @@ stale for the reviewer to check.  Nothing is deleted."
 (defun bndos-task-review--first-line (text)
   (truncate-string-to-width (car (split-string (or text "") "\n")) 70 nil nil "…"))
 
-(defun bndos-task-review--thread-heading (thread)
-  (concat (propertize (format "[%s]" (plist-get thread :state))
-                      'font-lock-face (bndos-task-review--state-face (plist-get thread :state)))
-          (if (member (plist-get thread :id) bndos-task-review--marked) " *" "")
-          (if (plist-get thread :stale)
-              (propertize " [stale]" 'font-lock-face 'bndos-task-review-warning) "")
-          " " (propertize (bndos-task-review--anchor-label (plist-get thread :anchor))
-                          'font-lock-face 'magit-filename)
-          " " (bndos-task-review--first-line (plist-get thread :body))
-          (let ((n (length (plist-get thread :replies))))
-            (if (> n 0) (propertize (format "  (%d)" n) 'font-lock-face 'shadow) ""))))
+(defun bndos-task-review--text-width ()
+  "Columns available for thread text in this review's window."
+  (let ((window (get-buffer-window (current-buffer))))
+    (max 40 (min 100 (- (if window (window-body-width window) 100) 10)))))
 
-(defun bndos-task-review--insert-body (text indent)
-  (dolist (line (split-string (or text "") "\n"))
-    (insert indent line "\n")))
+(defun bndos-task-review--wrap (text width)
+  "TEXT as lines no wider than WIDTH; fenced code blocks are left alone."
+  (let (out in-code)
+    (dolist (line (split-string (or text "") "\n"))
+      (when (string-prefix-p "```" (string-trim-left line)) (setq in-code (not in-code)))
+      (if (or in-code (<= (string-width line) width))
+          (push line out)
+        (dolist (part (split-string (string-fill line width) "\n")) (push part out))))
+    (nreverse out)))
+
+(defconst bndos-task-review--state-glyphs
+  '(("open" . "●") ("sent" . "◐") ("addressed" . "✓") ("resolved" . "○")))
+
+(defun bndos-task-review--thread-title (thread)
+  (or (plist-get thread :title) (bndos-task-review--first-line (plist-get thread :body))))
+
+(defun bndos-task-review--thread-heading (thread &optional no-title)
+  "One line naming THREAD: state, author, kind, place and (unless NO-TITLE) title."
+  (let ((state (plist-get thread :state)))
+    (concat (propertize (format "%s %s" (alist-get state bndos-task-review--state-glyphs "?" nil #'equal) state)
+                        'font-lock-face (bndos-task-review--state-face state))
+            (if (member (plist-get thread :id) bndos-task-review--marked)
+                (propertize " [marked]" 'font-lock-face 'bold) "")
+            (if (plist-get thread :stale) (propertize " [stale]" 'font-lock-face 'bndos-task-review-warning) "")
+            "  " (propertize (or (plist-get thread :author) "?") 'font-lock-face 'bndos-task-review-author)
+            (if (member (plist-get thread :kind) '("comment" nil)) ""
+              (propertize (format " · %s" (plist-get thread :kind)) 'font-lock-face 'shadow))
+            "  " (propertize (bndos-task-review--anchor-label (plist-get thread :anchor)) 'font-lock-face 'magit-filename)
+            (if no-title "" (concat "  " (propertize (bndos-task-review--thread-title thread) 'font-lock-face 'bold))))))
+
+(defun bndos-task-review--thread-lines (thread)
+  "The lines of THREAD's block after its heading: body, suggestion, replies."
+  (let* ((width (bndos-task-review--text-width))
+         (body (if (plist-get thread :title)
+                   ;; A finding: the title is in the heading.
+                   (string-trim (string-remove-prefix (plist-get thread :title) (plist-get thread :body)))
+                 (plist-get thread :body)))
+         (replies (seq-remove (lambda (r) (equal (plist-get r :kind) "state")) (plist-get thread :replies)))
+         (shown (last replies 3))
+         lines)
+    (dolist (line (bndos-task-review--wrap body width)) (push line lines))
+    (when-let* ((suggestion (plist-get thread :suggestion)))
+      (push (propertize "suggested change:" 'font-lock-face 'shadow) lines)
+      (dolist (line (split-string (string-trim-right
+                                   (or (plist-get suggestion :patch)
+                                       (concat (replace-regexp-in-string "^" "-" (plist-get suggestion :old)) "\n"
+                                               (replace-regexp-in-string "^" "+" (plist-get suggestion :new)))))
+                                  "\n"))
+        (unless (string-match-p "^\\(---\\|\\+\\+\\+\\) " line)
+          (push (propertize line 'font-lock-face (pcase (and (> (length line) 0) (aref line 0))
+                                                   (?+ 'magit-diff-added) (?- 'magit-diff-removed)
+                                                   (?@ 'magit-diff-hunk-heading) (_ 'magit-diff-context)))
+                lines))))
+    (when (> (length replies) (length shown))
+      (push (propertize (format "… %d earlier repl%s (TAB in Discussion shows all)"
+                                (- (length replies) (length shown))
+                                (if (= 1 (- (length replies) (length shown))) "y" "ies"))
+                        'font-lock-face 'shadow)
+            lines))
+    (dolist (reply shown)
+      (push (concat (propertize "↳ " 'font-lock-face 'shadow)
+                    (propertize (or (plist-get reply :author) "?") 'font-lock-face 'bndos-task-review-author)
+                    (if-let* ((status (plist-get reply :status)))
+                        (propertize (format " · %s" status) 'font-lock-face (bndos-task-review--state-face status))
+                      ""))
+            lines)
+      (dolist (line (bndos-task-review--wrap (plist-get reply :body) (- width 2)))
+        (push (concat "  " line) lines))
+      (when-let* ((files (plist-get reply :files)))
+        (push (propertize (format "  files: %s" (string-join files ", ")) 'font-lock-face 'shadow) lines))
+      (when-let* ((tests (plist-get reply :tests)))
+        (push (propertize (format "  tests: %s" (string-join tests ", ")) 'font-lock-face 'shadow) lines)))
+    (nreverse lines)))
+
+(defun bndos-task-review--insert-thread-block (thread indent)
+  "Insert THREAD as a framed block, each line starting with INDENT."
+  (let* ((start (point))
+         (face (bndos-task-review--state-face (plist-get thread :state)))
+         (bar (concat indent (propertize "│ " 'font-lock-face face))))
+    ;; A comment's body follows, so only a finding's title goes in the heading.
+    (insert indent (propertize "╭ " 'font-lock-face face)
+            (bndos-task-review--thread-heading thread (not (plist-get thread :title))) "\n")
+    (dolist (line (bndos-task-review--thread-lines thread))
+      (insert bar line "\n"))
+    (insert indent (propertize "╰─" 'font-lock-face face) "\n")
+    (put-text-property start (point) 'bndos-task-thread (plist-get thread :id))
+    (add-face-text-property start (point) 'bndos-task-review-inline t)))
+
+(defconst bndos-task-review--thread-groups
+  '(("open" "Open" nil) ("sent" "Waiting on the agent" nil)
+    ("addressed" "To verify" nil) ("resolved" "Resolved" t))
+  "(STATE HEADING HIDDEN) for the Discussion section's groups.")
 
 (defun bndos-task-review--insert-threads ()
   (let ((threads (plist-get (bndos-task-review-record) :threads)))
     (magit-insert-section (bndos-task-threads)
-                          (magit-insert-heading
-                           (propertize (format "Discussion (%d)" (length threads)) 'font-lock-face 'magit-section-heading))
-                          (if (null threads)
-                              (insert (propertize "  No threads yet.  c: comment on the line/region at point, a: ask the agent.\n"
-                                                  'font-lock-face 'shadow))
-                            (dolist (thread threads)
-                              (magit-insert-section section (bndos-task-thread (plist-get thread :id)
-                                                                               (equal (plist-get thread :state) "resolved"))
-                                                    (oset section keymap 'bndos-task-review-thread-section-map)
-                                                    (magit-insert-heading (concat "  " (bndos-task-review--thread-heading thread)))
-                                                    (insert (propertize (format "    %s · %s · %s%s\n" (plist-get thread :id)
-                                                                                (plist-get thread :author) (plist-get thread :created)
-                                                                                (if (equal (plist-get thread :kind) "comment") ""
-                                                                                  (format " · %s" (plist-get thread :kind))))
-                                                                        'font-lock-face 'shadow))
-                                                    (when-let* ((stale (plist-get thread :stale)))
-                                                      (insert (propertize (format "    stale: %s (snapshot %s)\n" (plist-get stale :reason)
-                                                                                  (bndos-task-review--short (plist-get stale :tree)))
-                                                                          'font-lock-face 'bndos-task-review-warning)))
-                                                    (bndos-task-review--insert-body (plist-get thread :body) "    ")
-                                                    (dolist (reply (plist-get thread :replies))
-                                                      (insert (propertize (format "    ↳ %s · %s%s\n" (plist-get reply :author) (plist-get reply :created)
-                                                                                  (if (plist-get reply :status) (format " · %s" (plist-get reply :status)) ""))
-                                                                          'font-lock-face 'shadow))
-                                                      (bndos-task-review--insert-body (plist-get reply :body) "      ")
-                                                      (when-let* ((files (plist-get reply :files)))
-                                                        (insert (format "      files: %s\n" (string-join files ", "))))
-                                                      (when-let* ((tests (plist-get reply :tests)))
-                                                        (insert (format "      tests: %s\n" (string-join tests ", ")))))
-                                                    (insert "\n"))))
-                          (insert "\n"))))
+      (magit-insert-heading
+        (propertize (format "Discussion (%s)" (bndos-task-review--thread-counts threads))
+                    'font-lock-face 'magit-section-heading))
+      (if (null threads)
+          (insert (propertize "  No threads yet.  C-c C-c comments on the line or region at point; C-c C-h has an agent review.\n"
+                              'font-lock-face 'shadow))
+        (pcase-dolist (`(,state ,heading ,hidden) bndos-task-review--thread-groups)
+          (when-let* ((group (seq-filter (lambda (th) (equal (plist-get th :state) state)) threads)))
+            (magit-insert-section (bndos-task-thread-group state hidden)
+              (magit-insert-heading
+                (propertize (format "  %s (%d)" heading (length group))
+                            'font-lock-face (bndos-task-review--state-face state)))
+              (dolist (thread group)
+                (magit-insert-section section (bndos-task-thread (plist-get thread :id))
+                  (oset section keymap 'bndos-task-review-thread-section-map)
+                  (let ((start (point))
+                        (face (bndos-task-review--state-face state)))
+                    (magit-insert-heading (concat "    " (bndos-task-review--thread-heading thread)))
+                    (when-let* ((stale (plist-get thread :stale)))
+                      (insert "    " (propertize "│ " 'font-lock-face face)
+                              (propertize (format "stale: %s" (plist-get stale :reason)) 'font-lock-face 'bndos-task-review-warning)
+                              "\n"))
+                    (dolist (line (bndos-task-review--thread-lines thread))
+                      (insert "    " (propertize "│ " 'font-lock-face face) line "\n"))
+                    (insert "    " (propertize (format "╰─ %s · %s" (plist-get thread :id) (plist-get thread :created))
+                                              'font-lock-face 'shadow)
+                            "\n")
+                    (put-text-property start (point) 'bndos-task-thread (plist-get thread :id))))))))
+        (insert "\n")))))
 
 (defun bndos-task-review--status-token (file)
   (if (plist-get file :binary) "B"
@@ -647,83 +741,205 @@ stale for the reviewer to check.  Nothing is deleted."
                        (equal (cons (plist-get anchor :side) (plist-get anchor :line)) line))))
               threads))
 
+(defun bndos-task-review--file-threads (threads file)
+  "Unresolved THREADS on FILE that no diff line of it shows: whole-file
+comments, and lines outside its hunks (an AI reviewer may comment there)."
+  (let* ((path (plist-get file :path))
+         (shown (mapcan (lambda (hunk)
+                          (mapcan (lambda (line)
+                                    (delq nil (list (and (plist-get line :new) (cons "new" (plist-get line :new)))
+                                                    (and (plist-get line :old) (cons "old" (plist-get line :old))))))
+                                  (plist-get hunk :lines)))
+                        (plist-get file :hunks))))
+    (seq-filter (lambda (thread)
+                  (let ((anchor (plist-get thread :anchor)))
+                    (and anchor
+                         (not (equal (plist-get thread :state) "resolved"))
+                         (equal (plist-get anchor :path) path)
+                         (not (member (cons (plist-get anchor :side) (plist-get anchor :line)) shown)))))
+                threads)))
+
 (defun bndos-task-review--side-texts (lines exclude)
   "Texts of the next two LINES that aren't of type EXCLUDE or meta."
   (mapcar (lambda (l) (plist-get l :text))
           (seq-take (seq-remove (lambda (l) (memq (plist-get l :type) (list exclude 'meta))) lines)
                     2)))
 
+
+;;; Code colours in the diff
+
+(defcustom bndos-task-review-syntax-highlight t
+  "Colour the code in review diffs with each file's major mode (like pr-review)."
+  :type 'boolean
+  :group 'bndos-task)
+
+(defcustom bndos-task-review-fontify-max-lines 3000
+  "Diffs of a file longer than this many lines aren't colour-highlighted."
+  :type 'integer
+  :group 'bndos-task)
+
+(defvar-local bndos-task-review--fontified nil
+  "(PATH . DIFF-HASH) -> the file's diff line texts with their code faces.")
+
+(defun bndos-task-review--diff-text (file)
+  "FILE's diff as unified diff text, one line per parsed diff line."
+  (concat "--- a/" (or (plist-get file :old-path) (plist-get file :path)) "\n"
+          "+++ b/" (plist-get file :path) "\n"
+          (mapconcat (lambda (hunk)
+                       (concat (plist-get hunk :header) "\n"
+                               (mapconcat (lambda (line)
+                                            (concat (pcase (plist-get line :type)
+                                                      ('added "+") ('removed "-") ('context " ") (_ ""))
+                                                    (plist-get line :text)))
+                                          (plist-get hunk :lines) "\n")))
+                     (plist-get file :hunks) "\n")
+          "\n"))
+
+(defun bndos-task-review--code-faces (face)
+  "FACE (a text property value) without diff-mode's own faces, as a list."
+  (seq-remove (lambda (f) (and (symbolp f) (string-prefix-p "diff-" (symbol-name f))))
+              (cond ((null face) nil)
+                    ((and (consp face) (keywordp (car face))) (list face))
+                    (t (ensure-list face)))))
+
+(defun bndos-task-review--fontify-diff (diff directory)
+  "DIFF's lines (hunk headers skipped) with code faces, as pr-review does:
+`diff-mode' colours each hunk with its file's major mode."
+  (with-current-buffer (get-buffer-create " *bndos-review-fontify*")
+    (let ((inhibit-read-only t)
+          (default-directory directory))
+      (erase-buffer)
+      (insert diff)
+      (unless (derived-mode-p 'diff-mode)
+        (delay-mode-hooks (diff-mode)))
+      (setq default-directory directory)
+      (setq-local diff-font-lock-syntax 'hunk-also)
+      (setq-local diff-font-lock-prettify nil)
+      (condition-case nil (font-lock-ensure) (error nil))
+      (dolist (overlay (overlays-in (point-min) (point-max)))
+        (when (eq (overlay-get overlay 'diff-mode) 'syntax)
+          (when-let* ((face (overlay-get overlay 'face)))
+            (add-face-text-property (overlay-start overlay) (overlay-end overlay) face))))
+      (remove-overlays (point-min) (point-max) 'diff-mode 'syntax)
+      (goto-char (point-min))
+      (forward-line 2)
+      (let (lines)
+        (while (not (eobp))
+          (unless (looking-at-p "@@")
+            (let* ((line (buffer-substring (min (1+ (point)) (line-end-position)) (line-end-position)))
+                   (clean (substring-no-properties line))
+                   (pos 0))
+              ;; Keep only the code's faces, under a property of our own.
+              (while (< pos (length line))
+                (let ((next (or (next-single-property-change pos 'face line) (length line))))
+                  (when-let* ((faces (bndos-task-review--code-faces (get-text-property pos 'face line))))
+                    (put-text-property pos next 'bndos-code-face faces clean))
+                  (setq pos next)))
+              (push clean lines)))
+          (forward-line 1))
+        (nreverse lines)))))
+
+(defun bndos-task-review--fontify-file (file)
+  "FILE's diff line texts with code faces, in order, or nil when not coloured."
+  (let ((count (apply #'+ 0 (mapcar (lambda (h) (length (plist-get h :lines))) (plist-get file :hunks)))))
+    (when (and bndos-task-review-syntax-highlight
+               (not (plist-get file :binary))
+               (< 0 count (1+ bndos-task-review-fontify-max-lines)))
+      (let* ((diff (bndos-task-review--diff-text file))
+             (key (cons (plist-get file :path) (sxhash-equal diff))))
+        (unless bndos-task-review--fontified
+          (setq bndos-task-review--fontified (make-hash-table :test #'equal)))
+        (or (gethash key bndos-task-review--fontified)
+            (puthash key (ignore-errors (bndos-task-review--fontify-diff diff bndos-task-review-directory))
+                     bndos-task-review--fontified))))))
+
+(defun bndos-task-review--insert-code-line (prefix text code diff-face)
+  "Insert PREFIX and TEXT (or CODE, TEXT with code faces) as one diff line.
+Code colours come first and DIFF-FACE last, so the code keeps its colours
+over the added/removed background."
+  (let ((start (point)))
+    (insert prefix (or code text) "\n")
+    (let ((pos start))
+      (while (< pos (point))
+        (let ((next (next-single-property-change pos 'bndos-code-face nil (point))))
+          (put-text-property pos next 'font-lock-face
+                             (append (get-text-property pos 'bndos-code-face) (list diff-face)))
+          (setq pos next))))
+    (remove-text-properties start (point) '(bndos-code-face nil))))
+
 (defun bndos-task-review--insert-diff ()
   (let* ((data bndos-task-review--data)
          (files (plist-get data :files))
          (threads (plist-get (bndos-task-review-record) :threads)))
     (magit-insert-section (bndos-task-diff)
-                          (magit-insert-heading
-                           (propertize (format "Changes (%d files, +%d -%d)" (length files)
-                                               (apply #'+ 0 (mapcar (lambda (f) (plist-get f :added)) files))
-                                               (apply #'+ 0 (mapcar (lambda (f) (plist-get f :removed)) files)))
-                                       'font-lock-face 'magit-section-heading))
-                          (cond
-                           ((plist-get data :refreshing) (insert "  …\n"))
-                           ((null files) (insert (propertize "  No changes in this scope.\n" 'font-lock-face 'shadow))))
-                          (dolist (file files)
-                            (let ((path (plist-get file :path))
-                                  (size (apply #'+ 0 (mapcar (lambda (h) (length (plist-get h :lines))) (plist-get file :hunks)))))
-                              (magit-insert-section (bndos-task-file path (> size bndos-task-review-collapse-lines))
-                                                    (magit-insert-heading
-                                                     (propertize (format "%s %s%s (+%d -%d)%s"
-                                                                         (bndos-task-review--status-token file)
-                                                                         (if (equal (plist-get file :status) "renamed")
-                                                                             (format "%s -> " (plist-get file :old-path)) "")
-                                                                         path (plist-get file :added) (plist-get file :removed)
-                                                                         (if (plist-get file :binary) " binary" ""))
-                                                                 'font-lock-face 'magit-diff-file-heading))
-                                                    (when (and (null (plist-get file :hunks)) (not (plist-get file :binary)))
-                                                      (insert (propertize (format "  (%s, no content changes)\n" (plist-get file :status))
-                                                                          'font-lock-face 'shadow)))
-                                                    (dolist (hunk (plist-get file :hunks))
-                                                      (magit-insert-section (bndos-task-hunk (cons path (plist-get hunk :header)))
-                                                                            (magit-insert-heading
-                                                                             (propertize (plist-get hunk :header) 'font-lock-face 'magit-diff-hunk-heading))
-                                                                            (let ((before-new nil)
-                                                                                  (before-old nil)
-                                                                                  (lines (plist-get hunk :lines)))
-                                                                              (while lines
-                                                                                (let* ((line (pop lines))
-                                                                                       (type (plist-get line :type))
-                                                                                       (start (point))
-                                                                                       (props (list :path path :old-path (plist-get file :old-path)
-                                                                                                    :type type :old (plist-get line :old) :new (plist-get line :new)
-                                                                                                    :text (plist-get line :text) :hunk (plist-get hunk :header)
-                                                                                                    ;; Context per side, nearest first: a removed
-                                                                                                    ;; line isn't part of the new file and vice versa.
-                                                                                                    :before-new (seq-take before-new 2)
-                                                                                                    :before-old (seq-take before-old 2)
-                                                                                                    :after-new (bndos-task-review--side-texts lines 'removed)
-                                                                                                    :after-old (bndos-task-review--side-texts lines 'added))))
-                                                                                  (insert (pcase type ('added "+") ('removed "-") ('context " ") (_ ""))
-                                                                                          (plist-get line :text) "\n")
-                                                                                  (put-text-property start (point) 'bndos-task-line props)
-                                                                                  (put-text-property start (point) 'font-lock-face
-                                                                                                     (pcase type
-                                                                                                       ('added 'magit-diff-added)
-                                                                                                       ('removed 'magit-diff-removed)
-                                                                                                       ('meta 'shadow)
-                                                                                                       (_ 'magit-diff-context)))
-                                                                                  (unless (memq type '(meta removed))
-                                                                                    (push (plist-get line :text) before-new))
-                                                                                  (unless (memq type '(meta added))
-                                                                                    (push (plist-get line :text) before-old))
-                                                                                  (dolist (thread (bndos-task-review--line-threads
-                                                                                                   threads path
-                                                                                                   (if (eq type 'removed)
-                                                                                                       (cons "old" (plist-get line :old))
-                                                                                                     (cons "new" (plist-get line :new)))))
-                                                                                    (let ((tstart (point)))
-                                                                                      (insert "  ┃ " (bndos-task-review--thread-heading thread) "\n")
-                                                                                      (put-text-property tstart (point) 'bndos-task-thread (plist-get thread :id))
-                                                                                      (add-face-text-property tstart (point) 'bndos-task-review-inline t)))))))))))
-                          (insert "\n"))))
+      (magit-insert-heading
+        (propertize (format "Changes (%d files, +%d -%d)" (length files)
+                            (apply #'+ 0 (mapcar (lambda (f) (plist-get f :added)) files))
+                            (apply #'+ 0 (mapcar (lambda (f) (plist-get f :removed)) files)))
+                    'font-lock-face 'magit-section-heading))
+      (cond
+       ((plist-get data :refreshing) (insert "  …\n"))
+       ((null files) (insert (propertize "  No changes in this scope.\n" 'font-lock-face 'shadow))))
+      (dolist (file files)
+        (let* ((path (plist-get file :path))
+               (size (apply #'+ 0 (mapcar (lambda (h) (length (plist-get h :lines))) (plist-get file :hunks))))
+               (code (bndos-task-review--fontify-file file)))
+          (magit-insert-section (bndos-task-file path (> size bndos-task-review-collapse-lines))
+            (magit-insert-heading
+              (propertize (format "%s %s%s (+%d -%d)%s"
+                                  (bndos-task-review--status-token file)
+                                  (if (equal (plist-get file :status) "renamed")
+                                      (format "%s -> " (plist-get file :old-path)) "")
+                                  path (plist-get file :added) (plist-get file :removed)
+                                  (if (plist-get file :binary) " binary" ""))
+                          'font-lock-face 'magit-diff-file-heading))
+            (dolist (thread (bndos-task-review--file-threads threads file))
+              (bndos-task-review--insert-thread-block thread "  "))
+            (when (and (null (plist-get file :hunks)) (not (plist-get file :binary)))
+              (insert (propertize (format "  (%s, no content changes)\n" (plist-get file :status))
+                                  'font-lock-face 'shadow)))
+            (dolist (hunk (plist-get file :hunks))
+              (magit-insert-section (bndos-task-hunk (cons path (plist-get hunk :header)))
+                (magit-insert-heading
+                  (propertize (plist-get hunk :header) 'font-lock-face 'magit-diff-hunk-heading))
+                (let ((before-new nil)
+                      (before-old nil)
+                      (lines (plist-get hunk :lines)))
+                  (while lines
+                    (let* ((line (pop lines))
+                           (type (plist-get line :type))
+                           (start (point))
+                           (props (list :path path :old-path (plist-get file :old-path)
+                                        :type type :old (plist-get line :old) :new (plist-get line :new)
+                                        :text (plist-get line :text) :hunk (plist-get hunk :header)
+                                        ;; Context per side, nearest first: a removed
+                                        ;; line isn't part of the new file and vice versa.
+                                        :before-new (seq-take before-new 2)
+                                        :before-old (seq-take before-old 2)
+                                        :after-new (bndos-task-review--side-texts lines 'removed)
+                                        :after-old (bndos-task-review--side-texts lines 'added)))
+                           (fontified (pop code)))
+                      (bndos-task-review--insert-code-line
+                       (pcase type ('added "+") ('removed "-") ('context " ") (_ ""))
+                       (plist-get line :text)
+                       (and (not (eq type 'meta)) fontified)
+                       (pcase type
+                         ('added 'magit-diff-added)
+                         ('removed 'magit-diff-removed)
+                         ('meta 'shadow)
+                         (_ 'magit-diff-context)))
+                      (put-text-property start (point) 'bndos-task-line props)
+                      (unless (memq type '(meta removed))
+                        (push (plist-get line :text) before-new))
+                      (unless (memq type '(meta added))
+                        (push (plist-get line :text) before-old))
+                      (dolist (thread (bndos-task-review--line-threads
+                                       threads path
+                                       (if (eq type 'removed)
+                                           (cons "old" (plist-get line :old))
+                                         (cons "new" (plist-get line :new)))))
+                        (bndos-task-review--insert-thread-block thread "    "))))))))))
+      (insert "\n"))))
 
 
 ;;; Tree
@@ -1128,29 +1344,92 @@ On a discussion thread (without a region), reply to it instead."
             (cons id bndos-task-review--marked)))
     (bndos-task-review-render)))
 
-(defun bndos/task-review-next-thread ()
-  "Move to the next inline discussion marker in the diff."
-  (interactive)
+(defun bndos-task-review--diff-bounds ()
+  "(START . END) of the Changes section."
+  (when-let* ((section (magit-get-section '((bndos-task-diff) (review-root)))))
+    (cons (oref section start) (oref section end))))
+
+(defun bndos-task-review--step-thread (forward)
+  "Move to the next (FORWARD) or previous discussion block in the diff."
   (bndos-task-review--ensure)
-  (bndos-task-review--set-jump)
-  (let ((here (point)))
-    (end-of-line)
-    (if-let* ((match (text-property-search-forward 'bndos-task-thread nil (lambda (_ v) v))))
-        (goto-char (prop-match-beginning match))
-      (goto-char here)
-      (message "No later thread marker"))))
+  (let* ((bounds (or (bndos-task-review--diff-bounds) (cons (point-min) (point-max))))
+         (here (point))
+         (target
+          (save-excursion
+            ;; Search the diff only (Discussion lists the same threads).
+            (cond ((and forward (< (point) (car bounds))) (goto-char (car bounds)))
+                  ((and (not forward) (> (point) (cdr bounds))) (goto-char (cdr bounds))))
+            ;; Leave the block point is in first.
+            (when (get-text-property (point) 'bndos-task-thread)
+              (goto-char (if forward
+                             (or (next-single-property-change (point) 'bndos-task-thread) (point-max))
+                           (or (previous-single-property-change (point) 'bndos-task-thread) (point-min)))))
+            (when-let* ((match (if forward
+                                   (text-property-search-forward 'bndos-task-thread nil (lambda (_ v) v))
+                                 (text-property-search-backward 'bndos-task-thread nil (lambda (_ v) v)))))
+              (and (<= (car bounds) (prop-match-beginning match) (cdr bounds))
+                   (prop-match-beginning match))))))
+    (if (not target)
+        (message "No %s thread in the diff" (if forward "later" "earlier"))
+      (bndos-task-review--set-jump)
+      (goto-char target)
+      (unless (pos-visible-in-window-p (save-excursion (forward-line 4) (point)))
+        (recenter 3))
+      (ignore here))))
+
+(defun bndos/task-review-next-thread ()
+  "Move to the next discussion block in the diff (yours, the agent's or AI's)."
+  (interactive)
+  (bndos-task-review--step-thread t))
 
 (defun bndos/task-review-previous-thread ()
-  "Move to the previous inline discussion marker in the diff."
+  "Move to the previous discussion block in the diff."
+  (interactive)
+  (bndos-task-review--step-thread nil))
+
+(defun bndos-task-review--goto-thread (id)
+  "Show thread ID: its block in the diff, else its entry in Discussion."
+  (let ((thread (bndos-task-thread (bndos-task-review-record) id))
+        target)
+    (save-excursion
+      (goto-char (point-min))
+      (when-let* ((match (text-property-search-forward 'bndos-task-thread id #'equal)))
+        (setq target (prop-match-beginning match))))
+    (unless target
+      (user-error "Thread %s isn't shown (is its file folded?)" id))
+    (bndos-task-review--set-jump)
+    ;; Unfold whatever hides it (a resolved group, a big file).
+    (goto-char target)
+    (let ((section (magit-current-section)))
+      (while section
+        (when (oref section hidden) (magit-section-show section))
+        (setq section (oref section parent))))
+    (goto-char target)
+    (recenter 3)
+    thread))
+
+(defconst bndos-task-review--state-order '("open" "sent" "addressed" "resolved"))
+
+(defun bndos/task-review-jump-to-thread ()
+  "Pick a thread (open first, resolved last) and jump to it."
   (interactive)
   (bndos-task-review--ensure)
-  (bndos-task-review--set-jump)
-  (let ((here (point)))
-    (beginning-of-line)
-    (if-let* ((match (text-property-search-backward 'bndos-task-thread nil (lambda (_ v) v))))
-        (goto-char (prop-match-beginning match))
-      (goto-char here)
-      (message "No earlier thread marker"))))
+  (let* ((threads (sort (copy-sequence (plist-get (bndos-task-review-record) :threads))
+                        (lambda (a b) (< (seq-position bndos-task-review--state-order (plist-get a :state))
+                                         (seq-position bndos-task-review--state-order (plist-get b :state))))))
+         (candidates (mapcar (lambda (thread)
+                               (cons (substring-no-properties (bndos-task-review--thread-heading thread))
+                                     (plist-get thread :id)))
+                             threads)))
+    (unless candidates (user-error "No threads yet"))
+    (let ((choice (completing-read
+                   "Thread: "
+                   (lambda (string pred action)
+                     (if (eq action 'metadata)
+                         '(metadata (category . bndos-task-thread) (display-sort-function . identity))
+                       (complete-with-action action candidates string pred)))
+                   nil t)))
+      (bndos-task-review--goto-thread (cdr (assoc choice candidates))))))
 
 (defun bndos/task-review-approve ()
   "Record that you approve this task.  Publishing and merging stay separate."
@@ -1299,14 +1578,82 @@ Synchronous, as Hutch's own scope collection is."
 (defvar hutch-review-transport)
 (defvar hutch-agent-shell-config)
 (defvar hutch-agent-shell-model)
+(defvar hutch--cancel-fns)
+(declare-function hutch--review "hutch-agent")
+
+(defvar-local bndos-task-review--ai nil
+  "The last AI review of this buffer: (:agent NAME :status STRING :message TEXT).")
+
+(defun bndos-task-review--line-anchor (directory path start end)
+  "An anchor on PATH's new-side lines START..END, with their text as context."
+  (let* ((file (expand-file-name path directory))
+         (lines (and (file-readable-p file)
+                     (with-temp-buffer (insert-file-contents file) (split-string (buffer-string) "\n"))))
+         (line (lambda (n) (and n (> n 0) (nth (1- n) lines)))))
+    (if (not start)
+        (list :path path)
+      (list :path path :side "new" :line start :end-line (and end (/= end start) end)
+            :text (funcall line start)
+            :before (delq nil (list (funcall line (1- start)) (funcall line (- start 2))))
+            :after (delq nil (list (funcall line (1+ (or end start))) (funcall line (+ 2 (or end start)))))
+            :selection (mapconcat (lambda (n) (concat " " (or (funcall line n) "")))
+                                  (number-sequence start (or end start)) "\n")))))
+
+(defun bndos-task-review--finding-thread (finding author directory)
+  "A discussion thread for the Hutch FINDING by AUTHOR, or nil for an lgtm."
+  (unless (eq (plist-get finding :type) 'lgtm)
+    (let* ((lines (format "%s" (or (plist-get finding :lines) "")))
+           (range (and (string-match "\\([0-9]+\\)\\(?:-\\([0-9]+\\)\\)?" lines)
+                       (cons (string-to-number (match-string 1 lines))
+                             (and (match-string 2 lines) (string-to-number (match-string 2 lines))))))
+           (title (or (plist-get finding :title) "Finding"))
+           (thread (bndos-task-make-thread
+                    :kind "finding" :author author
+                    :body (string-trim (concat title "\n\n" (or (plist-get finding :desc) "")))
+                    :anchor (bndos-task-review--line-anchor directory (plist-get finding :file)
+                                                            (car range) (cdr range)))))
+      (setq thread (plist-put thread :title title))
+      (when (eq (plist-get finding :type) 'suggestion)
+        (setq thread (plist-put thread :suggestion
+                                (list :old (plist-get finding :old-lines) :new (plist-get finding :new-lines)
+                                      :patch (plist-get finding :patch)))))
+      thread)))
+
+(defun bndos-task-review--ai-done (buffer key agent result)
+  "Turn the AI RESULT for task KEY into threads by AGENT; update BUFFER."
+  (let* ((directory (bndos-task-get (bndos-task-store-load key) :worktree :path))
+         (author (format "ai:%s" agent))
+         (threads (and (eq (plist-get result :status) :ok)
+                       (delq nil (mapcar (lambda (f) (bndos-task-review--finding-thread f author directory))
+                                         (plist-get result :findings))))))
+    (when threads
+      (bndos-task-store-update
+       key (lambda (record)
+             (seq-reduce #'bndos-task-add-thread threads (bndos-task-put record '(:review :state) "in-review")))))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (setq bndos-task-review--ai
+              (if (eq (plist-get result :status) :ok)
+                  (list :agent agent :status "done"
+                        :message (if threads
+                                     (format "%d finding%s added as threads" (length threads)
+                                             (if (= 1 (length threads)) "" "s"))
+                                   "no findings"))
+                (list :agent agent :status "failed" :message (or (plist-get result :emsg) "failed"))))
+        (bndos-task-review-render)))
+    (message "AI review by %s: %s" agent
+             (if threads (format "%d finding(s); ]t / C-c C-j to go through them" (length threads))
+               (or (plist-get result :emsg) "no findings")))))
 
 (defun bndos/task-review-ai-review ()
-  "Have a new agent session review the whole task; findings appear here.
+  "Have a new agent session review the whole task; its findings become threads.
 You choose the agent (any agent-shell config: another harness than the
 worker's is fine) and optionally a model.  The reviewer is a separate
-conversation with no memory of the worker's, in a read-only mode; its
-agent-shell stays open to ask about a finding.  Its findings are Hutch's
-(apply, discard...), separate from the discussion threads."
+conversation with no memory of the worker's, in a read-only mode.  Each
+finding becomes a discussion thread by ai:AGENT, shown inline like yours:
+send them to the worker with \\[bndos/task-review-submit], reply, resolve,
+or apply a suggested edit with \\[bndos/task-review-apply-suggestion].  The
+reviewer's agent-shell stays open to ask it about a finding."
   (interactive)
   (bndos-task-review--ensure)
   (require 'agent-shell)
@@ -1315,11 +1662,62 @@ agent-shell stays open to ask about a finding.  Its findings are Hutch's
                     (user-error "No base or no changes to review")))
          (config (agent-shell-select-config :prompt "Reviewer agent: "))
          (model (string-trim (read-string "Model (empty for the agent's default): ")))
+         (agent (format "%s" (map-elt config :identifier)))
+         (buffer (current-buffer))
+         (key bndos-task-review-key)
          (hutch-review-transport 'agent-shell)
          (hutch-agent-shell-config config)
          (hutch-agent-shell-model (unless (string-empty-p model) model)))
-    (hutch-review-run (current-buffer) (list scope))
-    (message "Reviewing with a new %s session…" (map-elt config :buffer-name))))
+    (setq bndos-task-review--ai (list :agent agent :status "running" :message "reviewing…"))
+    (setq hutch--cancel-fns
+          (hutch--review (list scope)
+                         (lambda (result) (bndos-task-review--ai-done buffer key agent result))
+                         nil))
+    (bndos-task-review-render)
+    (message "Reviewing with a new %s session…" agent)))
+
+(defun bndos/task-review-ai-cancel ()
+  "Stop the AI review running for this task."
+  (interactive)
+  (bndos-task-review--ensure)
+  (unless (equal (plist-get bndos-task-review--ai :status) "running")
+    (user-error "No AI review is running"))
+  (mapc #'funcall hutch--cancel-fns)
+  (setq hutch--cancel-fns nil)
+  (setq bndos-task-review--ai (plist-put (plist-put bndos-task-review--ai :status "failed") :message "cancelled"))
+  (bndos-task-review-render))
+
+(defun bndos/task-review-apply-suggestion ()
+  "Apply the suggested edit of the thread at point to the worktree file.
+It must still match the file exactly once.  The thread is then resolved."
+  (interactive)
+  (bndos-task-review--ensure)
+  (let* ((key bndos-task-review-key)
+         (id (bndos-task-review--require-thread))
+         (thread (bndos-task-thread (bndos-task-review-record) id))
+         (suggestion (or (plist-get thread :suggestion) (user-error "Thread %s has no suggested edit" id)))
+         (path (bndos-task-get thread :anchor :path))
+         (file (expand-file-name path bndos-task-review-directory))
+         (old (plist-get suggestion :old)))
+    (with-current-buffer (find-file-noselect file)
+      (save-excursion
+        (goto-char (point-min))
+        (let ((count 0) at)
+          (while (search-forward old nil t)
+            (setq count (1+ count) at (match-beginning 0)))
+          (unless (= count 1)
+            (user-error "The suggestion matches %s %d times now; apply it by hand"
+                        path count))
+          (goto-char at)
+          (delete-region at (+ at (length old)))
+          (insert (plist-get suggestion :new))))
+      (save-buffer))
+    (bndos-task-store-update
+     key (lambda (r) (bndos-task-update-thread
+                      r id (lambda (th) (bndos-task-thread-set-state th "resolved" (bndos-task-review--author)
+                                                                     "applied the suggested edit")))))
+    (bndos-task-review-render)
+    (message "Applied the suggestion to %s; refresh (g r) to see it in the diff" path)))
 
 (provide 'bndos-task-review)
 ;;; bndos-task-review.el ends here
