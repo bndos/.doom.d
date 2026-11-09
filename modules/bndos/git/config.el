@@ -34,7 +34,7 @@
 
 (map! :after pr-review
       :map pr-review-mode-map
-      "M-RET" #'magit-diff-visit-worktree-file-other-window
+      "M-<return>" #'magit-diff-visit-worktree-file-other-window
       :n "gw" #'pr-review-open-worktree
       :n "gt" #'pr-review-treediff-toggle
       :n "]t" #'bndos/pr-review-next-comment
@@ -46,7 +46,7 @@
   (setq code-review-auth-login-marker 'forge)
   (add-hook 'code-review-mode-hook #'emojify-mode)
   (map! :map code-review-mode-map
-        "M-RET" #'magit-diff-visit-worktree-file-other-window))
+        "M-<return>" #'magit-diff-visit-worktree-file-other-window))
 
 
 ;;; consult-gh

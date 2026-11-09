@@ -36,6 +36,7 @@
 (declare-function bndos-task-agent-submit "bndos-task-agent")
 (declare-function bndos-task-agent-open "bndos-task-agent")
 (declare-function bndos-task-agent-ensure "bndos-task-agent")
+(declare-function bndos-task-agent-sync-from-git "bndos-task-agent")
 (declare-function +workspaces-switch-to-project-h "ext:workspaces")
 (declare-function projectile-add-known-project "ext:projectile")
 (defvar +workspaces-switch-project-function)
@@ -126,7 +127,9 @@
   :parent hutch-mode-map
   "g"       #'bndos/task-review-refresh
   "RET"     #'bndos/task-review-visit
-  "M-RET"   #'bndos/task-review-visit-worktree-other-window
+  ;; Not "M-RET": a Meta binding is stored under an ESC prefix in the map,
+  ;; which would swallow ESC itself.
+  "M-<return>" #'bndos/task-review-visit-worktree-other-window
   "C-c C-c" #'bndos/task-review-comment
   "C-c C-s" #'bndos/task-review-submit
   "C-c C-q" #'bndos/task-review-ask
@@ -198,6 +201,9 @@ workspaces this only registers the project with Projectile."
   "Open (or refresh) the review buffer for task KEY.  Return the buffer.
 With WORKSPACE, first switch to the worktree's project workspace.  With
 SELECT, display the buffer in the selected window and show the tree."
+  ;; The session and parent may have been recorded outside Emacs.
+  (when (fboundp 'bndos-task-agent-sync-from-git)
+    (bndos-task-agent-sync-from-git key))
   (let* ((record (or (bndos-task-store-load key) (user-error "No task record for %s" key)))
          (worktree (file-name-as-directory (bndos-task-get record :worktree :path))))
     (unless (file-directory-p worktree)

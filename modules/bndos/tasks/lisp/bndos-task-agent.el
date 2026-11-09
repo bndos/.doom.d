@@ -171,25 +171,56 @@ Synchronous, for interactive commands that need the answer before asking."
           (bndos-task-store-decode (buffer-string))
         (error (list :status "failed" :error (string-trim (buffer-string))))))))
 
+(defun bndos-task-agent--merge-recorded (key fields &optional keep-parent)
+  "Copy FIELDS (:session_id :agent :model :ticket :parent) into KEY's record.
+A nil :parent clears the recorded parent unless KEEP-PARENT."
+  (bndos-task-store-update
+   key (lambda (record)
+         (let ((agent (plist-get record :agent))
+               (sid (plist-get fields :session_id)))
+           (when (and sid (not (equal sid (plist-get agent :session-id))))
+             (setq agent (plist-put (plist-put agent :session-id sid) :resume nil)))
+           (when-let* ((provider (plist-get fields :agent)))
+             (setq agent (plist-put agent :provider provider)))
+           (when-let* ((model (plist-get fields :model)))
+             (setq agent (plist-put agent :model-actual model)))
+           (let ((record (plist-put record :agent agent)))
+             (when-let* ((ticket (plist-get fields :ticket)))
+               (setq record (plist-put record :ticket ticket)))
+             (if (and keep-parent (not (plist-get fields :parent)))
+                 record
+               (bndos-task-put record '(:base :ref) (plist-get fields :parent))))))))
+
 (defun bndos-task-agent-update-from-status (key status)
   "Remember task KEY's STATUS entry and copy what it records into the store.
 The recorded session, agent, parent and ticket live in git config (where
 `bndos-task start' puts them, with or without Emacs); the store follows."
   (puthash key status bndos-task-agent--hydra)
-  (bndos-task-store-update
-   key (lambda (record)
-         (let ((agent (plist-get record :agent))
-               (sid (plist-get status :session_id)))
-           (when (and sid (not (equal sid (plist-get agent :session-id))))
-             (setq agent (plist-put (plist-put agent :session-id sid) :resume nil)))
-           (when-let* ((provider (plist-get status :agent)))
-             (setq agent (plist-put agent :provider provider)))
-           (when-let* ((model (plist-get status :model)))
-             (setq agent (plist-put agent :model-actual model)))
-           (let ((record (plist-put record :agent agent)))
-             (when-let* ((ticket (plist-get status :ticket)))
-               (setq record (plist-put record :ticket ticket)))
-             (bndos-task-put record '(:base :ref) (plist-get status :parent)))))))
+  (bndos-task-agent--merge-recorded key status))
+
+(defun bndos-task-agent--git-config (directory branch name)
+  "The value of git config branch.BRANCH.bndos-NAME in DIRECTORY, or nil."
+  (with-temp-buffer
+    (let ((default-directory (file-name-as-directory directory)))
+      (when (zerop (process-file "git" nil t nil "--no-optional-locks" "config" "--get"
+                                 (format "branch.%s.bndos-%s" branch name)))
+        (let ((value (string-trim (buffer-string))))
+          (unless (string-empty-p value) value))))))
+
+(defun bndos-task-agent-sync-from-git (key)
+  "Bring KEY's record in line with what git config records for its branch.
+That is where the session, agent, parent and ticket of a task live,
+however it was started (a leader, the command line, another Emacs), so a
+task opened before any dashboard refresh still finds its session."
+  (when-let* ((record (bndos-task-store-load key))
+              (branch (plist-get record :branch))
+              (worktree (bndos-task-get record :worktree :path))
+              ((file-directory-p worktree)))
+    (cl-flet ((get (name) (bndos-task-agent--git-config worktree branch name)))
+      (bndos-task-agent--merge-recorded
+       key (list :session_id (get "session") :agent (get "agent")
+                 :parent (get "base") :ticket (get "ticket"))
+       t))))
 
 
 ;;; Locating a task's shell
@@ -232,6 +263,10 @@ status' does (refresh the dashboard to update it)."
          (remote (pcase (plist-get (gethash (plist-get record :key) bndos-task-agent--hydra) :state)
                    ("working" 'busy) ("waiting" 'blocked) ("idle" 'detached)
                    ("stopped" 'stopped) ("missing" 'missing) ("none" 'none))))
+    ;; A session the daemon hasn't reported yet (started since the last
+    ;; refresh) isn't "no agent".
+    (when (and (eq remote 'none) (bndos-task-get record :agent :session-id))
+      (setq remote nil))
     (cond
      ;; Another client's turn (a leader's prompt) doesn't make our shell busy.
      ((and (eq local 'idle) (memq remote '(busy blocked))) remote)
@@ -338,16 +373,18 @@ with BUFFER."
                           (setq agent (plist-put agent :mode-actual (bndos-task-agent--session-setting buffer :mode-id)))
                           (setq agent (plist-put agent :model-actual (bndos-task-agent--session-setting buffer :model-id)))
                           (plist-put record :agent agent))))))
+    ;; Leaders, the dashboard and `bndos-task status' find the session through
+    ;; git config: record any conversation that isn't the one recorded there.
+    (when-let* ((branch (plist-get record :branch))
+                ((and actual (not (equal expected actual)))))
+      (let ((worktree (bndos-task-agent--worktree record)))
+        (bndos-task-git worktree (list "config" (format "branch.%s.bndos-session" branch) actual) #'ignore)
+        (when-let* ((provider (bndos-task-get record :agent :provider)))
+          (bndos-task-git worktree (list "config" (format "branch.%s.bndos-agent" branch) provider) #'ignore))))
     (if failed
-        (progn
-          ;; Leaders and `bndos-task status' find the session through git config.
-          (when-let* ((branch (plist-get record :branch)))
-            (bndos-task-git (bndos-task-agent--worktree record)
-                            (list "config" (format "branch.%s.bndos-session" branch) actual)
-                            #'ignore))
-          (display-warning 'bndos-task
-                           (format "Couldn't load session %s; started NEW conversation %s.  The earlier conversation isn't in it."
-                                   expected (or actual "?"))))
+        (display-warning 'bndos-task
+                         (format "Couldn't load session %s; started NEW conversation %s.  The earlier conversation isn't in it."
+                                 expected (or actual "?")))
       (when expected (message "Attached to session %s" (bndos-task-agent--short actual))))
     (let ((callbacks (plist-get watch :on-ready)))
       (setq bndos-task-agent--watch (plist-put watch :on-ready nil))
@@ -374,6 +411,7 @@ Without a recorded session, start a new conversation with the task's agent.
 Unless DISPLAY, the buffer starts without being shown.  ON-READY is called
 with the buffer once its session is initialized."
   (require 'agent-shell)
+  (bndos-task-agent-sync-from-git key)
   (let* ((record (bndos-task-store-load key))
          (session-id (bndos-task-get record :agent :session-id))
          (provider (or (bndos-task-get record :agent :provider)
@@ -397,6 +435,7 @@ with the buffer once its session is initialized."
   "Call CALLBACK with an agent-shell attached to task KEY's session.
 An attached shell is used as is; otherwise one is attached (see
 `bndos-task-agent--start-shell')."
+  (bndos-task-agent-sync-from-git key)
   (let ((live (bndos-task-agent-buffer (bndos-task-store-load key))))
     (cond
      ((and live (with-current-buffer live (plist-get bndos-task-agent--watch :on-ready)))
@@ -411,6 +450,7 @@ An attached shell is used as is; otherwise one is attached (see
 (defun bndos-task-agent-open (key)
   "Show task KEY's agent-shell, attaching to its session if needed."
   (interactive (list (or (bound-and-true-p bndos-task-review-key) (user-error "No task here"))))
+  (bndos-task-agent-sync-from-git key)
   (if-let* ((live (bndos-task-agent-buffer (bndos-task-store-load key))))
       (pop-to-buffer live)
     (pop-to-buffer (bndos-task-agent--start-shell key :display t))))

@@ -22,30 +22,35 @@
        :desc "Set parent branch"  "b" #'bndos/task-set-parent
        :desc "Add project"        "p" #'bndos/task-add-project))
 
-;; Both buffers are read-only UIs: motion state keeps j/k and friends.  The
-;; review's actions are on C-c C-<key> (like pr-review), so they also work in
-;; visual state on a selected region.
+;; Both buffers are read-only UIs in evil's normal state, like magit's: ESC,
+;; visual selection and counts work as usual; the letter keys below are the
+;; buffers' own, and the review's actions are on C-c C-<key> (like pr-review)
+;; so they also work on a selected region.
 (after! evil
-  (evil-set-initial-state 'bndos-task-review-mode 'motion)
-  (evil-set-initial-state 'bndos-task-dashboard-mode 'motion))
+  (evil-set-initial-state 'bndos-task-review-mode 'normal)
+  (evil-set-initial-state 'bndos-task-dashboard-mode 'normal))
 
 (map! :after bndos-task-review
       :map bndos-task-review-mode-map
-      :m "RET" #'bndos/task-review-visit
-      :m "TAB" #'magit-section-toggle
-      :m "g r" #'bndos/task-review-refresh
-      :m "g t" #'bndos/task-review-toggle-tree
-      :m "g f" #'bndos/task-review-visit
-      :m "]t"  #'bndos/task-review-next-thread
-      :m "[t"  #'bndos/task-review-previous-thread
-      :m "]]"  #'magit-section-forward-sibling
-      :m "[["  #'magit-section-backward-sibling)
+      :n "RET"   #'bndos/task-review-visit
+      :n "M-<return>" #'bndos/task-review-visit-worktree-other-window
+      :n "TAB"   #'magit-section-toggle
+      :n "q"     #'quit-window
+      :n "g r"   #'bndos/task-review-refresh
+      :n "g t"   #'bndos/task-review-toggle-tree
+      :n "g f"   #'bndos/task-review-visit
+      :n "]t"    #'bndos/task-review-next-thread
+      :n "[t"    #'bndos/task-review-previous-thread
+      :n "]]"    #'magit-section-forward-sibling
+      :n "[["    #'magit-section-backward-sibling)
 
 (map! :after bndos-task-dashboard
       :map bndos-task-dashboard-mode-map
-      :m "RET" #'bndos/task-dashboard-review
-      :m "TAB" #'magit-section-toggle
-      :m "+"   #'bndos/task-start
-      :m "g r" #'bndos/task-dashboard-refresh
-      :m "v"   #'bndos/task-dashboard-agent
-      :m "o"   #'bndos/task-dashboard-workspace)
+      :n "RET"   #'bndos/task-dashboard-review
+      :n "TAB"   #'magit-section-toggle
+      :n "q"     #'quit-window
+      :n "g r"   #'bndos/task-dashboard-refresh
+      :n "v"     #'bndos/task-dashboard-agent
+      :n "o"     #'bndos/task-dashboard-workspace
+      :n "i"     #'bndos/task-dashboard-instruct
+      :n "+"     #'bndos/task-start)
