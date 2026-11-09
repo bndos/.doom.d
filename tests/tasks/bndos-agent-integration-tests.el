@@ -195,6 +195,55 @@
               (bndos-test-kill-shell reviewer)
               (kill-buffer review))))))))
 
+(ert-deftest bndos-integration-a-task-opened-before-any-refresh-attaches-to-its-session ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      ;; A leader started it; Emacs only knows the worktree (as after
+      ;; SPC g w r, without a dashboard refresh in between).
+      (should (eql (car (bndos-test-cli repo "start" "--base" "main" "--agent" "bndos-stub" "led")) 0))
+      (let* ((wt (file-name-as-directory (file-truename (concat (directory-file-name repo) ".led"))))
+             (sid (bndos-test-git repo "config" "branch.led.bndos-session"))
+             (key (bndos-test-task-in wt)))
+        (should-not (bndos-task-get (bndos-task-store-load key) :agent :session-id))
+        (let ((shell (bndos-test-attach key)))
+          (unwind-protect
+              (progn
+                (should (equal (agent-shell-session-id :shell-buffer shell) sid))
+                (should (equal (bndos-task-get (bndos-task-store-load key) :agent :session-id) sid))
+                (should (equal (bndos-task-get (bndos-task-store-load key) :agent :provider) "bndos-stub")))
+            (bndos-test-kill-shell shell)))))))
+
+(ert-deftest bndos-integration-a-conversation-emacs-starts-is-recorded-in-git ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      ;; A hand-made worktree with no session anywhere: opening its agent
+      ;; starts one, and leaders / the dashboard must see the same one.
+      (let* ((wt (bndos-test-worktree repo "fresh" "main"))
+             (key (bndos-test-task-in wt))
+             (shell (bndos-test-attach key)))
+        (unwind-protect
+            (let ((sid (agent-shell-session-id :shell-buffer shell)))
+              (should sid)
+              (bndos-proc-wait (lambda () (equal (ignore-errors (bndos-test-git wt "config" "branch.fresh.bndos-session")) sid)) 10)
+              (should (equal (bndos-test-git wt "config" "branch.fresh.bndos-session") sid))
+              (should (equal (bndos-test-git wt "config" "branch.fresh.bndos-agent") "bndos-stub"))
+              (should (equal (plist-get (cdr (bndos-test-cli wt "status" wt)) :session_id) sid)))
+          (bndos-test-kill-shell shell))))))
+
+(ert-deftest bndos-integration-branches-with-slashes-keep-their-session ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      (let ((started (cdr (bndos-test-cli repo "start" "--base" "main" "--agent" "bndos-stub" "feat/Slash.1"))))
+        (should (equal (plist-get started :status) "started"))
+        (let* ((wt (file-name-as-directory (plist-get started :worktree)))
+               (status (cdr (bndos-test-cli repo "status" "feat/Slash.1")))
+               (key (bndos-test-task-in wt)))
+          (should (equal (plist-get status :session_id) (plist-get started :session_id)))
+          (should (equal (plist-get status :parent) "main"))
+          (bndos-task-agent-sync-from-git key)
+          (should (equal (bndos-task-get (bndos-task-store-load key) :agent :session-id)
+                         (plist-get started :session_id))))))))
+
 (ert-deftest bndos-integration-refused-mode-is-reported-not-assumed ()
   (bndos-test-with-hydra
     (bndos-test-with-repo repo
