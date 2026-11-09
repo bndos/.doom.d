@@ -22,7 +22,8 @@ if hydra=$(command -v "${HYDRA:-hydra-acp}"); then
   cat >"$HYDRA_ACP_HOME/config.json" <<JSON
 {"daemon": {"port": $port},
  "agents": {"bndos-stub": {"command": "python3", "args": ["-I", "$here/stub-acp-agent.py"],
-                           "env": {"STUB_LOG": "$BNDOS_TEST_STUB_LOG"}}}}
+                           "env": {"STUB_LOG": "$BNDOS_TEST_STUB_LOG",
+                                   "STUB_PAST_SESSIONS": "past-1|earlier work,past-2|older work"}}}}
 JSON
 else
   echo "hydra-acp not found: skipping the Hydra integration tests" >&2

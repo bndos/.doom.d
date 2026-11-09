@@ -28,6 +28,18 @@ diff against the commit above.
     buffer.  It also fixes an upstream bug where the cancel functions were
     stored in whichever buffer was current, so =C-c C-k= could not cancel.
   - =:worktree= scope name and emoji.
+  - Re-rendering keeps point, each window's point and its scroll on the same
+    line and column (=hutch--position-spec= / =-restore=), falling back to
+    the enclosing section when a hunk's header changed; upstream went back
+    to the start of the section.
+- =hutch-agent.el= :: =hutch-review-transport= chooses =gptel= (upstream's
+  tool loop) or =agent-shell=; agent-shell reviews always run fresh (no cache
+  read or write).  =hutch--agent-cancel= also accepts a function.
+- =hutch-agent-shell.el= (new file) :: the =agent-shell= transport: one new
+  read-only agent-shell session per scope (=hutch-agent-shell-config=, any
+  ACP agent, optional =hutch-agent-shell-model=), which ends its reply with a
+  =hutch-review= JSON block in =submit_review='s shape; findings then go
+  through upstream's normalisation and gates unchanged.
 
 Everything else (gptel transport, prompts, tools, gates, cache, notes,
 suggestion states) is upstream as-is.

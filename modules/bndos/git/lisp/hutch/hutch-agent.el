@@ -53,6 +53,17 @@ Defaults to `gptel-backend' if nil.  Set this to a gptel backend, e.g.:
           :key (getenv \"ANTHROPIC_API_KEY\")
           :models \\='(claude-sonnet-4-6)))")
 
+(defcustom hutch-review-transport 'gptel
+  "How each scope is reviewed.
+`gptel': Hutch's tool-calling loop with `hutch-backend'.
+`agent-shell': a new agent-shell session per scope (`hutch-agent-shell-config'),
+read-only and with no other context; see hutch-agent-shell.el.
+bndos: added locally."
+  :type '(choice (const gptel) (const agent-shell))
+  :group 'hutch)
+
+(autoload 'hutch-agent-shell--review-scope "hutch-agent-shell")
+
 (defcustom hutch-max-tool-rounds 40
   "Maximum number of tool-call rounds per review scope before giving up."
   :type 'integer
@@ -198,9 +209,12 @@ Accumulates token usage in TOKEN-BOX.  Bounded by MAX-ROUNDS."
     (hutch--result-box-set cancel-box)))
 
 (defun hutch--agent-cancel (cancel-box)
-  "Cancel an in-flight review if there is an FSM handle in CANCEL-BOX."
-  (when-let* ((fsm (hutch--result-box-get cancel-box)))
-    (gptel--fsm-transition fsm 'ABRT)))
+  "Cancel an in-flight review if there is an FSM handle in CANCEL-BOX.
+bndos: an agent-shell review leaves a function there instead."
+  (when-let* ((handle (hutch--result-box-get cancel-box)))
+    (if (functionp handle)
+        (funcall handle)
+      (gptel--fsm-transition handle 'ABRT))))
 
 (defun hutch--review-on-done (scope result-box token-box callback)
   "Handle successful review for SCOPE.
@@ -281,29 +295,35 @@ Call ON-DONE with each result plist as it arrives (cache hits included).
 Call ON-PROGRESS as (SCOPE CURRENT MAX) after each tool round (uncached only).
 Returns a list of cancel-callbacks to cancel reviews for SCOPES."
   (hutch--log "review" "found %d scopes" (length scopes))
+  ;; bndos: an agent-shell review is always fresh (the point of a new
+  ;; session), so it neither reads nor writes the cache.
+  (let ((fresh (eq hutch-review-transport 'agent-shell)))
   (mapcar (lambda (scope)
             (let ((hash             (plist-get scope :hash))
                   (desc             (plist-get scope :desc))
                   (scope-key        (plist-get scope :scope))
                   (cancel-scope-box (hutch--make-result-box)))
-              (if-let* ((cached (hutch--cache-lookup scope-key hash)))
+              (if-let* ((cached (and (not fresh) (hutch--cache-lookup scope-key hash))))
                   (progn
                     (hutch--log "review" "cache hit for %s %s" scope-key desc)
                     (hutch--notes-remember-staged scope cached)
                     (funcall on-done cached)
                     (lambda () nil))
                 (hutch--log "review" "dispatching %s %s" scope-key desc)
-                (hutch--review-scope scope
-                                     (hutch--notes-remember-callback
-                                      scope
-                                      (hutch--write-through-cache-callback
-                                       scope-key
-                                       hash
-                                       on-done))
-                                     on-progress
-                                     cancel-scope-box)
+                (funcall (if fresh #'hutch-agent-shell--review-scope #'hutch--review-scope)
+                         scope
+                         (hutch--notes-remember-callback
+                          scope
+                          (if fresh
+                              on-done
+                            (hutch--write-through-cache-callback
+                             scope-key
+                             hash
+                             on-done)))
+                         on-progress
+                         cancel-scope-box)
                 (lambda () (hutch--agent-cancel cancel-scope-box)))))
-          scopes))
+          scopes)))
 
 (provide 'hutch-agent)
 

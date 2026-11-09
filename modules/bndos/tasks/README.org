@@ -51,6 +51,10 @@ Built on the git module's vendored Hutch (=git/lisp/hutch=, see its
 | =SPC g w s= | =bndos/task-select=     | pick a task (completing-read) and open its review |
 | =SPC g w n= | =bndos/task-start=      | new worktree + agent (prompt in a draft)          |
 | =SPC g w r= | =bndos/task-review-here= | review the worktree you're in                    |
+| =SPC g w a= | =bndos/task-agent-here=  | the agent-shell of the worktree you're in        |
+| =SPC g w i= | =bndos/task-adopt=       | adopt an earlier conversation as the task's agent |
+| =SPC g w b= | =bndos/task-set-parent=  | record the parent branch                          |
+| =SPC g w p= | =bndos/task-add-project= | list another repository's worktrees               |
 
 ** Dashboard
 
@@ -90,6 +94,7 @@ a region selected (evil visual state) and never shadow navigation.
 |------------------------+-------------------------------------------------------------------|
 | =g r= / =C-c C-r=      | refresh diff, threads, tree                                       |
 | =RET= / =g f= / =C-c C-f= | visit the worktree file (or the base revision for removed lines) |
+| =M-RET=                | the worktree file at this line, in the other window (like magit's) |
 | =C-c C-c=              | comment on the region / line / hunk / file; on a thread, reply    |
 | =C-c C-s=              | send threads to the agent: marked, at point, or all open (asks)   |
 | =C-c C-q=              | ask the agent about the region / line (a thread, discussion only) |
@@ -103,10 +108,43 @@ a region selected (evil visual state) and never shadow navigation.
 | =g t= / =C-c C-e=      | toggle the following file tree                                    |
 | =]t= =[t=              | next / previous inline thread marker                              |
 | =C-c C-a=              | approve (records it; doesn't publish)                             |
-| =C-c C-h=              | optional Hutch LLM review (gptel, =hutch-backend=)                |
+| =C-c C-h=              | AI review by a new agent session (see below)                      |
 | =m= =x= =A= =D= =C-c C-k= | Hutch's own suggestion keys, on AI findings                    |
 
+You keep your place: refreshes and agent updates leave point, column and
+scroll where they were, picking a file in the tree returns to where you last
+were in it, and those jumps (and =]t= / =[t=) are recorded, so =C-o= goes back.
+
+=C-c C-h= has an agent review the whole task: it asks for the agent (any
+agent-shell config, so a different harness from the worker's is fine) and
+optionally a model, then starts a new conversation in a read-only mode
+(Claude =plan=, Codex =read-only=), with no memory of the worker's.  Its
+findings appear as Hutch findings (apply, discard, ...), separate from the
+threads; Hutch's gates downgrade a suggested edit that doesn't match the file
+to a comment.  The reviewer's agent-shell stays open to ask about a finding.
+
 Drafts open in a small buffer: =C-c C-c= submits, =C-c C-k= discards.
+
+* Existing worktrees
+
+Every worktree of a known project is a task, however it was made, so
+bringing in a project with worktrees in progress is:
+
+1. Register it: =SPC g w p= (or open the dashboard from a buffer in it).
+2. Record each branch's parent: =SPC g w b= in the worktree, =C-c C-b= on its
+   dashboard line, or =git config branch.<branch>.bndos-base <parent>=.  Until
+   then it sits under "no recorded parent" and its review offers candidates.
+3. Optionally adopt the conversation an agent already had there: =SPC g w i=
+   (=C-c C-a= on the dashboard).  Pick the agent, then one of its
+   conversations in that worktree (title and last update; nothing is picked
+   for you).  It becomes the task's session, through Hydra, and =v= / leaders
+   attach to it.  Close any agent-shell still running that conversation
+   directly first, or two agents will share it.
+
+From a shell: =bndos-task sessions <branch> --agent claude-code= lists them,
+=bndos-task adopt <branch> --agent claude-code --session <id> [--base REF]=
+adopts one (=--replace= to change an adopted session).  Listing runs the
+agent's adapter as configured in Hydra's =config.json=.
 
 * Agents
 

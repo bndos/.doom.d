@@ -177,6 +177,130 @@ in its auto mode unless MODE says otherwise; open it from the dashboard."
            (with-current-buffer (if (buffer-live-p buffer) buffer (current-buffer))
              (bndos-task-review-open key))))))))
 
+;;;###autoload
+(defun bndos/task-agent-here ()
+  "Open the agent-shell of the task whose worktree contains `default-directory'.
+Attaches to the session recorded for its branch (see `bndos-task status')."
+  (interactive)
+  (bndos-task-git-identity
+   default-directory
+   (lambda (identity)
+     (if-let* ((err (plist-get identity :error)))
+         (message "Not in a git worktree: %s" err)
+       (let* ((toplevel (plist-get identity :toplevel))
+              (branch (plist-get identity :branch))
+              (key (bndos-task-ensure-record (plist-get identity :common-dir) toplevel branch)))
+         (if-let* ((live (bndos-task-agent-buffer (bndos-task-store-load key))))
+             (pop-to-buffer live)
+           (bndos-task-cli-run
+            (list "status" toplevel)
+            (lambda (status)
+              (cond
+               ((equal (plist-get status :status) "failed")
+                (message "No task here: %s" (plist-get status :error)))
+               ((not (plist-get status :session_id))
+                (message "No agent session is recorded for %s" (or branch toplevel)))
+               (t (bndos-task-agent-update-from-status key status)
+                  (bndos-task-agent-open key))))
+            :directory toplevel)))))))
+
+
+;;; Bringing in existing worktrees
+
+;; A known project's worktrees are all listed, however they were made.  These
+;; register a project, record a worktree's parent, and adopt a conversation
+;; the agent had there before it was a task.
+
+;;;###autoload
+(defun bndos/task-add-project (directory)
+  "List the worktrees of the repository at DIRECTORY in the dashboard."
+  (interactive (list (read-directory-name "Repository: ")))
+  (let ((common (or (bndos-task--common-dir-sync directory)
+                    (user-error "%s isn't in a git repository" directory))))
+    (bndos-task-remember-project (bndos-task--main-path common))
+    (message "Added %s" (abbreviate-file-name (bndos-task--main-path common)))
+    (bndos-task--refresh-dashboard-buffer)))
+
+(defun bndos-task--key-here ()
+  "The task at point in the dashboard, else of the worktree containing `default-directory'."
+  (or (bndos-task--key-at-point-or-nil)
+      (let* ((common (or (bndos-task--common-dir-sync default-directory)
+                         (user-error "Not in a git worktree")))
+             (toplevel (car (process-lines "git" "rev-parse" "--show-toplevel")))
+             (branch (ignore-errors (car (process-lines "git" "symbolic-ref" "-q" "--short" "HEAD")))))
+        (when (equal (file-name-as-directory (file-truename toplevel)) (bndos-task--main-path common))
+          (user-error "This is the repository's main worktree, not a task"))
+        (bndos-task-ensure-record common toplevel branch))))
+
+;;;###autoload
+(defun bndos/task-set-parent ()
+  "Record the parent branch of the task at point (or of this worktree)."
+  (interactive)
+  (let* ((key (bndos-task--key-here))
+         (record (bndos-task-store-load key))
+         (worktree (bndos-task-get record :worktree :path))
+         (branch (or (plist-get record :branch) (user-error "The worktree has no branch checked out")))
+         (ref (completing-read (format "Parent of %s: " branch) (bndos-task-review--refs worktree) nil t)))
+    (bndos-task-git-set-base
+     worktree branch ref
+     (lambda (err)
+       (if err
+           (message "Couldn't record the parent: %s" err)
+         (bndos-task-store-update key (lambda (r) (bndos-task-put r '(:base) (list :ref ref))))
+         (message "%s's parent is %s" branch ref)
+         (bndos-task--refresh-dashboard-buffer))))))
+
+(cl-defun bndos-task-adopt (key agent session &key replace callback)
+  "Make the AGENT conversation SESSION task KEY's session (see `bndos-task adopt').
+CALLBACK gets the command's result."
+  (let ((worktree (bndos-task-get (bndos-task-store-load key) :worktree :path))
+        (callback (or callback #'ignore)))
+    (bndos-task-cli-run
+     (append (list "adopt" worktree "--agent" agent "--session" session) (and replace '("--replace")))
+     (lambda (out)
+       (when (equal (plist-get out :status) "adopted")
+         (bndos-task-store-update
+          key (lambda (r) (bndos-task-put r '(:agent)
+                                          (list :provider agent :session-id (plist-get out :session_id)
+                                                :upstream-session-id session :mode-actual (plist-get out :mode)
+                                                :resume "adopted" :started (bndos-task-now)))))
+         (bndos-task--refresh-dashboard-buffer))
+       (funcall callback out))
+     :directory worktree)))
+
+;;;###autoload
+(defun bndos/task-adopt ()
+  "Adopt an earlier agent conversation as the task's session.
+For a worktree made before it was a task: lists the chosen agent's own
+conversations in it, and the one you pick becomes the session that `v'
+and leaders attach to (through Hydra).  Nothing is picked for you."
+  (interactive)
+  (require 'agent-shell)
+  (let* ((key (bndos-task--key-here))
+         (record (bndos-task-store-load key))
+         (worktree (bndos-task-get record :worktree :path))
+         (agent (format "%s" (map-elt (agent-shell-select-config :prompt "Whose conversation: ") :identifier)))
+         (out (progn (message "Listing %s conversations in %s…" agent (abbreviate-file-name worktree))
+                     (bndos-task-cli-call (list "sessions" worktree "--agent" agent) worktree)))
+         (sessions (or (and (not (equal (plist-get out :status) "failed")) (plist-get out :sessions))
+                       (user-error "%s" (or (plist-get out :error)
+                                            (format "No %s conversations in %s" agent (abbreviate-file-name worktree))))))
+         (candidates (mapcar (lambda (s)
+                               (cons (format "%s  · %s" (or (plist-get s :title) "untitled")
+                                             (or (plist-get s :updated_at) "?"))
+                                     (plist-get s :id)))
+                             sessions))
+         (session (cdr (assoc (completing-read "Adopt conversation: " candidates nil t) candidates)))
+         (current (plist-get out :session_id))
+         (replace (and current
+                       (or (y-or-n-p (format "This task already has session %s; replace it? " current))
+                           (user-error "Kept %s" current)))))
+    (bndos-task-adopt key agent session :replace replace
+                      :callback (lambda (result)
+                                  (if (equal (plist-get result :status) "adopted")
+                                      (message "Adopted; v (or SPC g w a) opens that conversation")
+                                    (message "Couldn't adopt: %s" (plist-get result :error)))))))
+
 
 ;;; Inventory
 
@@ -258,7 +382,10 @@ Each project's worktrees come from worktrunk (for their state) and
   "C-c C-o" #'bndos/task-dashboard-agent
   "C-c C-i" #'bndos/task-dashboard-instruct
   "C-c C-n" #'bndos/task-start
-  "C-c C-r" #'bndos/task-dashboard-refresh)
+  "C-c C-r" #'bndos/task-dashboard-refresh
+  "C-c C-a" #'bndos/task-adopt
+  "C-c C-b" #'bndos/task-set-parent
+  "C-c C-p" #'bndos/task-add-project)
 
 (define-derived-mode bndos-task-dashboard-mode magit-section-mode "Tasks"
   "Dashboard of tasks, as a tree of branches under their parents.
@@ -290,12 +417,12 @@ Each project's worktrees come from worktrunk (for their state) and
   "The agent's state for RECORD, short, with a glyph and face."
   (let ((finished (plist-get (gethash (plist-get record :key) bndos-task-agent--hydra) :done)))
     (pcase (bndos-task-agent-lifecycle record)
-      ('busy (propertize "● working" 'face 'success))
-      ('blocked (propertize "⚠ needs permission" 'face 'error))
+      ('busy (propertize "● working" 'font-lock-face 'success))
+      ('blocked (propertize "⚠ needs permission" 'font-lock-face 'error))
       ((or 'idle 'detached 'stopped)
-       (if finished (propertize "✓ done" 'face 'success) (propertize "○ idle" 'face 'shadow)))
-      ('missing (propertize "✗ session gone" 'face 'warning))
-      (_ (propertize "· no agent" 'face 'shadow)))))
+       (if finished (propertize "✓ done" 'font-lock-face 'success) (propertize "○ idle" 'font-lock-face 'shadow)))
+      ('missing (propertize "✗ session gone" 'font-lock-face 'warning))
+      (_ (propertize "· no agent" 'font-lock-face 'shadow)))))
 
 (defun bndos-task--thread-counts (record)
   "(OPEN TO-VERIFY SENT RESOLVED) thread counts of RECORD."
@@ -310,14 +437,14 @@ Each project's worktrees come from worktrunk (for their state) and
          (request (bndos-task-in-flight-request record)))
     (string-join
      (delq nil
-           (list (and (plist-get row :missing) (propertize "worktree gone" 'face 'error))
+           (list (and (plist-get row :missing) (propertize "worktree gone" 'font-lock-face 'error))
                  (and (equal (bndos-task-get record :agent :resume) "new-conversation")
-                      (propertize "NEW conversation" 'face 'warning))
-                 (and request (propertize (format "request %s" (plist-get request :status)) 'face 'warning))
-                 (and (> (nth 1 counts) 0) (propertize (format "%d to verify" (nth 1 counts)) 'face 'success))
-                 (and (> (nth 0 counts) 0) (propertize (format "%d open" (nth 0 counts)) 'face 'warning))
+                      (propertize "NEW conversation" 'font-lock-face 'warning))
+                 (and request (propertize (format "request %s" (plist-get request :status)) 'font-lock-face 'warning))
+                 (and (> (nth 1 counts) 0) (propertize (format "%d to verify" (nth 1 counts)) 'font-lock-face 'success))
+                 (and (> (nth 0 counts) 0) (propertize (format "%d open" (nth 0 counts)) 'font-lock-face 'warning))
                  (and (equal (bndos-task-get record :review :state) "approved")
-                      (propertize "✓ approved" 'face 'success))))
+                      (propertize "✓ approved" 'font-lock-face 'success))))
      "  ")))
 
 (defun bndos-task--details (row)
@@ -351,7 +478,8 @@ Each project's worktrees come from worktrunk (for their state) and
 (defun bndos-task--insert-task (row prefix continuation width)
   (let* ((key (plist-get row :key))
          (branch (bndos-task--row-branch row))
-         (lead (concat prefix (propertize branch 'face '(bold magit-branch-local))))
+         (lead (concat (propertize prefix 'font-lock-face 'shadow)
+                      (propertize branch 'font-lock-face '(bold magit-branch-local))))
          (attention (bndos-task--attention row)))
     (magit-insert-section (bndos-task key t)
       (magit-insert-heading
@@ -360,7 +488,8 @@ Each project's worktrees come from worktrunk (for their state) and
                             (if (string-empty-p attention) "" (concat "  " attention)))
                     'bndos-task-key key))
       (pcase-dolist (`(,label . ,value) (bndos-task--details row))
-        (insert (propertize (concat continuation "   " (format "%-10s" label)) 'face 'shadow)
+        (insert (propertize continuation 'font-lock-face 'shadow)
+                (propertize (format "   %-10s" label) 'font-lock-face 'font-lock-comment-face)
                 value "\n")))))
 
 (defun bndos-task--insert-project (rows)
@@ -392,8 +521,8 @@ Each project's worktrees come from worktrunk (for their state) and
                                                     rows)))))
       (magit-insert-section (bndos-project (bndos-task-get record :repo :main-path))
         (magit-insert-heading
-          (propertize (or (bndos-task-get record :repo :project) "?") 'face 'magit-section-heading)
-          "  " (propertize (abbreviate-file-name (or (bndos-task-get record :repo :main-path) "")) 'face 'shadow))
+          (propertize (or (bndos-task-get record :repo :project) "?") 'font-lock-face 'magit-section-heading)
+          "  " (propertize (abbreviate-file-name (or (bndos-task-get record :repo :main-path) "")) 'font-lock-face 'shadow))
         ;; Roots: parents that aren't themselves tasks here (main, a remote
         ;; branch...), then tasks with no recorded parent.
         (let ((bases (sort (delete-dups
@@ -401,10 +530,10 @@ Each project's worktrees come from worktrunk (for their state) and
                                         (delq nil (mapcar #'bndos-task--row-parent rows))))
                            #'string<)))
           (dolist (base bases)
-            (insert "  " (propertize base 'face 'magit-branch-remote) "\n")
+            (insert "  " (propertize base 'font-lock-face 'magit-branch-remote) "\n")
             (insert-children base "  "))
           (when (children nil)
-            (insert "  " (propertize "no recorded parent" 'face 'shadow) "\n")
+            (insert "  " (propertize "no recorded parent" 'font-lock-face 'shadow) "\n")
             (insert-children nil "  ")))
         ;; Anything left is in a parent cycle; show it rather than lose it.
         (dolist (row rows)
@@ -448,7 +577,7 @@ Each project's worktrees come from worktrunk (for their state) and
                 (propertize (concat " " (string-join bndos-task--problems "; ")) 'face 'warning)
               (concat (format " %d tasks" (length bndos-task--rows))
                       (if (> blocked 0) (propertize (format " · %d need permission" blocked) 'face 'error) "")
-                      " · RET review · TAB details · v agent · i instruct · + start · g r refresh"))))))
+                      " · RET review · TAB details · v agent · i instruct · + start · g r refresh · C-c C-a adopt"))))))
 
 (defun bndos-task--heading-position (key)
   (save-excursion

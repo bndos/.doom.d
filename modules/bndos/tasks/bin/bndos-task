@@ -10,11 +10,18 @@ agents and this command are all clients of the same session.
                    [--wait] BRANCH
   bndos-task send TARGET (--prompt TEXT | --prompt-file FILE) [--repo DIR] [--wait]
   bndos-task status [TARGET] [--repo DIR] [--wait STATES|done] [--timeout SECONDS]
+  bndos-task sessions TARGET [--agent ID] [--repo DIR]
+  bndos-task adopt TARGET --session ID [--agent ID] [--base REF] [--replace] [--repo DIR]
 
 TARGET is a branch, a worktree directory or a session id.  --agent is a
 Hydra agent id, the same as the agent-shell config identifier (claude-code,
 codex, ...).  --mode / --model default per agent (Claude: auto; Codex: agent,
 i.e. auto review).
+
+sessions lists the agent's own earlier conversations in a worktree (one
+made before it was a task); adopt makes the one you name the task's
+session, through Hydra, so Emacs and leaders can attach to it.  The agent's
+command comes from Hydra's config.json.
 
 After sending a prompt, start and send leave a small background process
 attached to the session until that turn ends, so a permission request the
@@ -33,7 +40,9 @@ import argparse
 import hashlib
 import json
 import os
+import secrets
 import select
+import string
 import subprocess
 import sys
 import time
@@ -178,14 +187,14 @@ class AcpError(Exception):
 class Acp:
     """A JSON-RPC client over a Hydra shim's stdio.  No threads, so it survives fork."""
 
-    def __init__(self, argv, cwd, log_path):
+    def __init__(self, argv, cwd, log_path, env=None):
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         self.log_path = log_path
         log = open(log_path, "ab")
         # Its own session, so a leader's tool runner killing our process
         # group doesn't take the connection with it.
         self.proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=log, bufsize=0, env=hydra_env(), start_new_session=True)
+                                     stderr=log, bufsize=0, env=env or hydra_env(), start_new_session=True)
         log.close()
         self.buffer, self.next_id = b"", 0
 
@@ -368,6 +377,78 @@ def cmd_send(args):
     prompt_and_follow(acp, task["session_id"], prompt, args.wait, result)
 
 
+def agent_command(agent):
+    """ARGV and environment that run AGENT's ACP adapter directly (from Hydra's config)."""
+    path = os.path.join(hydra_home(), "config.json")
+    try:
+        with open(path) as f:
+            entry = (json.load(f).get("agents") or {}).get(agent)
+    except (OSError, ValueError):
+        entry = None
+    if not entry:
+        raise Failure(f"agent {agent} isn't defined in {path}, so its conversations can't be listed")
+    return ([entry.get("command") or agent, *(entry.get("args") or [])],
+            dict(os.environ, **(entry.get("env") or {})))
+
+
+def task_log(task):
+    return os.path.join(state_dir(), "logs", f"{os.path.basename(task['worktree'])}.log")
+
+
+def cmd_sessions(args):
+    task = resolve(args.target, args.repo)
+    agent = args.agent or task["agent"] or DEFAULT_AGENT
+    argv, env = agent_command(agent)
+    acp = Acp(argv, task["worktree"], task_log(task), env=env)
+    found, cursor = [], None
+    try:
+        initialize(acp)
+        while True:
+            page = acp.call("session/list", {"cwd": task["worktree"], **({"cursor": cursor} if cursor else {})})
+            found += page.get("sessions") or []
+            cursor = page.get("nextCursor")
+            if not cursor:
+                break
+    except (AcpError, EOFError) as err:
+        raise Failure(f"{agent} couldn't list its conversations: {err}", log=acp.stderr_tail())
+    finally:
+        acp.close()
+    here = [s for s in found if not s.get("cwd") or os.path.realpath(s["cwd"]) == task["worktree"]]
+    here.sort(key=lambda s: s.get("updatedAt") or "", reverse=True)
+    emit({"protocol": "bndos-task/1", "branch": task["branch"], "worktree": task["worktree"], "agent": agent,
+          "session_id": task["session_id"],
+          "sessions": [{"id": s["sessionId"], "title": s.get("title"), "updated_at": s.get("updatedAt")}
+                       for s in here]})
+
+
+def cmd_adopt(args):
+    task = resolve(args.target, args.repo)
+    if task["session_id"] and not args.replace:
+        raise Failure(f"{task['branch']} already has session {task['session_id']} (--replace to change it)")
+    agent = args.agent or task["agent"] or DEFAULT_AGENT
+    session_id = "hydra_session_" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
+    acp = Acp([HYDRA, "acp"], task["worktree"], task_log(task))
+    try:
+        initialize(acp)
+        # Attaching to an id Hydra doesn't know, with resume hints, makes it
+        # load that conversation into the agent and keep it as a session.
+        result = acp.call("session/attach", {
+            "sessionId": session_id, "historyPolicy": "none",
+            "_meta": {"hydra-acp": {"resume": {"upstreamSessionId": args.session, "agentId": agent,
+                                               "cwd": task["worktree"]}}}})
+    except (AcpError, EOFError) as err:
+        raise Failure(f"couldn't adopt {args.session}: {err}", log=acp.stderr_tail())
+    finally:
+        acp.close()
+    set_task_config(task["worktree"], task["branch"], session=result.get("sessionId") or session_id,
+                    agent=agent, base=args.base)
+    emit({"protocol": "bndos-task/1", "status": "adopted", "branch": task["branch"],
+          "worktree": task["worktree"], "agent": agent, "session_id": result.get("sessionId") or session_id,
+          "upstream_session_id": args.session, "previous_session_id": task["session_id"],
+          "parent": args.base or task["parent"],
+          "mode": (result.get("modes") or {}).get("currentModeId")})
+
+
 def describe(repo, tree, config, sessions, common):
     session_id = config.get("session")
     session = sessions.get(session_id) if session_id else None
@@ -471,6 +552,21 @@ def main():
     status.add_argument("--wait", metavar="STATES|done")
     status.add_argument("--timeout", type=int, default=1800)
     status.set_defaults(fn=cmd_status)
+
+    sessions = sub.add_parser("sessions", help="list the agent's earlier conversations in a worktree")
+    sessions.add_argument("target")
+    sessions.add_argument("--repo", default=os.getcwd())
+    sessions.add_argument("--agent")
+    sessions.set_defaults(fn=cmd_sessions)
+
+    adopt = sub.add_parser("adopt", help="make an earlier conversation the task's session")
+    adopt.add_argument("target")
+    adopt.add_argument("--repo", default=os.getcwd())
+    adopt.add_argument("--agent")
+    adopt.add_argument("--session", required=True, help="the agent's conversation id (see sessions)")
+    adopt.add_argument("--base", help="also record the parent branch")
+    adopt.add_argument("--replace", action="store_true", help="replace a session already recorded")
+    adopt.set_defaults(fn=cmd_adopt)
 
     args = parser.parse_args()
     try:

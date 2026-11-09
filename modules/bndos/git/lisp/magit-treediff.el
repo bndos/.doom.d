@@ -1238,7 +1238,24 @@ SELECTED is the selected file path.  FILE-TABLE maps paths to file models."
 
 (defun magit-treediff--sync-tree ()
   "Refresh the active tree backend for the current controller."
-  (magit-treediff--tree-call :sync))
+  (magit-treediff--tree-call :sync)
+  (magit-treediff--sync-tree-windows))
+
+(defun magit-treediff--sync-tree-windows ()
+  "Put every window showing the current controller's tree on its selected file.
+Rendering moves the tree buffer's point, but a window that isn't selected
+keeps its own point, so its cursor and line highlight would stay on a stale
+row while the review moves on."
+  (when-let* ((tree (and (buffer-live-p magit-treediff--tree-buffer)
+                         magit-treediff--tree-buffer)))
+    (let ((pos (with-current-buffer tree (point))))
+      (dolist (window (get-buffer-window-list tree nil t))
+        (with-selected-window window
+          (goto-char pos)
+          (unless (pos-visible-in-window-p pos)
+            (recenter))
+          (when (bound-and-true-p hl-line-mode)
+            (hl-line-highlight)))))))
 
 (defun magit-treediff--ensure-pane-buffer (side)
   (let* ((controller (current-buffer))

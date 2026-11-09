@@ -8,14 +8,19 @@
 (add-load-path! "lisp")
 
 (use-package! bndos-task-dashboard
-  :commands (bndos/task-dashboard bndos/task-select bndos/task-start bndos/task-review-here))
+  :commands (bndos/task-dashboard bndos/task-select bndos/task-start bndos/task-review-here
+             bndos/task-agent-here bndos/task-adopt bndos/task-set-parent bndos/task-add-project))
 
 (map! :leader
       (:prefix ("g w" . "worktree tasks")
        :desc "Dashboard"        "w" #'bndos/task-dashboard
        :desc "Select task"      "s" #'bndos/task-select
        :desc "Start task"       "n" #'bndos/task-start
-       :desc "Review this tree" "r" #'bndos/task-review-here))
+       :desc "Review this tree" "r" #'bndos/task-review-here
+       :desc "Agent of this tree" "a" #'bndos/task-agent-here
+       :desc "Adopt a conversation" "i" #'bndos/task-adopt
+       :desc "Set parent branch"  "b" #'bndos/task-set-parent
+       :desc "Add project"        "p" #'bndos/task-add-project))
 
 ;; Both buffers are read-only UIs: motion state keeps j/k and friends.  The
 ;; review's actions are on C-c C-<key> (like pr-review), so they also work in

@@ -108,6 +108,93 @@
                 (should (equal (plist-get row :base) "main"))
                 (should (memq (bndos-task-agent-lifecycle (plist-get row :record)) '(detached busy)))))))))))
 
+(ert-deftest bndos-integration-agent-here-attaches-from-inside-the-worktree ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      ;; Started by a leader: Emacs has never seen this task.
+      (should (eql (car (bndos-test-cli repo "start" "--base" "main" "--agent" "bndos-stub" "here")) 0))
+      (let* ((wt (file-name-as-directory (file-truename (concat (directory-file-name repo) ".here"))))
+             (sid (bndos-test-git repo "config" "branch.here.bndos-session"))
+             (default-directory (expand-file-name "src/" wt)))
+        (cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+          (bndos/task-agent-here)
+          (let (shell)
+            (bndos-proc-wait (lambda ()
+                               (setq shell (seq-find #'buffer-live-p (hash-table-values bndos-task-agent--shells)))
+                               (and shell (equal (agent-shell-session-id :shell-buffer shell) sid)))
+                             30)
+            (unwind-protect
+                (should (equal (agent-shell-session-id :shell-buffer shell) sid))
+              (bndos-test-kill-shell shell))))))))
+
+(ert-deftest bndos-integration-adopts-a-conversation-from-a-hand-made-worktree ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      ;; A worktree made by hand, with an agent conversation from before.
+      (let* ((wt (bndos-test-worktree repo "old" "main"))
+             (key (bndos-test-task-in wt))
+             (listed (bndos-task-cli-call (list "sessions" wt "--agent" "bndos-stub") wt)))
+        (should (equal (mapcar (lambda (s) (plist-get s :id)) (plist-get listed :sessions)) '("past-1" "past-2")))
+        (should (equal (plist-get (car (plist-get listed :sessions)) :title) "earlier work"))
+        (let* ((out (bndos-test-await (lambda (cb) (bndos-task-adopt key "bndos-stub" "past-1" :callback cb)) 30))
+               (sid (plist-get out :session_id)))
+          (should (equal (plist-get out :status) "adopted"))
+          (should (equal (bndos-test-git wt "config" "branch.old.bndos-session") sid))
+          (should (equal (bndos-task-get (bndos-task-store-load key) :agent :resume) "adopted"))
+          ;; Hydra loaded that very conversation into the agent.
+          (should (member "past-1" (mapcar (lambda (p) (plist-get p :sessionId))
+                                           (bndos-test-stub-messages "session/load"))))
+          ;; Emacs attaches to it like any task's session.
+          (let ((shell (bndos-test-attach key)))
+            (unwind-protect
+                (progn
+                  (should (equal (agent-shell-session-id :shell-buffer shell) sid))
+                  (should (equal (bndos-task-get (bndos-task-store-load key) :agent :resume) "resumed")))
+              (bndos-test-kill-shell shell)))
+          ;; It isn't silently replaced.
+          (let ((again (bndos-task-cli-call (list "adopt" wt "--agent" "bndos-stub" "--session" "past-2") wt)))
+            (should (equal (plist-get again :status) "failed"))
+            (should (string-match-p "already has session" (plist-get again :error)))))))))
+
+(defun bndos-test-task-in (wt)
+  (bndos-task-ensure-record (bndos-test-git wt "rev-parse" "--path-format=absolute" "--git-common-dir")
+                            wt (bndos-test-git wt "branch" "--show-current")))
+
+(ert-deftest bndos-integration-ai-review-runs-in-a-new-agent-session ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      (let* ((result (bndos-test-start repo "rv"))
+             (key (plist-get result :key))
+             (wt (plist-get result :worktree))
+             (worker (bndos-task-get (bndos-task-store-load key) :agent :session-id)))
+        (bndos-test-commit wt "work" "w.txt" "w\n" "v.txt" "v\n")
+        (let ((bndos-task-review-show-tree nil))
+          (bndos-task-review-open key))
+        (let ((review (bndos-task-review-buffer key)))
+          (bndos-proc-wait (lambda () (with-current-buffer review (plist-get bndos-task-review--data :files))) 20)
+          (with-current-buffer review
+            (cl-letf (((symbol-function 'agent-shell-select-config)
+                       (cl-function (lambda (&rest _) (bndos-task-agent--hydra-config "bndos-stub"))))
+                      ((symbol-function 'read-string) (lambda (&rest _) "")))
+              (bndos/task-review-ai-review))
+            (bndos-proc-wait (lambda () (seq-find (lambda (r) (eq (plist-get (cdr r) :status) :ok)) hutch--results)) 30)
+            (let* ((result (cdr (car hutch--results)))
+                   (findings (plist-get result :findings)))
+              (should (eq (plist-get result :status) :ok))
+              (should (seq-find (lambda (f) (equal (plist-get f :title) "stub finding")) findings))
+              (should (seq-find (lambda (f) (eq (plist-get f :type) 'lgtm)) findings))))
+          ;; A new conversation, not the worker's; the worker's session is untouched.
+          (let ((reviewer (seq-find (lambda (b) (and (not (memq b (hash-table-values bndos-task-agent--shells)))
+                                                     (string-match-p "Stub" (buffer-name b))))
+                                    (agent-shell-buffers))))
+            (unwind-protect
+                (progn
+                  (should reviewer)
+                  (should-not (equal (agent-shell-session-id :shell-buffer reviewer) worker))
+                  (should (equal (bndos-test-git wt "config" "branch.rv.bndos-session") worker)))
+              (bndos-test-kill-shell reviewer)
+              (kill-buffer review))))))))
+
 (ert-deftest bndos-integration-refused-mode-is-reported-not-assumed ()
   (bndos-test-with-hydra
     (bndos-test-with-repo repo

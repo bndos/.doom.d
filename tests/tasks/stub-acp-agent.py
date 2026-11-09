@@ -7,8 +7,11 @@
 * session/prompt answers a [bndos-review request ...] prompt with a valid
   ```bndos-review``` block covering every "### c-..." item: "addressed" in
   IMPLEMENT mode, "answered" otherwise.  A prompt containing PERMIT first asks
-  the client for permission and reports the outcome.  Other prompts get
-  "ok mode=M model=M".
+  the client for permission and reports the outcome.  A Hutch review prompt
+  (asking for a ```hutch-review``` block) gets one comment on the first
+  changed file and an lgtm for the rest.  Other prompts get "ok mode=M model=M".
+* session/list reports the conversations in $STUB_PAST_SESSIONS
+  ("id|title,id|title"), as made in the requested directory.
 * Every message received is logged to $STUB_LOG (JSON lines) when set.
 """
 import json
@@ -51,7 +54,17 @@ def say(sid, text):
             "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": chunk}}}})
 
 
+def review_for(text):
+    manifest = text.split("Changed files (insertions/deletions):\n", 1)[1].split("\n\n", 1)[0]
+    files = [line.split()[0] for line in manifest.splitlines() if line.strip()]
+    findings = [{"file": files[0], "title": "stub finding", "description": "stub looked at this",
+                 "lines": "1"}] + [{"file": f, "lgtm": True} for f in files[1:]]
+    return "Reviewed.\n\n```hutch-review\n" + json.dumps({"findings": findings}) + "\n```\n"
+
+
 def reply_for(text, s):
+    if "```hutch-review" in text:
+        return review_for(text)
     m = re.search(r"\[bndos-review request (\S+) · task (\S+) · snapshot (\S+)\]", text)
     if not m:
         return f"ok mode={s['mode']} model={s['model']}"
@@ -90,12 +103,16 @@ for line in sys.stdin:
     if method == "initialize":
         ok({"protocolVersion": 1,
             "agentCapabilities": {"loadSession": True, "promptCapabilities": {},
-                                  "sessionCapabilities": {"resume": {}}},
+                                  "sessionCapabilities": {"resume": {}, "list": {}}},
             "authMethods": [], "agentInfo": {"name": "stub-acp", "version": "2"}})
     elif method == "session/new":
         ok(session_state(str(uuid.uuid4())))
     elif method in ("session/load", "session/resume"):
         ok(session_state(params.get("sessionId")))
+    elif method == "session/list":
+        past = [entry.split("|", 1) for entry in os.environ.get("STUB_PAST_SESSIONS", "").split(",") if entry]
+        ok({"sessions": [{"sessionId": sid, "cwd": params.get("cwd"), "title": title,
+                          "updatedAt": "2026-11-01T12:00:00Z"} for sid, title in past]})
     elif method == "session/set_mode":
         if params.get("modeId") not in MODES:
             refuse("Unknown mode")

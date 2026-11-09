@@ -341,6 +341,94 @@
             (should (plist-get gone :missing))
             (should-not (seq-find (lambda (r) (equal (bndos-task-get r :worktree :path) repo)) rows))))))))
 
+;;; Review navigation: the tree, keeping your place, M-RET
+
+(defmacro bndos-test-with-open-review (spec &rest body)
+  "SPEC is (REVIEW WORKTREE): a task review over four changed files, shown."
+  (declare (indent 1))
+  `(bndos-test-with-store
+     (bndos-test-with-repo repo
+       (let* ((,(nth 1 spec) (bndos-test-worktree repo "nav" "main"))
+              (key (bndos-task-ensure-record
+                    (bndos-test-git ,(nth 1 spec) "rev-parse" "--path-format=absolute" "--git-common-dir")
+                    ,(nth 1 spec) "nav"))
+              (bndos-task-review-show-tree nil))
+         (dolist (f '("a.txt" "b.txt" "c.txt" "d/e.txt"))
+           (bndos-test-write ,(nth 1 spec) f (mapconcat (lambda (n) (format "%s line %d" f n)) (number-sequence 1 40) "\n")))
+         (bndos-test-commit ,(nth 1 spec) "four files" "z.txt" "z\n")
+         (bndos-task-review-open key)
+         (let ((,(car spec) (bndos-task-review-buffer key)))
+           (bndos-proc-wait (lambda () (with-current-buffer ,(car spec) (plist-get bndos-task-review--data :files))) 20)
+           (switch-to-buffer ,(car spec))
+           (delete-other-windows)
+           (unwind-protect (progn ,@body)
+             (with-current-buffer ,(car spec) (magit-treediff-follow-close (current-buffer)))
+             (kill-buffer ,(car spec))))))))
+
+(defun bndos-test-goto-diff-line (text)
+  (goto-char (point-min))
+  (search-forward text)
+  (beginning-of-line))
+
+(ert-deftest bndos-review-tree-window-follows-the-review ()
+  (skip-unless (locate-library "treemacs"))
+  (let ((magit-treediff-tree-backend 'treemacs))
+    (bndos-test-with-open-review (review _wt)
+      (bndos-task-review--update-tree t)
+      (let ((tree-window (seq-find (lambda (w) (not (eq (window-buffer w) review))) (window-list))))
+        (should tree-window)
+        (dolist (file '("b.txt" "d/e.txt" "a.txt" "z.txt"))
+          (with-current-buffer review
+            (bndos-task-review--goto-file file)
+            (magit-treediff-follow-sync))
+          ;; The tree's window, not just its buffer, is on the file.
+          (should (equal (with-current-buffer (window-buffer tree-window)
+                           (save-excursion (goto-char (window-point tree-window))
+                                           (magit-treediff--tree-file-at-point)))
+                         file)))))))
+
+(ert-deftest bndos-review-rerender-keeps-the-line-and-column ()
+  (bndos-test-with-open-review (review _wt)
+    (bndos-test-goto-diff-line "+c.txt line 17")
+    (forward-char 6)
+    (let ((line (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
+          (column (current-column)))
+      (bndos-task-review-render)
+      (should (equal (buffer-substring-no-properties (line-beginning-position) (line-end-position)) line))
+      (should (= (current-column) column)))))
+
+(ert-deftest bndos-review-files-reopen-where-you-left-them ()
+  (bndos-test-with-open-review (review _wt)
+    (bndos-test-goto-diff-line "+b.txt line 23")
+    (bndos-task-review--remember-position)
+    (bndos-task-review--goto-file "d/e.txt")
+    (should (equal (bndos-task-review--file-at-point) "d/e.txt"))
+    (bndos-task-review--goto-file "b.txt")
+    (should (string-match-p "b\\.txt line 23" (buffer-substring (line-beginning-position) (line-end-position))))
+    ;; A file never visited opens at its top.
+    (bndos-task-review--goto-file "c.txt")
+    (should (eq (oref (magit-current-section) type) 'bndos-task-file))))
+
+(ert-deftest bndos-review-m-ret-visits-the-worktree-line-in-another-window ()
+  (bndos-test-with-open-review (review wt)
+    (bndos-test-goto-diff-line "+a.txt line 12")
+    (bndos/task-review-visit-worktree-other-window)
+    (should (equal (buffer-file-name) (expand-file-name "a.txt" wt)))
+    (should (= (line-number-at-pos) 12))
+    (should (eq (window-buffer (next-window)) review))))
+
+(ert-deftest bndos-review-agent-reply-blocks-parse-into-findings ()
+  (require 'hutch-agent-shell)
+  (should-not (hutch-agent-shell-extract "no block here"))
+  (should (equal (hutch-agent-shell-extract "x\n```hutch-review\n{\"findings\": [{\"file\": \"a\", \"lgtm\": true}]}\n```\n")
+                 '(:ok ((:file "a" :lgtm t)))))
+  ;; The last block wins (an agent may quote the format first).
+  (should (equal (car (hutch-agent-shell-extract
+                       "```hutch-review\n{\"findings\": []}\n```\nthen\n```hutch-review\n{\"oops\": 1}\n```\n"))
+                 :error))
+  (should (eq (car (hutch-agent-shell-extract "```hutch-review\n{not json\n```\n")) :error)))
+
+
 ;;; Dashboard tree
 
 (ert-deftest bndos-dashboard-shows-stacks-as-a-tree-with-details-on-demand ()

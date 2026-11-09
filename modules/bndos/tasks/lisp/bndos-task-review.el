@@ -3,9 +3,10 @@
 ;;; Commentary:
 
 ;; One review buffer per task (repository + worktree), built on Hutch's
-;; `hutch-mode'.  Hutch keeps its optional gptel findings and suggestion
-;; states; this file renders, through Hutch's render hooks, the task header,
-;; human discussion threads, and the task's full diff.
+;; `hutch-mode'.  Hutch keeps its optional AI findings (from a separate
+;; reviewer agent-shell session) and suggestion states; this file renders,
+;; through Hutch's render hooks, the task header, human discussion threads,
+;; and the task's full diff.
 ;;
 ;; The default scope compares the task's merge-base with its recorded parent
 ;; (not a hardcoded main) to a snapshot of the whole worktree, so committed
@@ -30,6 +31,7 @@
 (require 'bndos-task-git)
 
 (declare-function agent-shell-insert "ext:agent-shell")
+(declare-function agent-shell-select-config "ext:agent-shell")
 (declare-function bndos-task-agent-summary "bndos-task-agent")
 (declare-function bndos-task-agent-submit "bndos-task-agent")
 (declare-function bndos-task-agent-open "bndos-task-agent")
@@ -124,6 +126,7 @@
   :parent hutch-mode-map
   "g"       #'bndos/task-review-refresh
   "RET"     #'bndos/task-review-visit
+  "M-RET"   #'bndos/task-review-visit-worktree-other-window
   "C-c C-c" #'bndos/task-review-comment
   "C-c C-s" #'bndos/task-review-submit
   "C-c C-q" #'bndos/task-review-ask
@@ -162,6 +165,8 @@
                                                   #'bndos-task-review--insert-diff))
   (setq-local hutch-worktree-scope-function #'bndos-task-review--hutch-scope)
   (setq-local revert-buffer-function (lambda (&rest _) (bndos/task-review-refresh)))
+  (setq-local bndos-task-review--file-positions (make-hash-table :test #'equal))
+  (add-hook 'post-command-hook #'bndos-task-review--remember-position nil t)
   (add-hook 'kill-buffer-hook #'bndos-task-review--cancel-processes nil t))
 
 (defun bndos-task-review--cancel-processes ()
@@ -537,7 +542,7 @@ stale for the reviewer to check.  Nothing is deleted."
                           (when-let* ((err (plist-get data :range-error)))
                             (insert (propertize (format "Scope unavailable: %s\n" err) 'font-lock-face 'bndos-task-review-warning)))
                           (when hutch--scopes
-                            (insert (propertize "AI findings below come from Hutch (gptel); they're separate from the discussion threads.\n"
+                            (insert (propertize "AI findings below come from a separate reviewer session (C-c C-h); they're separate from the discussion threads.\n"
                                                 'font-lock-face 'shadow)))
                           (insert "\n"))))
 
@@ -724,11 +729,40 @@ stale for the reviewer to check.  Nothing is deleted."
           (setq section (oref section parent)))
         (and section (oref section value)))))
 
+(defvar-local bndos-task-review--file-positions nil
+  "File -> (LINE-OFFSET . SCREEN-ROW): where you last were in that file's diff.")
+
+(defun bndos-task-review--file-section (file)
+  (magit-get-section `((bndos-task-file . ,file) (bndos-task-diff) (review-root))))
+
+(defun bndos-task-review--remember-position ()
+  "Record where point is in the current file's diff (post-command)."
+  (when-let* ((file (bndos-task-review--file-at-point))
+              (section (bndos-task-review--file-section file))
+              ((<= (oref section start) (point) (oref section end)))
+              (window (get-buffer-window (current-buffer))))
+    (puthash file (cons (count-lines (oref section start) (line-beginning-position))
+                        (count-screen-lines (window-start window) (point)))
+             bndos-task-review--file-positions)))
+
+(defun bndos-task-review--set-jump ()
+  "Record point so \\[evil-jump-backward] (or the mark ring) can return here."
+  (cond ((fboundp 'better-jumper-set-jump) (better-jumper-set-jump))
+        ((fboundp 'evil-set-jump) (evil-set-jump))
+        (t (push-mark nil t))))
+
 (defun bndos-task-review--goto-file (file)
-  (when-let* ((section (magit-get-section `((bndos-task-file . ,file) (bndos-task-diff) (review-root)))))
-    (goto-char (oref section start))
+  "Show FILE's diff where you last were in it (its top the first time)."
+  (when-let* ((section (bndos-task-review--file-section file)))
+    (bndos-task-review--set-jump)
     (when (oref section hidden) (magit-section-show section))
-    (recenter 0)))
+    (goto-char (oref section start))
+    (if-let* ((seen (gethash file bndos-task-review--file-positions)))
+        (progn
+          (forward-line (car seen))
+          (when (> (point) (oref section end)) (goto-char (oref section start)))
+          (recenter (max 0 (1- (cdr seen)))))
+      (recenter 0))))
 
 (defun bndos-task-review--update-tree (show)
   (let* ((files (plist-get bndos-task-review--data :files))
@@ -845,12 +879,37 @@ Writes branch.<branch>.bndos-base in the task's repository."
           (goto-char (point-min))
           (forward-line (1- n))))))))
 
+(defun bndos/task-review-visit-worktree-other-window ()
+  "Visit the worktree file at point in the other window, at this line.
+Like magit's \\`M-RET': always the worktree file, so a removed line goes to
+where it was (the next remaining line)."
+  (interactive)
+  (bndos-task-review--ensure)
+  (let* ((path (or (bndos-task-review--file-at-point) (user-error "Nothing to visit here")))
+         (file (file-name-concat bndos-task-review-directory path))
+         (line (save-excursion
+                 (let (found)
+                   (while (and (not found) (not (eobp))
+                               (equal (plist-get (get-text-property (point) 'bndos-task-line) :path) path))
+                     (setq found (plist-get (get-text-property (point) 'bndos-task-line) :new))
+                     (unless found (forward-line 1)))
+                   found))))
+    (unless (file-exists-p file) (user-error "%s doesn't exist in the worktree" path))
+    (bndos-task-review--set-jump)
+    (find-file-other-window file)
+    (when line
+      (goto-char (point-min))
+      (forward-line (1- line)))))
+
 (defun bndos-task-review--goto-anchor (anchor)
-  (bndos-task-review--goto-file (plist-get anchor :path))
   (let ((side (if (equal (plist-get anchor :side) "old") :old :new))
         (target (plist-get anchor :line))
+        (section (bndos-task-review--file-section (plist-get anchor :path)))
         found)
+    (bndos-task-review--set-jump)
+    (when (and section (oref section hidden)) (magit-section-show section))
     (save-excursion
+      (goto-char (if section (oref section start) (point-min)))
       (while (and (not found) (not (eobp)))
         (let ((props (get-text-property (point) 'bndos-task-line)))
           (when (and props (equal (plist-get props :path) (plist-get anchor :path))
@@ -1067,6 +1126,7 @@ On a discussion thread (without a region), reply to it instead."
   "Move to the next inline discussion marker in the diff."
   (interactive)
   (bndos-task-review--ensure)
+  (bndos-task-review--set-jump)
   (let ((here (point)))
     (end-of-line)
     (if-let* ((match (text-property-search-forward 'bndos-task-thread nil (lambda (_ v) v))))
@@ -1078,6 +1138,7 @@ On a discussion thread (without a region), reply to it instead."
   "Move to the previous inline discussion marker in the diff."
   (interactive)
   (bndos-task-review--ensure)
+  (bndos-task-review--set-jump)
   (let ((here (point)))
     (beginning-of-line)
     (if-let* ((match (text-property-search-backward 'bndos-task-thread nil (lambda (_ v) v))))
@@ -1204,7 +1265,7 @@ for.  Write your message after it and send it from the agent-shell."
      :display t)))
 
 
-;;; Optional Hutch (gptel) review of the whole task
+;;; Optional AI review of the whole task (a new agent-shell session, via Hutch)
 
 (defun bndos-task-review--hutch-scope ()
   "Return a fresh Hutch `:worktree' scope for the current review buffer.
@@ -1229,16 +1290,30 @@ Synchronous, as Hutch's own scope collection is."
           (car (process-lines "git" "write-tree")))
       (ignore-errors (delete-file tmp)))))
 
+(defvar hutch-review-transport)
+(defvar hutch-agent-shell-config)
+(defvar hutch-agent-shell-model)
+
 (defun bndos/task-review-ai-review ()
-  "Run Hutch's LLM review (gptel, `hutch-backend') over the whole task.
-Optional: manual review never needs it."
+  "Have a new agent session review the whole task; findings appear here.
+You choose the agent (any agent-shell config: another harness than the
+worker's is fine) and optionally a model.  The reviewer is a separate
+conversation with no memory of the worker's, in a read-only mode; its
+agent-shell stays open to ask about a finding.  Its findings are Hutch's
+(apply, discard...), separate from the discussion threads."
   (interactive)
   (bndos-task-review--ensure)
-  (unless (bound-and-true-p hutch-backend)
-    (user-error "Set `hutch-backend' to a gptel backend to use AI review"))
-  (let ((scope (or (bndos-task-review--hutch-scope)
-                   (user-error "No base or no changes to review"))))
-    (hutch-review-run (current-buffer) (list scope))))
+  (require 'agent-shell)
+  (require 'hutch-agent-shell)
+  (let* ((scope (or (bndos-task-review--hutch-scope)
+                    (user-error "No base or no changes to review")))
+         (config (agent-shell-select-config :prompt "Reviewer agent: "))
+         (model (string-trim (read-string "Model (empty for the agent's default): ")))
+         (hutch-review-transport 'agent-shell)
+         (hutch-agent-shell-config config)
+         (hutch-agent-shell-model (unless (string-empty-p model) model)))
+    (hutch-review-run (current-buffer) (list scope))
+    (message "Reviewing with a new %s session…" (map-elt config :buffer-name))))
 
 (provide 'bndos-task-review)
 ;;; bndos-task-review.el ends here

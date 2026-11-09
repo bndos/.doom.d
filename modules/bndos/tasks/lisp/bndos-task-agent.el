@@ -158,6 +158,19 @@ A failure is passed as (:status \"failed\" :error MESSAGE)."
                               (car parsed)
                             (list :status "failed" :error (bndos-proc-error-message result))))))))
 
+(defun bndos-task-cli-call (args directory)
+  "Run `bndos-task' with ARGS in DIRECTORY and return its parsed JSON output.
+Synchronous, for interactive commands that need the answer before asking."
+  (with-temp-buffer
+    (let ((default-directory (file-name-as-directory directory))
+          (process-environment (append (list (concat "BNDOS_TASK_STATE_DIR=" (expand-file-name bndos-task-store-directory))
+                                             (concat "BNDOS_TASK_HYDRA=" (car bndos-task-hydra-command)))
+                                       process-environment)))
+      (apply #'process-file bndos-task-cli nil (list t nil) nil args)
+      (condition-case nil
+          (bndos-task-store-decode (buffer-string))
+        (error (list :status "failed" :error (string-trim (buffer-string))))))))
+
 (defun bndos-task-agent-update-from-status (key status)
   "Remember task KEY's STATUS entry and copy what it records into the store.
 The recorded session, agent, parent and ticket live in git config (where

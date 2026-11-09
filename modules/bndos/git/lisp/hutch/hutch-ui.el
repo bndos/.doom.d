@@ -27,6 +27,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'seq)
 (require 'hutch-agent)
 (require 'hutch-apply)
 (require 'hutch-instrument)
@@ -437,17 +438,53 @@ bndos: NAME lets callers keep one review buffer per repository/worktree."
     (dolist (c (oref section children))
       (hutch--walk-sections c fn))))
 
+(defun hutch--position-spec (pos)
+  "Describe POS so it survives a re-render: its line in the innermost section
+and in each enclosing one, as ((IDENT . LINE-OFFSET) ...) plus the column.
+bndos: added locally; upstream only kept the section, losing the line."
+  (save-excursion
+    (goto-char pos)
+    (let ((column (current-column))
+          (line (line-beginning-position))
+          (section (ignore-errors (magit-current-section)))
+          chain)
+      (while section
+        (push (cons (magit-section-ident section)
+                    (count-lines (oref section start) line))
+              chain)
+        (setq section (oref section parent)))
+      (list :chain (nreverse chain) :column column))))
+
+(defun hutch--position-restore (spec)
+  "Return the position SPEC (from `hutch--position-spec') now refers to.
+Uses the innermost section that still exists, so a hunk whose header
+changed falls back to its file.  bndos: added locally."
+  (seq-some (lambda (entry)
+              (when-let* ((section (magit-get-section (car entry))))
+                (save-excursion
+                  (goto-char (oref section start))
+                  (forward-line (cdr entry))
+                  (when (> (point) (oref section end))
+                    (goto-char (oref section start)))
+                  (move-to-column (plist-get spec :column))
+                  (point))))
+            (plist-get spec :chain)))
+
 (defun hutch--render-buffer (buf)
   "Re-render BUF from `hutch--scopes' and `hutch--results'.
-Preserves point (by section identity) and collapsed-section state
-across the destructive rebuild."
+Preserves point, each window's point and scroll, and collapsed-section
+state across the destructive rebuild.
+bndos: point and windows keep their line (upstream returned to the start
+of the section point was in)."
   (with-current-buffer buf
     (let* ((inhibit-read-only t)
-           (saved-ident
+           (saved-point (and magit-root-section (hutch--position-spec (point))))
+           (saved-windows
             (and magit-root-section
-                 (ignore-errors
-                   (let ((sec (magit-current-section)))
-                     (and sec (magit-section-ident sec))))))
+                 (mapcar (lambda (window)
+                           (list window (hutch--position-spec (window-point window))
+                                 (count-screen-lines (window-start window) (window-point window))))
+                         (get-buffer-window-list buf nil t))))
            (hidden-idents
             (let (acc)
               (hutch--walk-sections
@@ -495,9 +532,18 @@ across the destructive rebuild."
        (lambda (s)
          (when (member (magit-section-ident s) hidden-idents)
            (magit-section-hide s))))
-      (when saved-ident
-        (when-let* ((sec (magit-get-section saved-ident)))
-          (goto-char (oref sec start)))))))
+      (when-let* ((pos (and saved-point (hutch--position-restore saved-point))))
+        (goto-char pos))
+      (pcase-dolist (`(,window ,spec ,rows) saved-windows)
+        (when-let* (((window-live-p window))
+                    (pos (hutch--position-restore spec)))
+          (set-window-point window pos)
+          ;; Same screen row as before, so the text doesn't jump.
+          (set-window-start window (save-excursion
+                                     (goto-char pos)
+                                     (vertical-motion (- (max 0 (1- rows))) window)
+                                     (point))
+                            t))))))
 
 (defun hutch--render-result (buf result)
   "Store RESULT and re-render BUF."
