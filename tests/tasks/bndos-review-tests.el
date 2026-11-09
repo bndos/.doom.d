@@ -417,6 +417,90 @@
     (should (= (line-number-at-pos) 12))
     (should (eq (window-buffer (next-window)) review))))
 
+(ert-deftest bndos-review-threads-render-as-blocks-and-are-jumpable ()
+  (bndos-test-with-open-review (review wt)
+    (let* ((anchor (bndos-task-review--line-anchor wt "b.txt" 5 nil))
+           (mine (bndos-task-make-thread :kind "comment" :author "me"
+                                         :body "A long comment that should wrap nicely across lines instead of running off the right edge of the window forever and ever."
+                                         :anchor anchor))
+           (ai (plist-put (plist-put (bndos-task-make-thread :kind "finding" :author "ai:codex"
+                                                              :body "Off by one\n\nThe loop stops early."
+                                                              :anchor (bndos-task-review--line-anchor wt "c.txt" 3 nil))
+                                     :title "Off by one")
+                          :suggestion '(:old "c.txt line 3" :new "c.txt line three")))
+           (done (plist-put (bndos-task-make-thread :kind "comment" :author "me" :body "old news" :anchor anchor)
+                            :state "resolved")))
+      (bndos-task-store-update key (lambda (r) (seq-reduce #'bndos-task-add-thread (list mine ai done) r)))
+      (bndos-task-review-render)
+      ;; Inline under their lines, framed, wrapped, with the suggestion.
+      (goto-char (point-min))
+      (bndos/task-review-next-thread)
+      (should (equal (bndos-task-review--thread-at-point) (plist-get mine :id)))
+      (should (looking-at-p " *╭ ● open  me"))
+      (let ((block (buffer-substring-no-properties
+                    (point) (next-single-property-change (point) 'bndos-task-thread))))
+        (should (seq-every-p (lambda (l) (<= (string-width l) 120)) (split-string block "\n")))
+        (should (string-match-p "instead of running\n *│ off the right edge" block)))
+      (bndos/task-review-next-thread)
+      (should (equal (bndos-task-review--thread-at-point) (plist-get ai :id)))
+      (let ((block (buffer-substring-no-properties
+                    (point) (next-single-property-change (point) 'bndos-task-thread))))
+        (should (string-match-p "ai:codex · finding.*Off by one" block))
+        (should (string-match-p "^ *│ -c.txt line 3$" block))
+        (should (string-match-p "^ *│ \\+c.txt line three$" block)))
+      ;; Resolved threads aren't inline, but the list reaches them.
+      (should-not (save-excursion (bndos/task-review-next-thread)
+                                  (equal (bndos-task-review--thread-at-point) (plist-get done :id))))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt table &rest _)
+                   (let ((all (all-completions "" table)))
+                     ;; Open ones first, resolved last.
+                     (should (string-match-p "^○ resolved" (car (last all))))
+                     (car (last all))))))
+        (bndos/task-review-jump-to-thread))
+      (should (equal (bndos-task-review--thread-at-point) (plist-get done :id))))))
+
+(ert-deftest bndos-review-suggestions-apply-to-the-worktree ()
+  (bndos-test-with-open-review (review wt)
+    (let ((ai (plist-put (bndos-task-make-thread :kind "finding" :author "ai:codex" :body "fix"
+                                                 :anchor (bndos-task-review--line-anchor wt "a.txt" 2 nil))
+                         :suggestion '(:old "a.txt line 2\n" :new "a.txt line two\n"))))
+      (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r ai)))
+      (bndos-task-review-render)
+      (bndos-task-review--goto-thread (plist-get ai :id))
+      (bndos/task-review-apply-suggestion)
+      (should (string-match-p "^a.txt line two$" (with-temp-buffer (insert-file-contents (expand-file-name "a.txt" wt))
+                                                                   (buffer-string))))
+      (should (equal (plist-get (bndos-task-thread (bndos-task-store-load key) (plist-get ai :id)) :state) "resolved"))
+      ;; A suggestion that no longer matches is refused, not guessed at.
+      (let ((stale (plist-put (bndos-task-make-thread :kind "finding" :author "ai:codex" :body "x"
+                                                      :anchor (list :path "a.txt"))
+                              :suggestion '(:old "not in the file" :new "y"))))
+        (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r stale)))
+        (bndos-task-review-render)
+        (bndos-task-review--goto-thread (plist-get stale :id))
+        (should-error (bndos/task-review-apply-suggestion) :type 'user-error)))))
+
+(ert-deftest bndos-review-code-is-coloured-by-its-mode ()
+  (bndos-test-with-store
+    (bndos-test-with-repo repo
+      (let* ((wt (bndos-test-worktree repo "col" "main"))
+             (key (bndos-task-ensure-record (bndos-test-git wt "rev-parse" "--path-format=absolute" "--git-common-dir") wt "col"))
+             (bndos-task-review-show-tree nil))
+        (bndos-test-write wt "x.el" "(defun my-fn ()\n  \"Doc.\"\n  (let ((a 1)) a))\n")
+        (bndos-test-commit wt "elisp" "y.txt" "y\n")
+        (bndos-task-review-open key)
+        (let ((review (bndos-task-review-buffer key)))
+          (bndos-proc-wait (lambda () (with-current-buffer review (plist-get bndos-task-review--data :files))) 20)
+          (with-current-buffer review
+            (bndos-test-goto-diff-line "+(defun my-fn")
+            (forward-char 2)
+            (let ((faces (ensure-list (get-text-property (point) 'font-lock-face))))
+              ;; The keyword's own colour, with the added-line face behind it.
+              (should (memq 'font-lock-keyword-face faces))
+              (should (eq (car (last faces)) 'magit-diff-added))))
+          (kill-buffer review))))))
+
 (ert-deftest bndos-review-agent-reply-blocks-parse-into-findings ()
   (require 'hutch-agent-shell)
   (should-not (hutch-agent-shell-extract "no block here"))
