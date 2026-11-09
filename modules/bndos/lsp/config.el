@@ -1,7 +1,6 @@
 ;;; bndos/lsp/config.el -*- lexical-binding: t; -*-
 
-;; Commands here dispatch to whichever backend owns the buffer: lsp-proxy for
-;; the modes below, Eglot (Doom's :tools lsp +eglot) everywhere else.
+;; Commands dispatch to lsp-proxy in the modes below and to Eglot elsewhere.
 
 (map! :n "g d" #'bndos/lsp-find-definition
       :n "g D" #'bndos/lsp-find-declaration

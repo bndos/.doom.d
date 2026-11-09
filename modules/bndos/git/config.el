@@ -22,6 +22,10 @@
 (use-package! pr-review-treediff
   :commands pr-review-treediff-toggle)
 
+(after! pr-review
+  (advice-add #'pr-review--ghub-common-request-args
+              :filter-return #'bndos-pr-review-gh-auth-a))
+
 (map! :after pr-review
       :map pr-review-mode-map
       "M-RET" #'magit-diff-visit-worktree-file-other-window

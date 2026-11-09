@@ -36,7 +36,6 @@
 
 (setq-default switch-to-buffer-in-dedicated-window 'pop)
 
-;; Give ediff its own frame instead of rearranging the current one.
 (add-hook 'ediff-before-setup-hook #'bndos-ediff-new-frame-h)
 
 

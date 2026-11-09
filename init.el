@@ -1,14 +1,10 @@
 ;;; init.el -*- lexical-binding: t; -*-
 
-;; Run `doom sync' after changing this file.  `SPC h d m' lists every module
-;; and its flags.  My own modules live in modules/bndos/ and load last.
-
 ;; Must be set before evil loads.
 (setq evil-respect-visual-line-mode t)
 
-;; Homebrew's libgccjit can't find gcc's libemutls_w, so native-comp trampolines
-;; (built whenever a primitive like `kill-buffer' is advised) fail to link.
-;; Point the driver at the gcc whose major version matches libgccjit.
+;; Homebrew's libgccjit can't find libemutls_w on its own, so native-comp
+;; trampolines (built when a primitive is advised) fail to link.
 (when (featurep :system 'macos)
   (with-eval-after-load 'comp
     (when-let* ((jit (file-truename "/opt/homebrew/opt/libgccjit"))

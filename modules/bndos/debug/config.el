@@ -1,7 +1,5 @@
 ;;; bndos/debug/config.el -*- lexical-binding: t; -*-
 
-;; Install the debug adapters with ./setup-debuggers.sh.
-
 (after! dape
   (setq dape-request-timeout 60
         dape-buffer-window-arrangement 'gud
@@ -9,7 +7,6 @@
         dape-inlay-hints t
         dape-cwd-function #'projectile-project-root)
 
-  ;; Breakpoints persist across sessions.
   (dape-breakpoint-load)
   (add-hook 'kill-emacs-hook #'dape-breakpoint-save)
   (dape-breakpoint-global-mode 1)

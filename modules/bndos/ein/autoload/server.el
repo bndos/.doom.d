@@ -16,7 +16,7 @@
 
 ;;;###autoload
 (defun bndos-ein-add-auth-header-a (fn url settings &rest args)
-  "Send `bndos-ein-managed-token' with requests to our own server."
+  "Send `bndos-ein-managed-token' with requests to the managed server."
   (let ((settings (apply fn url settings args)))
     (if (and bndos-ein-managed-url
              bndos-ein-managed-token

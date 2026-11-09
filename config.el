@@ -1,8 +1,5 @@
 ;;; config.el -*- lexical-binding: t; -*-
 
-;; Global settings that don't belong to a single module.  Everything else lives
-;; in modules/bndos/*/ (see init.el).
-
 (when (featurep :system 'macos)
   (setq mac-command-modifier 'hyper))
 

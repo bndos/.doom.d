@@ -1,10 +1,5 @@
 ;;; bndos/ein/config.el -*- lexical-binding: t; -*-
 
-;; EIN with a Jupyter server owned by this Emacs (random port + token), plus
-;; notebook ergonomics: M-RET renders markdown cells or runs code cells and
-;; advances, and Python cells get file-backed lsp-proxy.  Rendering comes from
-;; the markdown module.
-
 (defvar bndos-ein-managed-url nil
   "URL of the Jupyter server started by `bndos/ein-start-jupyter'.")
 
@@ -41,8 +36,8 @@
     (fset 'ein:log (lambda (level string &rest args)
                      (ein:log-wrapper level (lambda () (apply #'format string args)))))))
 
-;; Authenticate requests to our server with a header instead of the /login
-;; POST flow, which breaks with Jupyter Server 7.
+;; Authenticate to the managed server with a header; the /login POST flow
+;; breaks with Jupyter Server 7.
 (after! ein-query
   (advice-add #'ein:query-prepare-header :around #'bndos-ein-add-auth-header-a))
 

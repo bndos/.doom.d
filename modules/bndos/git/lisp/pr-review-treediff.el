@@ -55,7 +55,6 @@ pr-review buffer instead of rendering diff panes.")
           (when-let ((win (get-buffer-window pr-buf)))
             (with-selected-window win
               (pr-review--goto-section-with-value file))
-            ;; Focus the diff window after navigation
             (select-window win))))
     (funcall orig-fn file)))
 
@@ -68,7 +67,6 @@ pr-review buffer instead of rendering diff panes.")
             (set-window-dedicated-p win nil)
             (delete-window win))
           (kill-buffer magit-treediff--tree-buffer))
-        ;; Remove the sync hook from the pr-review buffer
         (when (buffer-live-p pr-buf)
           (with-current-buffer pr-buf
             (remove-hook 'post-command-hook
@@ -130,15 +128,12 @@ Respects `magit-treediff-tree-backend' (builtin or treemacs)."
                         (get-buffer-window
                          (buffer-local-value 'magit-treediff--tree-buffer ctrl)))))
     (if tree-win
-        ;; Already visible — close
         (with-current-buffer ctrl
           (magit-treediff-quit))
-      ;; Open / refresh
       (let ((ctrl (pr-review-treediff--make-controller pr-buf)))
         (with-current-buffer ctrl
           (magit-treediff--display-tree
            (magit-treediff--ensure-tree-buffer)))
-        ;; Track current file as user scrolls
         (with-current-buffer pr-buf
           (add-hook 'post-command-hook
                     #'pr-review-treediff--sync-tree-to-point nil t))))))

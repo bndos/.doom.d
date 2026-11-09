@@ -80,7 +80,5 @@
 
 ;;; Terminal clipboard
 
-;; Keeps `emacs -nw' (including inside Docker) connected to the host clipboard,
-;; preferring Wayland over X11, with pbcopy/pbpaste on macOS.  Set BNDOS_TERMINAL_CLIPBOARD=0 to disable.
 (add-hook! '(doom-after-init-hook server-after-make-frame-hook)
            #'bndos-clipboard-enable-h)

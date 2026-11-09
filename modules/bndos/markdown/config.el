@@ -1,8 +1,6 @@
 ;;; bndos/markdown/config.el -*- lexical-binding: t; -*-
 
-;; Display-only rendering for markdown buffers (also used by the ein module):
-;; heading/code styling, LaTeX formulas as SVG, and a full pandoc+shr render.
-;; Buffer text is never modified; everything is an overlay.
+;; Rendering is overlay-only; buffer text is never modified.
 
 (defvar bndos-markdown-latex-scale 1.35
   "Scale factor for SVG formula previews.")
