@@ -1,6 +1,6 @@
 ;;; bndos/git/config.el -*- lexical-binding: t; -*-
 
-(add-load-path! "lisp")
+(add-load-path! "lisp" "lisp/hutch")
 
 (after! transient
   (setq transient-display-buffer-action '(display-buffer-in-side-window (side . bottom))))
@@ -12,6 +12,12 @@
   (map! :after magit
         :map magit-status-mode-map
         :nv "v" #'magit-treediff))
+
+
+;;; Hutch: optional LLM review (gptel); also hosts task reviews (tasks module)
+
+(use-package! hutch
+  :commands (hutch-magit-review hutch-show-log))
 
 
 ;;; Pull request review

@@ -51,11 +51,7 @@
 ;;; agent-shell
 
 (after! agent-shell
-  (setq agent-shell-openai-codex-acp-command
-        '("codex-acp"
-          "-c" "approval_policy=\"never\""
-          "-c" "sandbox_mode=\"danger-full-access\"")
-        agent-shell-session-strategy 'prompt
+  (setq agent-shell-session-strategy 'prompt
         agent-shell-google-authentication (agent-shell-google-make-authentication :login t)
         ;; Keep ACP streaming responsive: every streamed update renders on
         ;; Emacs' UI thread.

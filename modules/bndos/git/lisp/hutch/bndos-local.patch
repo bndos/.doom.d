@@ -1,0 +1,166 @@
+]2;hutch-src-1108/magit-hutch--- a/hutch-git.el
++++ b/hutch-git.el
+@@ -37,8 +37,16 @@
+ (require 'magit)
+ (require 'seq)
+ 
+-(defconst hutch--valid-scopes '(:staged :unpushed :branch)
+-  "Valid scope keywords.")
++(defconst hutch--valid-scopes '(:staged :unpushed :branch :worktree)
++  "Valid scope keywords.
++bndos: `:worktree' is added locally.  Its :base is a commit (the task's
++merge-base) and its :head a tree object snapshotting the whole worktree
++(committed, staged, unstaged and untracked changes), so the existing
++\=`git diff BASE HEAD' and \=`git show HEAD:PATH' plumbing applies unchanged.")
++
++(defvar hutch-worktree-scope-function nil
++  "bndos: function returning a fresh `:worktree' scope for the current repository.
++Used to detect content changes before bulk-applying suggestions.")
+ 
+ (defcustom hutch-scopes '(:staged :branch)
+   "Which scopes to include in a review.
+@@ -276,7 +284,9 @@
+   (let ((fresh (pcase (plist-get scope :scope)
+                  (:staged   (hutch--collect-staged))
+                  (:unpushed (hutch--collect-unpushed))
+-                 (:branch   (hutch--collect-branch)))))
++                 (:branch   (hutch--collect-branch))
++                 (:worktree (and hutch-worktree-scope-function
++                                 (funcall hutch-worktree-scope-function))))))
+     (and fresh (plist-get fresh :hash))))
+ 
+ (provide 'hutch-git)
+--- a/hutch-ui.el
++++ b/hutch-ui.el
+@@ -52,6 +52,15 @@
+ (defvar-local hutch--progress nil "Alist of (SCOPE-LABEL . (CURRENT . MAX)) for in-flight scopes.")
+ (defvar-local hutch--discarded nil "When non-nil, review is discarded — all commands refuse.")
+ 
++;; bndos: extension points so other packages can host a Hutch review in their
++;; own buffer and render extra sections around the findings.
++(defvar-local hutch-review-title "magit-hutch: code review"
++  "Root heading of this review buffer.")
++(defvar-local hutch-render-header-functions nil
++  "Functions called with no arguments to insert sections before the findings.")
++(defvar-local hutch-render-footer-functions nil
++  "Functions called with no arguments to insert sections after the findings.")
++
+ ;; Magit's auto-lookup for section keymaps uses `magit-TYPE-section-map',
+ ;; which would force a `magit-' prefix we cannot adopt.  Instead we name
+ ;; these with the package prefix and attach them explicitly via the
+@@ -390,6 +399,7 @@
+       (:staged   "staged changes")
+       (:unpushed "unpushed commits")
+       (:branch   (format "branch %s" desc))
++      (:worktree (format "task changes %s" desc))
+       (_         (format "%s %s" key desc)))))
+ 
+ (defun hutch--scope-emoji (scope)
+@@ -398,6 +408,7 @@
+     (:staged   "📦")
+     (:unpushed "⬆️")
+     (:branch   "🌿")
++    (:worktree "🧵")
+     (_         "📋")))
+ 
+ (defun hutch--scope-display-label (scope &optional result)
+@@ -409,9 +420,10 @@
+             (hutch--scope-name scope)
+             (when n (format " (%d)" n)))))
+ 
+-(defun hutch--setup-buffer ()
+-  "Create and prepare the review buffer.  Return it."
+-  (let ((buf (get-buffer-create "*magit-hutch: code review*")))
++(defun hutch--setup-buffer (&optional name)
++  "Create and prepare the review buffer NAME.  Return it.
++bndos: NAME lets callers keep one review buffer per repository/worktree."
++  (let ((buf (get-buffer-create (or name "*magit-hutch: code review*"))))
+     (with-current-buffer buf
+       (let ((inhibit-read-only t))
+         (erase-buffer))
+@@ -448,10 +460,11 @@
+       (setq magit-root-section nil)
+       (magit-insert-section (review-root)
+         (magit-insert-heading
+-          (propertize "magit-hutch: code review"
++          (propertize hutch-review-title
+                       'font-lock-face 'magit-section-heading)
+           (when hutch--discarded
+             (propertize " [DISCARDED]" 'font-lock-face 'hutch-finding-invalid)))
++        (run-hooks 'hutch-render-header-functions)
+         (dolist (scope hutch--scopes)
+           (let* ((label (hutch--scope-label scope))
+                  (entry (assoc label hutch--results #'equal))
+@@ -475,7 +488,8 @@
+                               (hutch--scope-name scope)
+                               (plist-get result :emsg))))
+              (t
+-              (hutch--insert-findings findings display label result))))))
++              (hutch--insert-findings findings display label result)))))
++        (run-hooks 'hutch-render-footer-functions))
+       (hutch--walk-sections
+        magit-root-section
+        (lambda (s)
+@@ -524,27 +538,43 @@
+ (defun hutch-magit-review ()
+   "Review change with AI.  Show sections for branch, unpushed, and staged diffs."
+   (interactive)
+-  (hutch--trace-begin)
+-  (let* ((scopes (hutch-collect-scopes))
+-         (remaining (length scopes)))
++  (let ((scopes (hutch-collect-scopes)))
+     (if (null scopes)
+-        (progn
+-          (message "Hutch: no changes to review")
+-          (hutch--trace-end))
++        (message "Hutch: no changes to review")
+       (let ((buf (hutch--setup-buffer)))
+-        (with-current-buffer buf
+-          (setq hutch--scopes scopes
+-                hutch--results nil))
+-        (hutch--render-buffer buf)
+-        (pop-to-buffer buf)
+-        (setq hutch--cancel-fns
+-              (hutch--review scopes
+-                             (lambda (result)
+-                               (hutch--render-remove-progress buf (hutch--scope-label result))
+-                               (hutch--render-result buf result)
+-                               (when (zerop (cl-decf remaining)) (hutch--trace-end)))
+-                             (lambda (scope current max)
+-                               (hutch--render-progress buf scope current max))))))))
++        (hutch-review-run buf scopes)
++        (pop-to-buffer buf)))))
++
++(defun hutch-review-run (buf scopes)
++  "Run the LLM review of SCOPES and render results into hutch buffer BUF.
++Replaces BUF's previous findings.  Returns BUF.
++bndos: extracted from `hutch-magit-review' so callers can supply their own
++buffer and scopes; the cancel functions are now stored in BUF (upstream set
++them in whichever buffer was current, so \[hutch-cancel-review] could not
++reach them)."
++  (hutch--trace-begin)
++  (let ((remaining (length scopes)))
++    (with-current-buffer buf
++      (setq hutch--scopes scopes
++            hutch--results nil
++            hutch--progress nil
++            hutch--discarded nil))
++    (hutch--render-buffer buf)
++    ;; Tools, cache and gptel all resolve the repository from the current
++    ;; buffer, so dispatch from BUF.
++    (let ((cancel-fns
++           (with-current-buffer buf
++            (hutch--review scopes
++                          (lambda (result)
++                            (when (buffer-live-p buf)
++                              (hutch--render-remove-progress buf (hutch--scope-label result))
++                              (hutch--render-result buf result))
++                            (when (zerop (cl-decf remaining)) (hutch--trace-end)))
++                          (lambda (scope current max)
++                            (hutch--render-progress buf scope current max))))))
++      (with-current-buffer buf
++        (setq hutch--cancel-fns cancel-fns)))
++    buf))
+ 
+ (provide 'hutch-ui)
+ 

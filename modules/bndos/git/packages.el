@@ -1,7 +1,10 @@
 ;; -*- no-byte-compile: t; -*-
 ;;; bndos/git/packages.el
 
-;; magit-treediff, pr-review-worktree and pr-review-treediff are vendored in ./lisp.
+;; magit-treediff, pr-review-worktree and pr-review-treediff are vendored in ./lisp,
+;; and magit-hutch in ./lisp/hutch (see its VENDORED.org).
+
+(package! svg-lib)                      ; hutch badges
 
 (package! pr-review)
 (package! consult-gh)

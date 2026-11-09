@@ -21,6 +21,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'seq)
 (require 'magit-diff)
 
@@ -170,6 +171,14 @@ controller."
 (put 'magit-treediff-selected-file 'permanent-local t)
 
 (defvar-local magit-treediff--model nil)
+
+(defvar-local magit-treediff-select-file-function nil
+  "When non-nil, this controller drives an external review buffer.
+Called with the selected FILE instead of rendering treediff's own diff
+viewer.  See `magit-treediff-follow'.")
+
+(defvar-local magit-treediff-quit-function nil
+  "When non-nil, called by `magit-treediff-quit' instead of the default teardown.")
 (put 'magit-treediff--model 'permanent-local t)
 
 (defvar-local magit-treediff--tree-buffer nil)
@@ -846,11 +855,19 @@ Returns a list of nodes, each a plist with :type (dir or file),
   ;; diff-status-based faces with working-tree git status.
   (when (boundp 'treemacs--git-mode)
     (setq-local treemacs--git-mode nil))
+  (when (buffer-local-value 'magit-treediff-select-file-function controller)
+    (hl-line-mode 1))
   (magit-treediff--install-override-map
    magit-treediff-tree-mode-override-map))
 
 (defun magit-treediff--file-change-summary (file)
-  "Return a short UI summary for FILE."
+  "Return a short UI summary for FILE.
+A model entry may carry a precomputed :summary plist instead of :hunks."
+  (if-let* ((summary (plist-get file :summary)))
+      (append (list :status (or (plist-get file :status) "modified")) summary)
+    (magit-treediff--hunk-change-summary file)))
+
+(defun magit-treediff--hunk-change-summary (file)
   (let ((added 0)
         (removed 0))
     (dolist (hunk (plist-get file :hunks))
@@ -2152,14 +2169,17 @@ Nil means the whole buffer and dominates narrower ranges."
                         magit-treediff-tree-buffer-p
                         (equal (magit-treediff--tree-file-at-point) file))))
     (setq magit-treediff-selected-file file)
-    (magit-set-header-line-format (magit-treediff--format-header))
-    (magit-treediff--viewer-call :render)
+    (unless magit-treediff-select-file-function
+      (magit-set-header-line-format (magit-treediff--format-header))
+      (magit-treediff--viewer-call :render))
     ;; When selection originates from the tree itself, re-rendering the tree
     ;; immediately causes Treemacs/builtin point churn and makes movement feel
     ;; like it needs two keypresses. The tree is already on the selected file,
     ;; so only external selection changes need a tree sync.
     (unless from-tree
-      (magit-treediff--sync-tree))))
+      (magit-treediff--sync-tree))
+    (when magit-treediff-select-file-function
+      (funcall magit-treediff-select-file-function file))))
 
 (define-derived-mode magit-treediff-tree-mode special-mode "Magit Treediff Tree"
   "Mode used for the treediff file tree."
@@ -2322,7 +2342,8 @@ Nil means the whole buffer and dominates narrower ranges."
       (user-error "Parent buffer no longer exists"))
     (with-current-buffer magit-treediff-parent-buffer
       (magit-treediff--select-file file)
-      (magit-treediff--focus-viewer))))
+      (unless magit-treediff-select-file-function
+        (magit-treediff--focus-viewer)))))
 
 (defun magit-treediff--current-file-model ()
   (let ((file (magit-treediff--current-file)))
@@ -2496,6 +2517,11 @@ Nil means the whole buffer and dominates narrower ranges."
 (defun magit-treediff-quit ()
   "Close the tree diff viewer windows and buffers."
   (interactive)
+  (if magit-treediff-quit-function
+      (funcall magit-treediff-quit-function)
+    (magit-treediff--default-quit)))
+
+(defun magit-treediff--default-quit ()
   (dolist (buffer (list magit-treediff--tree-buffer
                         magit-treediff--left-buffer
                         magit-treediff--right-buffer
@@ -2523,6 +2549,7 @@ Nil means the whole buffer and dominates narrower ranges."
      (lambda (buffer)
        (with-current-buffer buffer
          (and (derived-mode-p 'magit-treediff-mode)
+              (not magit-treediff-select-file-function)
               (equal topdir (ignore-errors (magit-toplevel))))))
      (buffer-list))))
 
@@ -2635,6 +2662,133 @@ Nil means the whole buffer and dominates narrower ranges."
 ;; Force treemacs node types to be re-evaluated with current face definitions
 ;; whenever this file is loaded (prevents stale cached definitions).
 (setq magit-treediff--treemacs-defined nil)
+
+;;; Following an external review buffer
+
+;; Any buffer that renders a diff (pr-review, task reviews, ...) can get a
+;; treediff tree that navigates it and tracks point in it.  Hooks are local to
+;; the review buffer, so other Magit buffers are untouched.
+
+(defvar-local magit-treediff-follow--spec nil
+  "In a review buffer: plist of the arguments last given to `magit-treediff-follow'.")
+
+(defvar-local magit-treediff-follow--review-buffer nil
+  "In a follow controller: the review buffer it navigates.")
+
+(defun magit-treediff-follow--controller-name (review-buffer)
+  (format " *treediff-follow: %s*" (buffer-name review-buffer)))
+
+(defun magit-treediff-follow-controller (review-buffer)
+  "Return the live follow controller for REVIEW-BUFFER, or nil."
+  (let ((controller (get-buffer (magit-treediff-follow--controller-name review-buffer))))
+    (and (buffer-live-p controller)
+         (eq (buffer-local-value 'magit-treediff-follow--review-buffer controller)
+             review-buffer)
+         controller)))
+
+(defun magit-treediff-follow--navigate (review-buffer file)
+  "Show FILE in REVIEW-BUFFER, selecting its window when visible."
+  (when (buffer-live-p review-buffer)
+    (let ((goto (plist-get (buffer-local-value 'magit-treediff-follow--spec review-buffer)
+                           :goto-file)))
+      (if-let* ((window (get-buffer-window review-buffer)))
+          (progn
+            (with-selected-window window
+              (funcall goto file))
+            (select-window window))
+        (with-current-buffer review-buffer
+          (funcall goto file))))))
+
+(cl-defun magit-treediff-follow (review-buffer &key title files goto-file file-at-point)
+  "Make a treediff tree follow REVIEW-BUFFER, a buffer that renders a diff.
+
+FILES is a list of model plists: (:file PATH [:status STRING] [:summary
+PLIST]), where :summary is (:hunks N :added N :removed N).  GOTO-FILE is
+called with a path, in REVIEW-BUFFER, to move there.  FILE-AT-POINT is
+called in REVIEW-BUFFER and returns the path at point, or nil.  TITLE is
+shown in the tree header.
+
+Calling this again updates the file list; a visible tree re-renders.
+Return the controller buffer."
+  (with-current-buffer review-buffer
+    (setq magit-treediff-follow--spec
+          (list :title title :files files :goto-file goto-file
+                :file-at-point file-at-point)))
+  (let* ((controller (or (magit-treediff-follow-controller review-buffer)
+                         (get-buffer-create
+                          (magit-treediff-follow--controller-name review-buffer))))
+         (directory (buffer-local-value 'default-directory review-buffer)))
+    (with-current-buffer controller
+      (unless (derived-mode-p 'magit-treediff-mode)
+        (magit-treediff-mode))
+      (setq default-directory directory)
+      (setq-local magit-treediff-follow--review-buffer review-buffer)
+      (setq-local magit-treediff-select-file-function
+                  (lambda (file) (magit-treediff-follow--navigate review-buffer file)))
+      (setq-local magit-treediff-quit-function
+                  (lambda () (magit-treediff-follow-close review-buffer)))
+      (setq-local magit-treediff-source-kind 'range)
+      (setq-local magit-treediff-range title)
+      (setq-local magit-treediff--model files)
+      (unless (seq-some (lambda (it) (equal (plist-get it :file) magit-treediff-selected-file))
+                        files)
+        (setq-local magit-treediff-selected-file nil))
+      (when (buffer-live-p magit-treediff--tree-buffer)
+        (magit-treediff--sync-tree)))
+    controller))
+
+(defun magit-treediff-follow-visible-p (review-buffer)
+  "Return non-nil when REVIEW-BUFFER's follow tree is displayed."
+  (when-let* ((controller (magit-treediff-follow-controller review-buffer))
+              (tree (buffer-local-value 'magit-treediff--tree-buffer controller)))
+    (and (buffer-live-p tree) (get-buffer-window tree))))
+
+(defun magit-treediff-follow-show (review-buffer)
+  "Display the follow tree for REVIEW-BUFFER (see `magit-treediff-follow')."
+  (let ((spec (buffer-local-value 'magit-treediff-follow--spec review-buffer)))
+    (unless spec
+      (error "No treediff follow spec for %s" (buffer-name review-buffer)))
+    (let ((controller (apply #'magit-treediff-follow review-buffer spec)))
+      (with-current-buffer controller
+        (magit-treediff--display-tree (magit-treediff--ensure-tree-buffer)))
+      (with-current-buffer review-buffer
+        (add-hook 'post-command-hook #'magit-treediff-follow-sync nil t)
+        (add-hook 'kill-buffer-hook #'magit-treediff-follow--review-killed-h nil t))
+      controller)))
+
+(defun magit-treediff-follow-close (review-buffer)
+  "Close REVIEW-BUFFER's follow tree and controller."
+  (when-let* ((controller (magit-treediff-follow-controller review-buffer)))
+    (let ((tree (buffer-local-value 'magit-treediff--tree-buffer controller)))
+      (when (buffer-live-p tree)
+        (dolist (window (get-buffer-window-list tree nil t))
+          (set-window-dedicated-p window nil)
+          (ignore-errors (delete-window window)))
+        (kill-buffer tree)))
+    (kill-buffer controller))
+  (when (buffer-live-p review-buffer)
+    (with-current-buffer review-buffer
+      (remove-hook 'post-command-hook #'magit-treediff-follow-sync t))))
+
+(defun magit-treediff-follow-toggle (review-buffer)
+  "Toggle REVIEW-BUFFER's follow tree."
+  (if (magit-treediff-follow-visible-p review-buffer)
+      (magit-treediff-follow-close review-buffer)
+    (magit-treediff-follow-show review-buffer)))
+
+(defun magit-treediff-follow--review-killed-h ()
+  (magit-treediff-follow-close (current-buffer)))
+
+(defun magit-treediff-follow-sync ()
+  "Select the file at point of the current review buffer in its follow tree."
+  (when-let* ((controller (magit-treediff-follow-controller (current-buffer)))
+              ((magit-treediff-follow-visible-p (current-buffer)))
+              (fn (plist-get magit-treediff-follow--spec :file-at-point))
+              (file (funcall fn)))
+    (unless (equal file (buffer-local-value 'magit-treediff-selected-file controller))
+      (with-current-buffer controller
+        (setq magit-treediff-selected-file file)
+        (magit-treediff--sync-tree)))))
 
 (provide 'magit-treediff)
 

@@ -1,0 +1,485 @@
+#!/usr/bin/env -S python3 -I
+"""Start, prompt and follow coding tasks.
+
+A task is a git worktree (created by worktrunk) whose agent is a session in
+the Hydra ACP daemon, so it runs whether or not Emacs is open; Emacs, leader
+agents and this command are all clients of the same session.
+
+  bndos-task start --base REF [--repo DIR] [--agent ID] [--mode MODE]
+                   [--model MODEL] [--ticket ID] [--prompt TEXT | --prompt-file FILE]
+                   [--wait] BRANCH
+  bndos-task send TARGET (--prompt TEXT | --prompt-file FILE) [--repo DIR] [--wait]
+  bndos-task status [TARGET] [--repo DIR] [--wait STATES|done] [--timeout SECONDS]
+
+TARGET is a branch, a worktree directory or a session id.  --agent is a
+Hydra agent id, the same as the agent-shell config identifier (claude-code,
+codex, ...).  --mode / --model default per agent (Claude: auto; Codex: agent,
+i.e. auto review).
+
+After sending a prompt, start and send leave a small background process
+attached to the session until that turn ends, so a permission request the
+agent makes stays open for you (in Emacs) instead of being refused.  --wait
+stays in the foreground until the turn ends instead.
+
+Nothing here commits, pushes, merges or deletes; the worktree is created
+and its parent, session and agent are recorded in git config
+(branch.<branch>.bndos-*).  Output is JSON on stdout.
+
+Exit codes: 0 ok, 1 failure or unknown target, 2 --wait timed out,
+3 the Hydra daemon can't be reached.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import select
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+HYDRA = os.environ.get("BNDOS_TASK_HYDRA", "hydra-acp")
+DEFAULT_AGENT = os.environ.get("BNDOS_TASK_AGENT", "claude-code")
+DEFAULT_MODES = {"claude-code": "auto", "codex": "agent"}
+STATES = ("working", "waiting", "idle", "stopped", "missing", "none")
+
+
+class Failure(Exception):
+    def __init__(self, message, code=1, **extra):
+        super().__init__(message)
+        self.code, self.extra = code, extra
+
+
+def state_dir():
+    if os.environ.get("BNDOS_TASK_STATE_DIR"):
+        return os.environ["BNDOS_TASK_STATE_DIR"]
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(base, "bndos-tasks")
+
+
+def now_ms():
+    return int(time.time() * 1000)
+
+
+def iso(ms):
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(ms / 1000)) if ms else None
+
+
+# ---------------------------------------------------------------- git
+
+def git(directory, *args, check=True):
+    proc = subprocess.run(["git", "--no-optional-locks", "-C", directory, *args],
+                          capture_output=True, text=True)
+    if check and proc.returncode != 0:
+        raise Failure(f"git {' '.join(args)}: {proc.stderr.strip() or proc.returncode}")
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def set_task_config(directory, branch, **values):
+    for name, value in values.items():
+        if value is not None:
+            git(directory, "config", f"branch.{branch}.bndos-{name}", str(value))
+
+
+def task_configs(directory):
+    """{branch: {name: value}} for every branch.<b>.bndos-<name> in the repository."""
+    out = git(directory, "config", "--null", "--get-regexp", r"^branch\..*\.bndos-", check=False) or ""
+    configs = {}
+    for entry in filter(None, out.split("\0")):
+        key, _, value = entry.partition("\n")
+        branch, _, name = key[len("branch."):].rpartition(".bndos-")
+        configs.setdefault(branch, {})[name] = value
+    return configs
+
+
+def worktrees(repo):
+    """REPO's worktrees as dicts with path and branch, the main one first."""
+    out = git(repo, "worktree", "list", "--porcelain")
+    trees, current = [], {}
+    for line in out.splitlines() + [""]:
+        if not line:
+            if current:
+                trees.append(current)
+            current = {}
+        elif line.startswith("worktree "):
+            current["path"] = line[len("worktree "):]
+        elif line.startswith("branch refs/heads/"):
+            current["branch"] = line[len("branch refs/heads/"):]
+    return trees
+
+
+def common_dir(directory):
+    return os.path.realpath(git(directory, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+
+
+def task_key(common, worktree):
+    """Emacs's task key (bndos-task-key): its review record's file name."""
+    text = os.path.realpath(common).rstrip("/") + "\n" + os.path.realpath(worktree).rstrip("/")
+    return hashlib.sha1(text.encode()).hexdigest()[:16]
+
+
+def review_summary(common, worktree):
+    path = os.path.join(state_dir(), "tasks", task_key(common, worktree) + ".json")
+    try:
+        with open(path) as f:
+            record = json.load(f)
+    except (OSError, ValueError):
+        return None, 0
+    threads = record.get("threads") or []
+    return ((record.get("review") or {}).get("state"),
+            sum(1 for t in threads if t.get("state") != "resolved"))
+
+
+# ---------------------------------------------------------------- Hydra REST
+
+def hydra_home():
+    return os.environ.get("HYDRA_ACP_HOME") or os.path.expanduser("~/.hydra-acp")
+
+
+def hydra_get(path, start_daemon=True):
+    home = hydra_home()
+    try:
+        with open(os.path.join(home, "config.json")) as f:
+            daemon = json.load(f).get("daemon") or {}
+    except (OSError, ValueError):
+        daemon = {}
+    url = f"http://{daemon.get('host', '127.0.0.1')}:{daemon.get('port', 55514)}{path}"
+    try:
+        with open(os.path.join(home, "auth-token")) as f:
+            token = f.read().strip()
+        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.load(response)
+    except (OSError, urllib.error.URLError) as err:
+        if start_daemon:
+            # Like the shim, bring the daemon up on first use (it restores
+            # sessions from disk), then ask once more.
+            subprocess.run([HYDRA, "daemon", "start"], capture_output=True, env=hydra_env())
+            return hydra_get(path, start_daemon=False)
+        raise Failure(f"can't reach the Hydra daemon at {url}: {err}", code=3)
+
+
+def hydra_env():
+    return dict(os.environ, NO_UPDATE_NOTIFIER="1")
+
+
+def hydra_sessions():
+    return {s["sessionId"]: s for s in hydra_get("/v1/sessions?includeNonInteractive=1").get("sessions", [])}
+
+
+# ---------------------------------------------------------------- ACP client
+
+class AcpError(Exception):
+    pass
+
+
+class Acp:
+    """A JSON-RPC client over a Hydra shim's stdio.  No threads, so it survives fork."""
+
+    def __init__(self, argv, cwd, log_path):
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        self.log_path = log_path
+        log = open(log_path, "ab")
+        # Its own session, so a leader's tool runner killing our process
+        # group doesn't take the connection with it.
+        self.proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=log, bufsize=0, env=hydra_env(), start_new_session=True)
+        log.close()
+        self.buffer, self.next_id = b"", 0
+
+    def send(self, obj):
+        self.proc.stdin.write((json.dumps(obj) + "\n").encode())
+
+    def request(self, method, params):
+        self.next_id += 1
+        self.send({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params})
+        return self.next_id
+
+    def _message(self, deadline):
+        fd = self.proc.stdout.fileno()
+        while b"\n" not in self.buffer:
+            wait = None if deadline is None else max(0, deadline - time.time())
+            if not select.select([fd], [], [], wait)[0]:
+                return None
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                raise EOFError("the Hydra shim exited")
+            self.buffer += chunk
+        line, self.buffer = self.buffer.split(b"\n", 1)
+        return json.loads(line) if line.strip() else {}
+
+    def wait(self, rid, timeout=None):
+        deadline = None if timeout is None else time.time() + timeout
+        while True:
+            msg = self._message(deadline)
+            if msg is None:
+                raise AcpError("timed out waiting for the agent")
+            if "method" in msg and "id" in msg and msg["method"] != "session/request_permission":
+                # Permission requests are left for an interactive client to
+                # answer; nothing else is expected from the daemon.
+                self.send({"jsonrpc": "2.0", "id": msg["id"],
+                           "error": {"code": -32601, "message": "not supported by bndos-task"}})
+            elif msg.get("id") == rid and "method" not in msg:
+                if "error" in msg:
+                    raise AcpError(msg["error"].get("message") or json.dumps(msg["error"]))
+                return msg.get("result") or {}
+
+    def call(self, method, params, timeout=120):
+        return self.wait(self.request(method, params), timeout)
+
+    def stderr_tail(self):
+        try:
+            with open(self.log_path, "rb") as f:
+                return f.read()[-800:].decode(errors="replace").strip()
+        except OSError:
+            return ""
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+            self.proc.wait(timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            self.proc.kill()
+
+
+def initialize(acp):
+    acp.call("initialize", {"protocolVersion": 1, "clientCapabilities": {},
+                            "clientInfo": {"name": "bndos-task", "version": "1"}})
+
+
+def prompt_and_follow(acp, session_id, text, wait, result):
+    """Send TEXT, print RESULT, then follow the turn (in the foreground with WAIT)."""
+    rid = acp.request("session/prompt", {"sessionId": session_id,
+                                         "prompt": [{"type": "text", "text": text}]})
+    if wait:
+        print("bndos-task: waiting for the turn to end (permission requests are answered in Emacs)",
+              file=sys.stderr)
+        result["stop_reason"] = acp.wait(rid).get("stopReason")
+        emit(result)
+        acp.close()
+        return
+    emit(result)
+    sys.stdout.flush()
+    ready_r, ready_w = os.pipe()
+    if os.fork():
+        os.close(ready_w)
+        os.read(ready_r, 1)  # the follower has left our process group
+        os._exit(0)
+    os.close(ready_r)
+    os.setsid()
+    null = os.open(os.devnull, os.O_RDWR)
+    for fd in (0, 1, 2):
+        os.dup2(null, fd)
+    os.write(ready_w, b"x")
+    os.close(ready_w)
+    try:
+        acp.wait(rid)
+    except (EOFError, AcpError, OSError):
+        pass
+    acp.close()
+    os._exit(0)
+
+
+# ---------------------------------------------------------------- commands
+
+def emit(obj):
+    print(json.dumps(obj, indent=1))
+
+
+def read_prompt(args):
+    if args.prompt_file:
+        with open(args.prompt_file) as f:
+            return f.read()
+    return args.prompt or ""
+
+
+def cmd_start(args):
+    repo = git(args.repo, "rev-parse", "--show-toplevel")
+    prompt = read_prompt(args)
+    agent = args.agent or DEFAULT_AGENT
+    mode = args.mode if args.mode is not None else DEFAULT_MODES.get(agent)
+    proc = subprocess.run(["wt", "switch", "--create", args.branch, "--base", args.base,
+                           "--no-cd", "--format", "json"], cwd=repo, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise Failure(f"wt switch --create: {(proc.stderr or proc.stdout).strip()}")
+    worktree = os.path.realpath(json.loads(proc.stdout)["path"])
+    set_task_config(worktree, args.branch, base=args.base, agent=agent, ticket=args.ticket)
+    result = {"protocol": "bndos-task/1", "status": "started", "branch": args.branch,
+              "worktree": worktree, "parent": args.base, "agent": agent, "ticket": args.ticket,
+              "warnings": []}
+    log = os.path.join(state_dir(), "logs", f"{os.path.basename(worktree)}.log")
+    acp = Acp([HYDRA, "launch", agent], worktree, log)
+    try:
+        initialize(acp)
+        project = os.path.basename(repo)
+        session = acp.call("session/new", {"cwd": worktree, "mcpServers": [],
+                                           "_meta": {"hydra-acp": {"title": f"{project}/{args.branch}"}}})
+    except (AcpError, EOFError) as err:
+        acp.close()
+        raise Failure(f"couldn't start a {agent} session: {err}", worktree=worktree,
+                      log=acp.stderr_tail())
+    session_id = session["sessionId"]
+    set_task_config(worktree, args.branch, session=session_id)
+    result["session_id"] = session_id
+    current_mode = (session.get("modes") or {}).get("currentModeId")
+    if mode and mode != current_mode:
+        try:
+            acp.call("session/set_mode", {"sessionId": session_id, "modeId": mode})
+            current_mode = mode
+        except AcpError as err:
+            result["warnings"].append(f"mode {mode} refused ({err}); the agent is in {current_mode}")
+    current_model = (session.get("models") or {}).get("currentModelId")
+    if args.model and args.model != current_model:
+        try:
+            acp.call("session/set_model", {"sessionId": session_id, "modelId": args.model})
+            current_model = args.model
+        except AcpError as err:
+            result["warnings"].append(f"model {args.model} refused ({err}); using {current_model}")
+    result.update(mode=current_mode, requested_mode=mode, model=current_model)
+    if not prompt.strip():
+        acp.close()
+        emit(result)
+        return
+    set_task_config(worktree, args.branch, prompted=now_ms())
+    prompt_and_follow(acp, session_id, prompt, args.wait, result)
+
+
+def cmd_send(args):
+    task = resolve(args.target, args.repo)
+    if not task.get("session_id"):
+        raise Failure(f"{args.target} has no session")
+    prompt = read_prompt(args)
+    if not prompt.strip():
+        raise Failure("nothing to send")
+    log = os.path.join(state_dir(), "logs", f"{os.path.basename(task['worktree'])}.log")
+    acp = Acp([HYDRA, "acp"], task["worktree"], log)
+    try:
+        initialize(acp)
+        acp.call("session/attach", {"sessionId": task["session_id"], "historyPolicy": "none"})
+    except (AcpError, EOFError) as err:
+        acp.close()
+        raise Failure(f"couldn't attach to {task['session_id']}: {err}", log=acp.stderr_tail())
+    set_task_config(task["worktree"], task["branch"], prompted=now_ms())
+    result = {"protocol": "bndos-task/1", "status": "sent", "branch": task["branch"],
+              "worktree": task["worktree"], "session_id": task["session_id"],
+              "queued": task["state"] in ("working", "waiting")}
+    prompt_and_follow(acp, task["session_id"], prompt, args.wait, result)
+
+
+def describe(repo, tree, config, sessions, common):
+    session_id = config.get("session")
+    session = sessions.get(session_id) if session_id else None
+    if not session_id:
+        state = "none"
+    elif not session:
+        state = "missing"
+    elif session.get("busy"):
+        state = "waiting" if session.get("awaitingInput") else "working"
+    else:
+        state = "idle" if session.get("status") == "warm" else "stopped"
+    prompted = int(config.get("prompted") or 0) or None
+    ended = session.get("lastTurnEndedAt") if session else None
+    review, unresolved = review_summary(common, tree["path"])
+    return {"protocol": "bndos-task-status/2", "branch": tree.get("branch"),
+            "worktree": os.path.realpath(tree["path"]), "repo": repo,
+            "parent": config.get("base"), "ticket": config.get("ticket"),
+            "agent": config.get("agent"), "session_id": session_id, "state": state,
+            "done": bool(state in ("idle", "stopped") and prompted and ended and ended >= prompted),
+            "model": session.get("currentModel") if session else None,
+            "title": session.get("title") if session else None,
+            "attached_clients": session.get("attachedClients") if session else 0,
+            "prompted_at": iso(prompted), "last_turn_ended_at": iso(ended),
+            "review": review, "unresolved_threads": unresolved}
+
+
+def all_tasks(repo):
+    """Every worktree of REPO but the main one, with its task state."""
+    main, *trees = worktrees(git(repo, "rev-parse", "--show-toplevel"))
+    common = common_dir(main["path"])
+    configs = task_configs(main["path"])
+    # Only ask Hydra (possibly starting its daemon) when there's a session.
+    sessions = hydra_sessions() if any("session" in c for c in configs.values()) else {}
+    return [describe(main["path"], tree, configs.get(tree.get("branch"), {}), sessions, common)
+            for tree in trees]
+
+
+def resolve(target, repo):
+    path = os.path.realpath(target) if os.path.isdir(target) else None
+    if path:
+        repo = path
+    matches = [t for t in all_tasks(repo)
+               if target in (t["branch"], t["session_id"]) or t["worktree"] == path]
+    if len(matches) != 1:
+        raise Failure(f"{'no' if not matches else 'more than one'} task matches {target}")
+    return matches[0]
+
+
+def cmd_status(args):
+    if not args.wait:
+        emit(resolve(args.target, args.repo) if args.target else all_tasks(args.repo))
+        return
+    if not args.target:
+        raise Failure("--wait needs a target")
+    wanted = set(args.wait.split(","))
+    unknown = wanted - set(STATES) - {"done"}
+    if unknown:
+        raise Failure(f"unknown state {', '.join(sorted(unknown))}; use {', '.join(STATES)} or done")
+    deadline = time.time() + args.timeout
+    while True:
+        task = resolve(args.target, args.repo)
+        if task["state"] in wanted or ("done" in wanted and task["done"]):
+            emit(task)
+            return
+        if time.time() > deadline:
+            raise Failure(f"{args.target} is still {task['state']} after {args.timeout}s", code=2, task=task)
+        time.sleep(2)
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="bndos-task", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    def prompt_args(p):
+        group = p.add_mutually_exclusive_group()
+        group.add_argument("--prompt")
+        group.add_argument("--prompt-file")
+        p.add_argument("--wait", action="store_true", help="stay until the turn ends")
+
+    start = sub.add_parser("start", help="create a worktree and start its agent")
+    start.add_argument("branch")
+    start.add_argument("--repo", default=os.getcwd())
+    start.add_argument("--base", required=True)
+    start.add_argument("--agent")
+    start.add_argument("--mode")
+    start.add_argument("--model")
+    start.add_argument("--ticket")
+    prompt_args(start)
+    start.set_defaults(fn=cmd_start)
+
+    send = sub.add_parser("send", help="send a task's agent a prompt")
+    send.add_argument("target")
+    send.add_argument("--repo", default=os.getcwd())
+    prompt_args(send)
+    send.set_defaults(fn=cmd_send)
+
+    status = sub.add_parser("status", help="report or wait for task state")
+    status.add_argument("target", nargs="?")
+    status.add_argument("--repo", default=os.getcwd())
+    status.add_argument("--wait", metavar="STATES|done")
+    status.add_argument("--timeout", type=int, default=1800)
+    status.set_defaults(fn=cmd_status)
+
+    args = parser.parse_args()
+    try:
+        args.fn(args)
+    except Failure as err:
+        emit({"protocol": "bndos-task/1", "status": "failed", "error": str(err), **err.extra})
+        print(f"bndos-task: {err}", file=sys.stderr)
+        sys.exit(err.code)
+
+
+if __name__ == "__main__":
+    main()

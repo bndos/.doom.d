@@ -98,4 +98,5 @@
        markdown   ; inline markdown/LaTeX rendering, xwidget preview
        ein        ; managed Jupyter server and notebook UX (needs markdown)
        org        ; org, babel, mermaid, export
-       ai)        ; copilot, gptel, agent-shell
+       ai         ; copilot, gptel, agent-shell
+       tasks)     ; worktrunk tasks, Hydra agent sessions, Hutch review (needs git, ai)
