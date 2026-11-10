@@ -1,373 +1,46 @@
-#+title: bndos tasks: worktrees, agent-shell workers, Hutch review
+#+title: bndos tasks
 
-Emacs as the control plane for parallel coding tasks.  Each task is a git
-worktree (created by worktrunk) whose agent is a session in the [[https://github.com/smagnuso/hydra-acp][Hydra ACP]]
-daemon, so it runs whether Emacs is open or not, and Emacs, leader agents
-and the command line are all clients of the same session.  Opening a task
-puts you in its Doom workspace with a Hutch review buffer, a following file
-tree and an agent-shell attached to the session; you discuss and request
-revisions from the same conversation until you approve.  Nothing here
-commits, pushes, opens PRs, merges or deletes worktrees.
+Parallel coding tasks: each task is a git worktree (worktrunk) whose agent is
+a session in the [[https://github.com/smagnuso/hydra-acp][Hydra ACP]] daemon, reviewed in diff-review.  Emacs, leader
+agents and =bin/bndos-task= are all clients of the same session.  Nothing
+here commits, pushes, merges or deletes worktrees.
 
-* Setup
-
-#+begin_src sh
-npm install -g --prefix ~/.local @hydra-acp/cli@0.1.216   # hydra-acp on PATH
-#+end_src
-
-=~/.hydra-acp/config.json= maps Hydra agent ids to the same ACP adapters
-agent-shell uses, named like agent-shell's config identifiers:
+Needs =hydra-acp= and =wt= on =PATH=, and =~/.hydra-acp/config.json= mapping
+agent ids to the ACP adapters agent-shell uses:
 
 #+begin_src json
 {"agents": {"claude-code": {"command": "claude-agent-acp"},
             "codex": {"command": "codex-acp"}}}
 #+end_src
 
-Other ids (=opencode=, ...) resolve through Hydra's registry.  The daemon
-starts itself on first use (=hydra-acp daemon status= / =stop=).  Hydra is
-experimental; it's pinned to the version this was tested with.
+* Use
 
-* Pieces
+| Key         | Command                  |                                       |
+|-------------+--------------------------+---------------------------------------|
+| =SPC g w w= | =bndos/task-dashboard=   | tasks of the known projects           |
+| =SPC g w s= | =bndos/task-select=      | open a task's review                  |
+| =SPC g w n= | =bndos/task-start=       | new worktree and agent                |
+| =SPC g w r= | =bndos/task-review-here= | review the worktree you're in         |
+| =SPC g w a= | =bndos/task-agent-here=  | its agent-shell                       |
+| =SPC g w i= | =bndos/task-adopt=       | adopt an earlier conversation         |
+| =SPC g w b= | =bndos/task-set-parent=  | record the parent branch              |
+| =SPC g w p= | =bndos/task-add-project= | add a repository                      |
 
-| Library                 | Role                                                         |
-|-------------------------+--------------------------------------------------------------|
-| =bndos-proc=            | async subprocesses: argv only, explicit cwd, stderr, cancel  |
-| =bndos-task-wt=         | worktrunk bridge (=wt list= / =wt switch --create=, JSON)    |
-| =bndos-task-store=      | durable JSON task records (XDG state dir)                    |
-| =bndos-task-git=        | identity, recorded parent, merge-base, snapshots, diffs      |
-| =bndos-task-review=     | per-task review buffer (=hutch-mode=), threads, scopes, tree |
-| =bndos-task-agent=      | agent-shell attached to the task's session; requests, replies |
-| =bndos-task-dashboard=  | dashboard, selector, launcher                                |
-| =bin/bndos-task=        | start / send / status, for Emacs and leader agents alike     |
-
-Built on the git module's vendored Hutch (=git/lisp/hutch=, see its
-=VENDORED.org=) and =magit-treediff-follow= (shared with the pr-review tree).
-
-* Daily use
-
-| Key         | Command                 |                                                   |
-|-------------+-------------------------+---------------------------------------------------|
-| =SPC g w w= | =bndos/task-dashboard=  | all tasks in known projects                       |
-| =SPC g w s= | =bndos/task-select=     | pick a task (completing-read) and open its review |
-| =SPC g w n= | =bndos/task-start=      | new worktree + agent (prompt in a draft)          |
-| =SPC g w r= | =bndos/task-review-here= | review the worktree you're in                    |
-| =SPC g w a= | =bndos/task-agent-here=  | the agent-shell of the worktree you're in        |
-| =SPC g w i= | =bndos/task-adopt=       | adopt an earlier conversation as the task's agent |
-| =SPC g w b= | =bndos/task-set-parent=  | record the parent branch                          |
-| =SPC g w p= | =bndos/task-add-project= | list another repository's worktrees               |
-
-** Dashboard
-
-One tree per project, each task under its recorded parent, so a stack reads
-top to bottom:
-
-#+begin_example
-ordejo  /mnt/bndo-data/Projects/ordejo
-  main
-  ├─ docs-dev-notes        ✓ done  1 to verify
-  │  └─ docs-contributing  ⚠ needs permission
-  └─ fix-login             ● working  2 open
-#+end_example
-
-A task's line is its branch, its agent (=● working=, =⚠ needs permission=,
-=✓ done= (finished its last prompt), =○ idle=, =✗ session gone=, =· no agent=)
-and what needs you: threads to verify or still open, a request in flight,
-approval.  =TAB= shows everything else: parent, worktree, changes (=S=
-staged, =M= modified, =U= untracked, =!= conflicts), agent and session, mode,
-model, last turn, review state, thread counts, ticket.
-
-=RET= review in the task's workspace · =TAB= details · =o= workspace only ·
-=v= (=C-c C-o=) the task's agent-shell · =i= (=C-c C-i=) send an instruction ·
-=+= (=C-c C-n=) start a task · =g r= (=C-c C-r=) refresh.
-
-Like dired, it refreshes on =g r= (and after things you do from it);
-attached shells update their task live.  Every worktree of a known project
-is listed, started here, by a leader or not at all; tasks whose worktree
-disappeared stay (=worktree gone=) while they have discussion or a session.
-
-** Review buffer
-
-The buffer is in evil's normal state (=ESC=, =v= / =V= selections, counts as
-usual).  Actions are on =C-c C-<key>=, like pr-review's, so they work the
-same on a selected region and never shadow navigation.
-
-The diff's code is coloured by each file's major mode (as in pr-review;
-=bndos-task-review-syntax-highlight=), and every unresolved thread is shown
-as a block under its line: state, author, title, the comment wrapped to the
-window, a suggested edit, and the latest replies.  Threads on a whole file
-or on lines outside the diff sit under the file's heading.  The Discussion
-section groups all threads by state (resolved folded).
-
-| Key                    | Action                                                            |
-|------------------------+-------------------------------------------------------------------|
-| =g r= / =C-c C-r=      | refresh diff, threads, tree                                       |
-| =RET= / =g f= / =C-c C-f= | visit the worktree file (or the base revision for removed lines) |
-| =M-RET=                | the worktree file at this line, in the other window (like magit's) |
-| =C-c C-c=              | comment on the region / line / hunk / file; on a thread, reply    |
-| =C-c C-s=              | send threads to the agent: marked, at point, or all open (asks)   |
-| =C-c C-q=              | ask the agent about the region / line (a thread, discussion only) |
-| =C-c C-i=              | instruction to the agent (it may edit)                            |
-| =C-c C-y=              | put the region / line / file in the agent-shell's input, unsent   |
-| =]t= / =[t=            | next / previous thread in the diff (yours, the agent's, AI's)     |
-| =C-c C-j=              | pick any thread from a list (open first, resolved too) and go there |
-| =C-c C-p=              | apply the suggested edit of the thread at point                   |
-| =C-c C-o=              | open the task's agent-shell                                       |
-| =C-c C-t=              | mark the thread at point for =C-c C-s=                            |
-| =C-c C-d= / =C-c C-u=  | resolve / reopen the thread at point                              |
-| =C-c C-l= / =C-c C-n=  | choose scope / toggle the latest iteration                        |
-| =C-c C-b=              | change the recorded parent                                        |
-| =g t= / =C-c C-e=      | toggle the following file tree                                    |
-| =C-c C-a=              | approve (records it; doesn't publish)                             |
-| =C-c C-h=              | AI review by a new agent session, or resume a paused one (below)  |
-| =C-c C-w=              | AI review with instructions edited for this one                   |
-| =C-c C-k=              | cancel a running or paused AI review                              |
-
-You keep your place: refreshes and agent updates leave point, column and
-scroll where they were, picking a file in the tree returns to where you last
-were in it, and those jumps (and =]t= / =[t=) are recorded, so =C-o= goes back.
-
-=C-c C-h= has an agent review the whole task: it asks for the agent (any
-agent-shell config, so a different harness from the worker's is fine), then
-starts a new conversation in a read-only mode (Claude =plan=, Codex
-=read-only=), with no memory of the worker's, and offers that session's
-models in agent-shell's picker (=C-g= keeps the agent's default).  Each
-finding becomes a thread by =ai:<agent>= (kind =finding=), exactly like your
-comments: shown inline, reached with =]t= / =C-c C-j=, sent to the worker with
-=C-c C-s= (with its suggested edit), replied to, resolved.  =C-c C-p= applies a
-suggested edit yourself (it must still match the file exactly once; Hutch's
-gates already turn a suggestion that doesn't match into a plain comment).
-The header shows the review's progress; the reviewer's agent-shell stays
-open to ask it about a finding.
-
-The reviewer's prompt can carry your own context, ahead of the required
-output format (which a skill with its own format doesn't override):
-
-- =bndos-task-review-ai-instructions=: text for every review, e.g. "Use the
-  review skill."  The reviewer is a normal agent session in the worktree, so
-  Claude loads your user and project skills and =CLAUDE.md= as usual; name a
-  skill and it uses it.  Codex has its own (=AGENTS.md=, plugins).
-- the project's =.bndos/review.md= (=bndos-task-review-ai-instructions-file=),
-  from the task's worktree or else the main checkout, added after it.
-- the task's brief: its ticket and the first prompt =bndos-task start=
-  sent, given as the change's goal rather than as instructions
-  (=bndos-task-review-ai-include-brief=).
-
-=C-c C-w= (or =C-c C-h= with a prefix, =SPC u= under evil) opens the
-instructions in a draft first, to change them for this review only (an
-empty draft sends none).
-
-Interrupting the reviewer (=C-c C-c= in its agent-shell), or a reply
-without the findings block, pauses the review instead of failing it: the
-header says why.  Your next message in the reviewer's shell resumes it, and
-so does =C-c C-h=, which asks it to finish; the first reply with the block
-completes the review.
-
-Drafts open in a small buffer: =C-c C-c= submits, =C-c C-k= discards.
-
-* Existing worktrees
-
-Every worktree of a known project is a task, however it was made, so
-bringing in a project with worktrees in progress is:
-
-1. Register it: =SPC g w p= (or open the dashboard from a buffer in it).
-2. Record each branch's parent: =SPC g w b= in the worktree, =C-c C-b= on its
-   dashboard line, or =git config branch.<branch>.bndos-base <parent>=.  Until
-   then it sits under "no recorded parent" and its review offers candidates.
-3. Optionally adopt the conversation an agent already had there: =SPC g w i=
-   (=C-c C-a= on the dashboard).  Pick the agent, then one of its
-   conversations in that worktree (title and last update; nothing is picked
-   for you).  It becomes the task's session, through Hydra, and =v= / leaders
-   attach to it.  Close any agent-shell still running that conversation
-   directly first, or two agents will share it.
-
-From a shell: =bndos-task sessions <branch> --agent claude-code= lists them,
-=bndos-task adopt <branch> --agent claude-code --session <id> [--base REF]=
-adopts one (=--replace= to change an adopted session).  Listing runs the
-agent's adapter as configured in Hydra's =config.json=.
-
-* Agents
-
-A task's agent is a Hydra session started by =bin/bndos-task start=: Emacs
-(=SPC g w n=) and leader agents use the same command.  It creates the
-worktree, records the parent, agent and session id in git config
-(=branch.<branch>.bndos-*=), puts the session in its mode and model and sends
-the prompt.  =v= on the dashboard (=C-c C-o= in the review, or sending a
-review request) attaches an agent-shell to
-that session through Hydra's shim (=hydra-acp launch AGENT=, resuming the
-recorded id), replaying the conversation; several clients can be attached
-at once.  If the session can't be loaded, the shell starts a conversation
-clearly labelled NEW, recorded in git config and in the task (the old id is
-kept under =:previous-session-ids=).  Only one review request per task is in
-flight, and a busy agent is refused.
-
-Sessions outlive Emacs.  Hydra shuts an unattended session's agent down
-after an hour idle (=daemon.sessionIdleTimeoutSeconds=) and revives it,
-reloading the conversation and restoring its mode and model, when something
-attaches or prompts it.
-
-The agent is any Hydra agent id; =bndos/task-start= offers agent-shell's
-configs (whose identifiers are the ids above), default
-=bndos-task-agent-default-config=.
-
-** Permissions
-
-A permission request goes to every attached client; the first answer wins
-and the others are told.  =agent-shell-permission-responder-function= and
-agent-shell's prompts work as usual when Emacs is attached.  After sending
-a prompt, =bndos-task= leaves a small process attached until that turn ends,
-so a request made while you're away stays open until you open the task and
-answer it (the dashboard shows "waiting for permission").  With nothing
-attached at all Hydra refuses the request, which the agent sees as a
-denial: don't kill those processes mid-turn.
-
-** Mode and model
-
-Workers are separate sessions, not subagents: they don't inherit a mode from
-the leader.  =bndos-task start= sets the mode before the first prompt:
-=claude-code= -> =auto=, =codex= -> =agent= (auto review) unless =--mode=
-(or the =SPC g w n= prompt) says otherwise, and =--model= if given.
-=SPC g w n= offers the agent's modes and models as lists:
-=bndos-task models --agent ID= reports them, from what =start= saved or,
-the first time, by asking the agent's adapter for a session it never
-prompts (=--refresh= asks again).  Mode
-ids are the agent's own: Claude has =default=, =acceptEdits=, =plan=, =auto=,
-=bypassPermissions=; Codex has =read-only=, =workspace-write=, =agent=,
-=agent-full-access=.  An id the agent refuses leaves it in its default with
-a warning, and the worker still gets its prompt.  Attaching never changes
-the mode; switch it in the agent-shell as usual.
-
-Workers aren't sandboxed beyond what the agent's mode enforces: a worktree is
-just a directory.
-
-* Leader agents
-
-A leader (any agent with a shell) drives tasks with =bin/bndos-task=; Emacs
-doesn't need to be running:
-
-#+begin_src sh
-bin=~/.config/doom/modules/bndos/tasks/bin
-$bin/bndos-task start --repo /path/to/repo --base main --ticket gt-123 \
-  --prompt-file task.md my-branch          # returns once the prompt is sent
-$bin/bndos-task status --wait done --timeout 1800 my-branch
-$bin/bndos-task send my-branch --prompt "also handle the empty case"
-$bin/bndos-task status                     # every worktree of the repo (JSON)
-#+end_src
-
-=start= also takes =--agent=, =--mode=, =--model= (=bndos-task models --agent
-ID= lists what they accept); =start= and =send= take
-=--wait= to stay until the turn ends.  Worktrunk hooks are never
-auto-approved: a repository with unapproved hooks fails with worktrunk's
-message until you run =wt config approvals add= there.
-
-Each status has =state= (=working=, =waiting= for a permission, =idle=,
-=stopped= (revives on use), =missing=, =none=), =done= (idle with its last turn
-ended after its last prompt from =bndos-task=), =parent=, =agent=, =model=,
-=session_id=, =attached_clients=, =last_turn_ended_at=, =ticket=, and the
-review state and unresolved thread count from Emacs's record.  =--wait=
-takes a comma list of states or =done=.  Exit codes: 0 ok, 1 failure or
-unknown target, 2 timeout, 3 the Hydra daemon can't be reached.
-
-Stacked worktrees, for example:
-
-#+begin_src sh
-bndos-task start --base main    --prompt-file a.md layer-a
-bndos-task status --wait done layer-a       # A has committed its work
-bndos-task start --base layer-a --prompt-file b.md layer-b
-#+end_src
-
-A layer branches from its parent's commits at creation, so ask each worker
-to commit before starting the next layer.  Later revisions to a lower layer
-reach the layers above it only when you rebase them.
-
-* Scopes
-
-The parent is recorded when the task is created (=git config
-branch.<branch>.bndos-base=), so a task stacked on another task is compared
-with that task, not with =main=; =b= changes it after a restack.  The
-merge-base is resolved explicitly and shown.  Worktrees without a recorded
-parent (or whose parent was deleted) show candidates; nothing is picked for
-you.
-
-| Scope       | Compares                                                               |
-|-------------+------------------------------------------------------------------------|
-| Whole task  | merge-base -> worktree snapshot (commits, staged, unstaged, untracked) |
-| Committed   | merge-base -> HEAD                                                     |
-| Uncommitted | HEAD -> worktree                                                       |
-| Staged      | HEAD -> index                                                          |
-| Unstaged    | index -> worktree, including untracked                                 |
-| Iteration   | snapshot taken when the last revision was requested -> worktree        |
-
-Snapshots are trees built through temporary index copies, so untracked
-(non-ignored) files are included without touching your index, working tree
-or refs; background git calls use =--no-optional-locks=.
-
-* Discussion and replies
-
-Thread states: =open= -> =sent= -> =addressed= (the agent's report) ->
-=resolved= (you).  =R= resolves, =O= reopens; "delegate" on an implement
-submission lets an =addressed= report resolve directly.  Staleness is separate:
-after each refresh anchors are re-found by text and context; moved lines are
-followed, vanished or ambiguous ones marked =[stale]= and kept.  These are not
-Hutch's suggestion states.
-
-Each request carries =[bndos-review request R · task K · snapshot T]= and asks
-the agent to end with:
-
-#+begin_src json
-```bndos-review
-{"protocol": "bndos-review/1", "task": "K", "request": "R", "snapshot": "T",
- "responses": [{"comment": "c-...", "status": "addressed", "body": "...",
-                "files": ["path"], "tests": ["command"]}]}
-```
-#+end_src
-
-=status= is =addressed= / =not-addressed= (implement requests only),
-=answered= or =needs-info=.  Only a block matching the task, request, snapshot
-and submitted comment ids is applied; otherwise the request is
-=invalid-response= or =no-response= and its threads reopen.  Unanswered ids
-reopen (=partial=); cancelled turns and closed shells reopen too.  A
-discussion-only request that changes the worktree gets flagged.
+A review is diff-review's, with the agent flow on =C-c C-<key>= in the
+overview and under =C-c _= in files; =C-h m= lists them.  Line comments are
+made in a file's diff view (=g==, =gC=).  =bin/bndos-task --help= covers the
+command line.
 
 * Data
 
-| What                         | Where                                                         |
-|------------------------------+---------------------------------------------------------------|
-| task records (JSON, no Lisp) | =$XDG_STATE_HOME/bndos-tasks/tasks/<key>.json= (=~/.local/state/…=) |
-| task briefs (first prompt)   | =…/briefs/<key>.md=                                           |
-| agents' models and modes     | =…/agents/<agent>.json=                                       |
-| Hydra shim logs              | =…/logs/<worktree>.log=                                       |
-| known projects               | =…/projects.json=                                             |
-| parent, agent, session, ticket | =git config branch.<branch>.bndos-{base,agent,session,ticket}= |
-| sessions and transcripts     | Hydra's =~/.hydra-acp/= (=hydra-acp session ...=)              |
-| Hutch's AI cache (upstream)  | =<gitdir>/hutch/cache-*.eld=                                  |
-
-=<key>= hashes the truenames of the git common dir and the worktree.  Change
-the root with =bndos-task-store-directory=.  Old iteration snapshots are loose
-git objects that =git gc= may eventually prune (that scope then says so).
+| What                              | Where                                            |
+|-----------------------------------+--------------------------------------------------|
+| threads, viewed marks, scope      | =<common git dir>/review/<branch>.json=          |
+| task records, briefs, agents      | =$XDG_STATE_HOME/bndos-tasks/=                   |
+| parent, agent, session, ticket    | =git config branch.<branch>.bndos-*=             |
+| sessions and transcripts          | Hydra's =~/.hydra-acp/=                          |
 
 * Tests
 
-=tests/tasks/run-tests.sh= byte-compiles everything and runs the ERT suites in
-=emacs -Q --batch= against Doom's packages: temporary repositories, the real
-=wt=, stubbed shells, and the real =bin/bndos-task= and agent-shell against
-=tests/tasks/stub-acp-agent.py= behind a private Hydra daemon (own home and
-port): start, attach, modes, a permission request waiting for Emacs, failed
-resume, review round trip, a leader's start / send / wait.  No network or
-model calls; the Hydra tests are skipped without =hydra-acp=.
-
-Tested with Hydra 0.1.216, worktrunk 0.81.0, agent-shell 6c162d0, Emacs 31.0.50.
-
-* Limitations
-
-- Hydra doesn't offer agents file or terminal access through the client,
-  so agents edit files with their own tools: edits go straight to disk, not
-  through Emacs buffers.
-- Reviving a session after an idle shutdown or a daemon restart needs the
-  agent's ACP adapter to load sessions (claude-agent-acp and codex-acp do).
-- A review reply is read from an attached agent-shell; if you close it
-  mid-request, the request is marked interrupted and its threads reopen.
-- Discussion-only requests can't prevent edits; changes are detected and
-  flagged afterwards.
-- Inline thread markers follow the worktree's line numbers; in the
-  committed/staged scopes they can be off when uncommitted edits shift lines
-  (the Discussion section is always complete).
+=tests/tasks/run-tests.sh=: =emacs -Q --batch= against Doom's packages, with
+temporary repositories and a stub agent behind a private Hydra daemon.

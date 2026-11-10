@@ -136,6 +136,10 @@
 
 ;;; Base selection and scopes
 
+(defun bndos-test-diff-paths (dir from to)
+  "The paths that differ between tree-ishes FROM and TO, sorted."
+  (sort (split-string (bndos-test-git dir "diff" "--name-only" "-M" from to) "\n" t) #'string<))
+
 (ert-deftest bndos-git-base-is-the-saved-parent-not-main ()
   (bndos-test-with-repo repo
     (let* ((wt-a (bndos-test-worktree repo "task-a" "main")))
@@ -148,11 +152,10 @@
         (let ((base (bndos-test-await (lambda (cb) (bndos-task-git-resolve-base wt-b :branch "task-b" :callback cb)))))
           (should (equal (plist-get base :ref) "task-a"))
           (should (equal (plist-get base :merge-base) a-tip))
-          (let* ((snap (bndos-test-await (lambda (cb) (bndos-task-git-snapshot wt-b cb))))
-                 (files (bndos-test-await (lambda (cb) (bndos-task-git-diff wt-b (plist-get base :merge-base)
-                                                                            (plist-get snap :tree) cb)))))
+          (let ((snap (bndos-test-await (lambda (cb) (bndos-task-git-snapshot wt-b cb)))))
             ;; Only task-b's own change: not a.txt (the parent's) nor main.txt.
-            (should (equal (mapcar (lambda (f) (plist-get f :path)) files) '("b.txt")))))
+            (should (equal (bndos-test-diff-paths wt-b (plist-get base :merge-base) (plist-get snap :tree))
+                           '("b.txt")))))
         ;; Changing the recorded parent changes the comparison.
         (should-not (bndos-test-await (lambda (cb) (bndos-task-git-set-base wt-b "task-b" "main" cb))))
         (let ((base (bndos-test-await (lambda (cb) (bndos-task-git-resolve-base wt-b :branch "task-b" :callback cb)))))
@@ -172,11 +175,6 @@
       (should (eq (plist-get base :error) 'base-missing))
       (should (equal (plist-get base :saved) "deleted-parent")))))
 
-(defun bndos-test-diff-paths (dir from to)
-  (sort (mapcar (lambda (f) (plist-get f :path))
-                (bndos-test-await (lambda (cb) (bndos-task-git-diff dir from to cb))))
-        #'string<))
-
 (ert-deftest bndos-git-snapshot-sees-everything-and-touches-nothing ()
   (bndos-test-with-repo repo
     (let ((wt (bndos-test-worktree repo "t" "main")))
@@ -195,7 +193,6 @@
              (base (bndos-test-await (lambda (cb) (bndos-task-git-resolve-base wt :branch "t" :callback cb))))
              (snap (bndos-test-await (lambda (cb) (bndos-task-git-snapshot wt cb))))
              (mb (plist-get base :merge-base)))
-        (bndos-test-await (lambda (cb) (bndos-task-git-status wt cb)))
         (should (equal index-before (with-temp-buffer (set-buffer-multibyte nil) (insert-file-contents-literally index)
                                                       (buffer-string))))
         (should (equal status-before (bndos-test-git wt "status" "--porcelain")))
@@ -208,67 +205,14 @@
                        '("staged.txt")))
         (should (equal (bndos-test-diff-paths wt (plist-get snap :index-tree) (plist-get snap :tree))
                        '("blob.bin" "src/a.txt" "untracked.txt")))
-        (let ((files (bndos-test-await (lambda (cb) (bndos-task-git-diff wt mb (plist-get snap :tree) cb)))))
-          (should (equal (plist-get (seq-find (lambda (f) (equal (plist-get f :path) "README.md")) files) :status)
-                         "renamed"))
-          (should (plist-get (seq-find (lambda (f) (equal (plist-get f :path) "blob.bin")) files) :binary)))
-        (should (equal (bndos-test-await (lambda (cb) (bndos-task-git-status wt cb)))
-                       '(:staged 1 :unstaged 1 :untracked 2 :conflicted 0)))))))
-
-(ert-deftest bndos-git-empty-diff ()
-  (bndos-test-with-repo repo
-    (let* ((wt (bndos-test-worktree repo "t" "main"))
-           (snap (bndos-test-await (lambda (cb) (bndos-task-git-snapshot wt cb)))))
-      (should (null (bndos-test-await (lambda (cb) (bndos-task-git-diff wt (plist-get snap :head)
-                                                                         (plist-get snap :tree) cb))))))))
-
-
-;;; Diff parsing
-
-(ert-deftest bndos-git-parse-diff-shapes ()
-  (let ((files (bndos-task-git-parse-diff
-                (concat "diff --git a/old name.txt b/new name.txt\n"
-                        "similarity index 90%\nrename from old name.txt\nrename to new name.txt\n"
-                        "--- a/old name.txt\n+++ b/new name.txt\n"
-                        "@@ -1,2 +1,2 @@\n keep\n-gone\n+came\n\\ No newline at end of file\n"
-                        "diff --git a/del.txt b/del.txt\ndeleted file mode 100644\n"
-                        "--- a/del.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-bye\n"
-                        "diff --git a/bin.png b/bin.png\nnew file mode 100644\n"
-                        "Binary files /dev/null and b/bin.png differ\n"
-                        "diff --git \"a/caf\\303\\251.txt\" \"b/caf\\303\\251.txt\"\n"
-                        "--- \"a/caf\\303\\251.txt\"\n+++ \"b/caf\\303\\251.txt\"\n@@ -3 +3 @@\n-x\n+y\n"))))
-    (should (equal (mapcar (lambda (f) (plist-get f :path)) files)
-                   '("new name.txt" "del.txt" "bin.png" "café.txt")))
-    (should (equal (mapcar (lambda (f) (plist-get f :status)) files)
-                   '("renamed" "deleted" "new file" "modified")))
-    (let* ((rename (car files))
-           (lines (plist-get (car (plist-get rename :hunks)) :lines)))
-      (should (equal (plist-get rename :old-path) "old name.txt"))
-      (should (equal (mapcar (lambda (l) (list (plist-get l :type) (plist-get l :old) (plist-get l :new))) lines)
-                     '((context 1 1) (removed 2 nil) (added nil 2) (meta nil nil)))))
-    (should (plist-get (nth 2 files) :binary))
-    (should (equal (plist-get (car (plist-get (nth 3 files) :hunks)) :new-start) 3))))
-
-
-;;; Re-anchoring
-
-(ert-deftest bndos-reanchor-conservative ()
-  (require 'bndos-task-review)
-  (let ((anchor (list :text "target" :line 3 :before '("b1" "b2") :after '("a1"))))
-    (should (eq (plist-get (bndos-task-review-reanchor-anchor anchor '("x" "b1" "b2" "target" "a1")) :status)
-                'moved))
-    (should (equal (plist-get (bndos-task-review-reanchor-anchor anchor '("x" "b1" "b2" "target" "a1")) :line) 4))
-    (should (eq (plist-get (bndos-task-review-reanchor-anchor anchor '("b1" "b2" "target" "a1")) :status) 'ok))
-    (should (eq (plist-get (bndos-task-review-reanchor-anchor anchor '("b1" "b2" "other" "a1")) :status) 'stale))
-    ;; Two equally good matches: ambiguous, so stale rather than guessed.
-    (should (string-match-p "ambiguous"
-                            (plist-get (bndos-task-review-reanchor-anchor
-                                        anchor '("q" "target" "q" "target" "q" "q")) :reason)))
-    ;; Context disambiguates duplicates.
-    (should (equal (plist-get (bndos-task-review-reanchor-anchor
-                               anchor '("target" "z" "b1" "b2" "target" "a1")) :line)
-                   5))
-    (should (eq (plist-get (bndos-task-review-reanchor-anchor anchor nil) :status) 'stale))))
+        ;; The synchronous snapshot diff-review scans with: the same trees, and it touches nothing either.
+        (let ((sync (bndos-task-git-snapshot-sync wt)))
+          (should (equal (plist-get sync :tree) (plist-get snap :tree)))
+          (should (equal (plist-get sync :index-tree) (plist-get snap :index-tree)))
+          (should (equal (plist-get sync :head) (plist-get snap :head))))
+        (should (equal index-before (with-temp-buffer (set-buffer-multibyte nil) (insert-file-contents-literally index)
+                                                      (buffer-string))))
+        (should (equal status-before (bndos-test-git wt "status" "--porcelain")))))))
 
 (provide 'bndos-core-tests)
 ;;; bndos-core-tests.el ends here

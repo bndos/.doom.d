@@ -2,11 +2,10 @@
 
 ;;; Commentary:
 
-;; Asynchronous git helpers for reviewing a task worktree: repository
-;; identity, the recorded parent (git config branch.<branch>.bndos-base,
-;; written when the task is created or its base is changed), merge-base,
-;; a snapshot of the whole worktree, and tree-to-tree diffs parsed into
-;; files/hunks/lines.
+;; Git helpers for reviewing a task worktree: repository identity, the
+;; recorded parent (git config branch.<branch>.bndos-base, written when the
+;; task is created or its base is changed), merge-base, and a snapshot of the
+;; whole worktree (asynchronous, or synchronous for diff-review's scan).
 ;;
 ;; Every comparison is between two tree-ish objects.  The worktree snapshot is
 ;; a tree built through a temporary index (`git add -A' + `write-tree' with
@@ -189,9 +188,11 @@ is the current index (for staged-only and unstaged-only views)."
                                              (ignore-errors (delete-file staged-index))))
                                   (fail (lambda (msg) (funcall cleanup) (funcall fail msg))))
                              ;; Starting from a copy keeps git's stat cache, so this is cheap.
+                             ;; Its time is kept too: git rechecks files as new as the index
+                             ;; ("racy" ones), which a newer copy would hide.
                              (if (file-exists-p index)
-                                 (progn (copy-file index work-index t)
-                                        (copy-file index staged-index t))
+                                 (progn (copy-file index work-index t t)
+                                        (copy-file index staged-index t t))
                                (delete-file work-index)
                                (delete-file staged-index))
                              (bndos-task-git
@@ -222,187 +223,33 @@ is the current index (for staged-only and unstaged-only views)."
                                    (list (concat "GIT_INDEX_FILE=" work-index)))))
                               (list (concat "GIT_INDEX_FILE=" work-index)))))))
 
-(defun bndos-task-git-object-exists (directory object callback)
-  "Call CALLBACK with non-nil when OBJECT exists in DIRECTORY's repository."
-  (bndos-task-git directory (list "cat-file" "-e" object)
-                  (lambda (result) (funcall callback (bndos-proc-ok-p result)))))
+(defun bndos-task-git-snapshot-sync (directory)
+  "Like `bndos-task-git-snapshot', synchronously: (:tree :index-tree :head) or (:error MSG)."
+  (let ((work-index (bndos-task-git--index-file))
+        (staged-index (bndos-task-git--index-file)))
+    (cl-flet ((git (index &rest args)
+                "Git ARGS's output, or nil when it fails."
+                (with-temp-buffer
+                  (let ((default-directory (file-name-as-directory directory))
+                        (process-environment (if index (cons (concat "GIT_INDEX_FILE=" index) process-environment)
+                                               process-environment)))
+                    (and (zerop (apply #'process-file "git" nil '(t nil) nil "--no-optional-locks" args))
+                         (string-trim (buffer-string)))))))
+      (unwind-protect
+          (let ((index (git nil "rev-parse" "--path-format=absolute" "--git-path" "index")))
+            ;; Copies of the index, as in `bndos-task-git-snapshot'.
+            (if (and index (file-exists-p index))
+                (progn (copy-file index work-index t t) (copy-file index staged-index t t))
+              (delete-file work-index) (delete-file staged-index))
+            (let ((tree (and (git work-index "add" "-A" "--" ".") (git work-index "write-tree")))
+                  (index-tree (git staged-index "write-tree")))
+              (if (and tree index-tree)
+                  (list :tree tree :index-tree index-tree
+                        :head (git nil "rev-parse" "-q" "--verify" "HEAD^{commit}"))
+                (list :error (format "couldn't snapshot %s" directory)))))
+        (ignore-errors (delete-file work-index))
+        (ignore-errors (delete-file staged-index))))))
 
-
-;;; Worktree status
-
-(defun bndos-task-git-parse-status (text)
-  "Count entries in `git status --porcelain=v2 -z' TEXT.
-Return (:staged N :unstaged N :untracked N :conflicted N)."
-  (let ((staged 0) (unstaged 0) (untracked 0) (conflicted 0)
-        (fields (split-string text "\0" t))
-        (skip 0))
-    (dolist (field fields)
-      (if (> skip 0)
-          (cl-decf skip)
-        (pcase (substring field 0 (min 2 (length field)))
-          ("? " (cl-incf untracked))
-          ("u " (cl-incf conflicted))
-          ((or "1 " "2 ")
-           (let ((xy (substring field 2 4)))
-             (unless (eq (aref xy 0) ?.) (cl-incf staged))
-             (unless (eq (aref xy 1) ?.) (cl-incf unstaged)))
-           ;; Renames/copies carry the original path as an extra field.
-           (when (string-prefix-p "2 " field) (setq skip 1))))))
-    (list :staged staged :unstaged unstaged :untracked untracked :conflicted conflicted)))
-
-(defun bndos-task-git-status (directory callback)
-  "Call CALLBACK with DIRECTORY's change counts (see `bndos-task-git-parse-status')."
-  (bndos-task-git directory '("status" "--porcelain=v2" "-z" "--untracked-files=all")
-                  (lambda (result)
-                    (funcall callback
-                             (if (bndos-proc-ok-p result)
-                                 (bndos-task-git-parse-status (plist-get result :stdout))
-                               (list :error (bndos-proc-error-message result)))))))
-
-(defun bndos-task-git-count-commits (directory from to callback)
-  "Call CALLBACK with the number of commits in FROM..TO, or nil."
-  (bndos-task-git directory (list "rev-list" "--count" (format "%s..%s" from to))
-                  (lambda (result)
-                    (funcall callback (and (bndos-proc-ok-p result)
-                                           (string-to-number (plist-get result :stdout)))))))
-
-
-;;; Diffs
-
-(defun bndos-task-git-diff (directory from to callback)
-  "Call CALLBACK with the parsed diff from tree-ish FROM to TO, or (:error MSG).
-The result is a list of file plists (see `bndos-task-git-parse-diff')."
-  (bndos-task-git directory
-                  (list "diff" "--no-ext-diff" "--no-textconv" "-M" "--no-color"
-                        "--src-prefix=a/" "--dst-prefix=b/" from to)
-                  (lambda (result)
-                    (funcall callback
-                             (if (bndos-proc-ok-p result)
-                                 (bndos-task-git-parse-diff (plist-get result :stdout))
-                               (list :error (bndos-proc-error-message result)))))))
-
-(defun bndos-task-git--unquote (path)
-  "Undo git's C-style quoting of PATH, if any."
-  (if (and (string-prefix-p "\"" path) (string-suffix-p "\"" path) (> (length path) 1))
-      (let ((s (substring path 1 -1)) (out nil) (i 0))
-        (while (< i (length s))
-          (let ((c (aref s i)))
-            (if (and (eq c ?\\) (< (1+ i) (length s)))
-                (let ((n (aref s (1+ i))))
-                  (cond
-                   ((and (<= ?0 n ?7) (< (+ i 3) (length s)))
-                    (push (string-to-number (substring s (1+ i) (+ i 4)) 8) out)
-                    (cl-incf i 4))
-                   (t (push (pcase n (?n ?\n) (?t ?\t) (?r ?\r) (?a ?\a) (?b ?\b) (?f ?\f)
-                                   (?v ?\v) (_ n))
-                            out)
-                      (cl-incf i 2))))
-              (push c out)
-              (cl-incf i))))
-        (decode-coding-string (apply #'unibyte-string
-                                     (mapcan (lambda (ch)
-                                               (if (< ch 256) (list ch)
-                                                 (append (encode-coding-string (string ch) 'utf-8) nil)))
-                                             (nreverse out)))
-                              'utf-8))
-    path))
-
-(defun bndos-task-git--strip-prefix (path prefix)
-  (let ((path (bndos-task-git--unquote path)))
-    (if (string-prefix-p prefix path) (substring path (length prefix)) path)))
-
-(defun bndos-task-git--parse-hunk-header (line)
-  (when (string-match "\\`@@ -\\([0-9]+\\)\\(?:,\\([0-9]+\\)\\)? \\+\\([0-9]+\\)\\(?:,\\([0-9]+\\)\\)? @@" line)
-    (list :old-start (string-to-number (match-string 1 line))
-          :old-count (if (match-string 2 line) (string-to-number (match-string 2 line)) 1)
-          :new-start (string-to-number (match-string 3 line))
-          :new-count (if (match-string 4 line) (string-to-number (match-string 4 line)) 1))))
-
-(defun bndos-task-git-parse-diff (text)
-  "Parse unified diff TEXT from `git diff' into a list of file plists:
-
-  (:path P :old-path P :new-path P :status STATUS :binary BOOL
-   :added N :removed N :hunks HUNKS)
-
-STATUS is \"new file\", \"deleted\", \"renamed\", \"modified\" or \"mode\".
-Each hunk is (:header STR :old-start N :old-count N :new-start N
-:new-count N :lines LINES); each line is (:type added|removed|context|meta
-:text STR :old N-or-nil :new N-or-nil)."
-  (let (files file hunk old new)
-    (cl-flet ((finish-hunk ()
-                (when hunk
-                  (setq file (plist-put file :hunks
-                                        (cons (plist-put hunk :lines (nreverse (plist-get hunk :lines)))
-                                              (plist-get file :hunks))))
-                  (setq hunk nil)))
-              (finish-file ()
-                (when file
-                  (let ((hunks (nreverse (plist-get file :hunks))))
-                    (setq file (plist-put file :hunks hunks))
-                    (setq file (plist-put file :path (or (plist-get file :new-path)
-                                                         (plist-get file :old-path))))
-                    (unless (plist-get file :status)
-                      (setq file (plist-put file :status
-                                            (if (or hunks (plist-get file :binary)) "modified" "mode"))))
-                    (push file files))
-                  (setq file nil))))
-      (dolist (line (split-string text "\n"))
-        (cond
-         ((string-prefix-p "diff --git " line)
-          (finish-hunk) (finish-file)
-          (setq file (list :added 0 :removed 0 :hunks nil))
-          ;; Fallback paths; overridden by ---/+++ or rename headers below.
-          (when (string-match "\\`diff --git \\(\"?a/.*?\"?\\) \\(\"?b/.*\"?\\)\\'" line)
-            (setq file (plist-put file :old-path (bndos-task-git--strip-prefix (match-string 1 line) "a/")))
-            (setq file (plist-put file :new-path (bndos-task-git--strip-prefix (match-string 2 line) "b/")))))
-         ((null file))
-         ((and (null hunk) (string-prefix-p "new file mode" line))
-          (setq file (plist-put file :status "new file")))
-         ((and (null hunk) (string-prefix-p "deleted file mode" line))
-          (setq file (plist-put file :status "deleted")))
-         ((and (null hunk) (string-prefix-p "rename from " line))
-          (setq file (plist-put file :status "renamed"))
-          (setq file (plist-put file :old-path (bndos-task-git--unquote (substring line 12)))))
-         ((and (null hunk) (string-prefix-p "rename to " line))
-          (setq file (plist-put file :new-path (bndos-task-git--unquote (substring line 10)))))
-         ((and (null hunk) (string-prefix-p "--- " line))
-          (let ((p (substring line 4)))
-            (unless (equal p "/dev/null")
-              (setq file (plist-put file :old-path (bndos-task-git--strip-prefix p "a/"))))))
-         ((and (null hunk) (string-prefix-p "+++ " line))
-          (let ((p (substring line 4)))
-            (unless (equal p "/dev/null")
-              (setq file (plist-put file :new-path (bndos-task-git--strip-prefix p "b/"))))))
-         ((and (null hunk) (or (string-prefix-p "Binary files " line)
-                               (string-prefix-p "GIT binary patch" line)))
-          (setq file (plist-put file :binary t)))
-         ((string-prefix-p "@@ " line)
-          (finish-hunk)
-          (when-let* ((header (bndos-task-git--parse-hunk-header line)))
-            (setq hunk (append (list :header line :lines nil) header)
-                  old (plist-get header :old-start)
-                  new (plist-get header :new-start))))
-         ((null hunk))
-         ((string-prefix-p "+" line)
-          (push (list :type 'added :text (substring line 1) :old nil :new new)
-                (plist-get hunk :lines))
-          (setq file (plist-put file :added (1+ (plist-get file :added))))
-          (cl-incf new))
-         ((string-prefix-p "-" line)
-          (push (list :type 'removed :text (substring line 1) :old old :new nil)
-                (plist-get hunk :lines))
-          (setq file (plist-put file :removed (1+ (plist-get file :removed))))
-          (cl-incf old))
-         ((string-prefix-p " " line)
-          (push (list :type 'context :text (substring line 1) :old old :new new)
-                (plist-get hunk :lines))
-          (cl-incf old) (cl-incf new))
-         ((string-prefix-p "\\" line)
-          (push (list :type 'meta :text line :old nil :new nil)
-                (plist-get hunk :lines)))))
-      (finish-hunk)
-      (finish-file))
-    (nreverse files)))
 
 (provide 'bndos-task-git)
 ;;; bndos-task-git.el ends here

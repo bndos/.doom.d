@@ -16,127 +16,557 @@
     (cons key wt)))
 
 (defun bndos-test-open-review (key)
-  (let ((buffer (bndos-task-review-open key :select nil)))
-    (bndos-proc-wait (lambda () (with-current-buffer buffer
-                                  (and (plist-get bndos-task-review--data :refreshed)
-                                       (not bndos-task-review--processes))))
-                     20)
-    buffer))
+  "Open task KEY's review (diff-review loads it synchronously); return its buffer."
+  (bndos-task-review-open key :select nil))
 
-(defun bndos-test-goto-line-text (buffer text)
-  (with-current-buffer buffer
+(defun bndos-test-review-files (review)
+  "REVIEW's files, sorted."
+  (with-current-buffer review (sort (mapcar (lambda (f) (plist-get f :path)) diff-review--files) #'string<)))
+
+(defun bndos-test-open-file (review path)
+  "Show PATH of REVIEW in its file buffer; return that buffer."
+  (with-current-buffer review
+    (diff-review--open (or (diff-review--file-index path) (error "%s isn't in the review" path)))))
+
+(defmacro bndos-test-with-review (spec setup &rest body)
+  "SPEC is (KEY WT REVIEW): a task \"rv\" from main whose worktree SETUP fills
+\(a function of the worktree), opened in diff-review."
+  (declare (indent 2))
+  `(bndos-test-with-store
+     (bndos-test-with-repo repo
+       (let* ((task (bndos-test-task repo "rv" "main"))
+              (,(nth 0 spec) (car task))
+              (,(nth 1 spec) (cdr task)))
+         (funcall ,setup ,(nth 1 spec))
+         (let ((,(nth 2 spec) (bndos-test-open-review ,(nth 0 spec))))
+           (unwind-protect (progn ,@body)
+             (when (buffer-live-p ,(nth 2 spec)) (kill-buffer ,(nth 2 spec)))))))))
+
+(defun bndos-test-say (body)
+  "Answer diff-review's comment prompt with BODY."
+  (lambda (&rest _) body))
+
+
+;;; The review is diff-review's
+
+(ert-deftest bndos-review-opens-the-tasks-review-file-in-diff-review ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n")
+        (bndos-test-write wt "new.txt" "untracked\n"))
+    (let* ((common (bndos-test-git wt "rev-parse" "--path-format=absolute" "--git-common-dir"))
+           (file (expand-file-name "review/rv.json" common))
+           (data (bndos-task-review-file-read file)))
+      (should (file-exists-p file))
+      (should (equal (gethash "task" data) key))
+      (should (equal (gethash "root" data) (file-name-as-directory wt)))
+      (should (equal (gethash "base" data) "main"))
+      (with-current-buffer review
+        (should (derived-mode-p 'diff-review-mode))
+        (should bndos-task-review-mode)
+        (should (string-match-p "Task +repo/rv" (buffer-string)))
+        (should (string-match-p "Scope +Whole task" (buffer-string))))
+      ;; The whole task: committed and untracked alike.
+      (should (equal (bndos-test-review-files review) '("new.txt" "src/a.txt"))))))
+
+(ert-deftest bndos-review-scopes-show-their-ranges ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt)
+        (bndos-test-commit wt "committed" "c.txt" "c\n" "src/a.txt" "one\nTWO\nthree\n")
+        (bndos-test-write wt "s.txt" "staged\n")
+        (bndos-test-git wt "add" "s.txt")
+        (bndos-test-write wt "src/a.txt" "one\nTWO\nTHREE\n")
+        (bndos-test-write wt "u.txt" "untracked\n"))
+    (cl-flet ((files-in (scope)
+                (with-current-buffer review (bndos/task-review-set-scope scope))
+                (bndos-test-review-files review)))
+      (should (equal (files-in 'full) '("c.txt" "s.txt" "src/a.txt" "u.txt")))
+      (should (equal (files-in 'committed) '("c.txt" "src/a.txt")))
+      (should (equal (files-in 'uncommitted) '("s.txt" "src/a.txt" "u.txt")))
+      (should (equal (files-in 'staged) '("s.txt")))
+      ;; A file of a tree under review is shown read-only, from git.
+      (with-current-buffer (bndos-test-open-file review "s.txt") (should buffer-read-only))
+      (should (equal (files-in 'unstaged) '("src/a.txt" "u.txt")))
+      ;; The latest iteration: what changed since the last snapshot only.
+      (bndos-task-review-record-iteration key (bndos-task-git-snapshot-sync wt) "test")
+      (bndos-test-write wt "c.txt" "c changed\n")
+      (should (equal (files-in 'iteration) '("c.txt")))
+      (with-current-buffer review
+        (should (string-match-p "Scope +Latest iteration" (buffer-string)))))))
+
+(ert-deftest bndos-review-comments-on-lines-changes-and-files ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nfour\n"))
+    ;; main has one / two / three / four: two became TWO, three went.
+    (let ((file (bndos-test-open-file review "src/a.txt")))
+      (with-current-buffer file
+        (goto-char (diff-review--line-pos 2))
+        (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "on the new line")))
+          (diff-review-comment))
+        (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "about the change")))
+          (diff-review-comment-hunk))
+        (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "about the file")))
+          (diff-review-comment-file)))
+      (let* ((threads (plist-get (bndos-task-store-load key) :threads))
+             (by (lambda (body) (seq-find (lambda (th) (equal (plist-get th :body) body)) threads))))
+        (should (= (length threads) 3))
+        ;; Anchors: a line, a change, a file; the lines keep the base's blob.
+        (should (equal (bndos-task-get (funcall by "on the new line") :anchor :line) 2))
+        (should (equal (bndos-task-get (funcall by "on the new line") :anchor :base-blob)
+                       (bndos-test-git wt "rev-parse" "main:src/a.txt")))
+        (should (equal (bndos-task-get (funcall by "about the change") :anchor :line) 2))
+        (let ((whole (plist-get (funcall by "about the file") :anchor)))
+          (should (equal (plist-get whole :path) "src/a.txt"))
+          (should-not (plist-get whole :line)))
+        (should (seq-every-p (lambda (th) (equal (plist-get th :state) "open")) threads)))
+      ;; Drawn: the file's thread above everything, labelled with its state.
+      (with-current-buffer file
+        (let* ((carriers (seq-filter (lambda (o) (overlay-get o 'diff-review-anchors)) diff-review--overlays))
+               (strings (mapcar (lambda (o) (substring-no-properties (or (overlay-get o 'before-string) ""))) carriers)))
+          (should (seq-some (lambda (s) (string-match-p "about the file.*● open\\|● open.*about the file" s)) strings)))))))
+
+(defmacro bndos-test-with-diff-view (spec &rest body)
+  "SPEC is (KEY WT REVIEW FILE): main's src/a.txt is one / two / three, the
+task's one / TWO / four, shown in FILE's window."
+  (declare (indent 1))
+  `(bndos-test-with-review (,(nth 0 spec) ,(nth 1 spec) ,(nth 2 spec))
+       (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nfour\n"))
+     (let ((,(nth 3 spec) (bndos-test-open-file ,(nth 2 spec) "src/a.txt")))
+       (switch-to-buffer ,(nth 3 spec))
+       (delete-other-windows)
+       ,@body)))
+
+(defun bndos-test-view-lines ()
+  "This diff view's lines as (SIDE LINE TEXT)."
+  (save-excursion
     (goto-char (point-min))
-    (let ((found nil))
-      (while (and (not found) (search-forward text nil t))
-        (when (get-text-property (line-beginning-position) 'bndos-task-line)
-          (setq found t)))
-      (should found)
-      (beginning-of-line))))
+    (cl-loop until (eobp)
+             collect (list (get-text-property (point) 'diff-review-side) (get-text-property (point) 'diff-review-line)
+                           (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
+             do (forward-line 1))))
 
+(defun bndos-test-view-goto (text)
+  (goto-char (point-min))
+  (let ((case-fold-search nil))
+    (re-search-forward (concat "^" (regexp-quote text) "$")))
+  (beginning-of-line))
 
-;;; Review buffers
+(ert-deftest bndos-review-diff-view-has-both-sides-as-lines ()
+  (bndos-test-with-diff-view (key wt review file)
+    (goto-char (diff-review--line-pos 2))
+    (with-current-buffer (diff-review-toggle-view)
+      (should (derived-mode-p 'diff-review-view-mode))
+      (should (eq (window-buffer) (current-buffer)))
+      ;; Removed lines are lines, where the file draws them.
+      (should (equal (bndos-test-view-lines)
+                     '(("new" 1 "one") ("old" 2 "two") ("old" 3 "three") ("new" 2 "TWO") ("new" 3 "four"))))
+      (bndos-test-view-goto "two")
+      (should (equal (substring-no-properties (get-text-property (point) 'line-prefix)) "-"))
+      (bndos-test-view-goto "TWO")
+      (should (get-text-property (point) 'diff-review-added)))))
+
+(ert-deftest bndos-review-diff-view-and-file-map-onto-each-other ()
+  (bndos-test-with-diff-view (key wt review file)
+    ;; The file's line 2, column 1 is TWO's in the view.
+    (goto-char (+ (diff-review--line-pos 2) 1))
+    (diff-review-toggle-view)
+    (should (equal (buffer-substring-no-properties (line-beginning-position) (line-end-position)) "TWO"))
+    (should (= (current-column) 1))
+    ;; Back from a removed line: the line it's drawn above.
+    (bndos-test-view-goto "three")
+    (diff-review-toggle-view)
+    (should (eq (current-buffer) file))
+    (should (= (line-number-at-pos) 2))
+    ;; A region goes along, the removed lines above its first line with it.
+    (goto-char (diff-review--line-pos 2))
+    (push-mark (point) t t)
+    (goto-char (save-excursion (goto-char (diff-review--line-pos 3)) (line-end-position)))
+    (activate-mark)
+    (diff-review-toggle-view)
+    (should (use-region-p))
+    (should (equal (buffer-substring-no-properties (region-beginning) (region-end)) "two\nthree\nTWO\nfour"))))
+
+(ert-deftest bndos-review-diff-view-comments-are-exact ()
+  (bndos-test-with-diff-view (key wt review file)
+    (with-current-buffer (diff-review-toggle-view)
+      ;; three and TWO: one removed line and one added.
+      (bndos-test-view-goto "three")
+      (push-mark (point) t t)
+      (bndos-test-view-goto "TWO")
+      (end-of-line)
+      (activate-mark)
+      (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "this swap")))
+        (diff-review-view-comment))
+      ;; Only two, a removed line.
+      (bndos-test-view-goto "two")
+      (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "why two")))
+        (diff-review-view-comment)))
+    (let* ((threads (plist-get (bndos-task-store-load key) :threads))
+           (by (lambda (body) (seq-find (lambda (th) (equal (plist-get th :body) body)) threads)))
+           (quote (lambda (body) (bndos-task-get (bndos-task-thread-with-selection (funcall by body) wt)
+                                                  :anchor :selection))))
+      (should (equal (bndos-task-get (funcall by "this swap") :anchor :line) 2))
+      (should (equal (bndos-task-get (funcall by "this swap") :anchor :removed) '((3 3))))
+      (should (equal (funcall quote "this swap") "-three\n+TWO"))
+      (should (equal (bndos-task-get (funcall by "why two") :anchor :side) "old"))
+      (should (equal (bndos-task-get (funcall by "why two") :anchor :line) 2))
+      (should (equal (funcall quote "why two") "-two")))
+    ;; Both threads show in both views.
+    (let ((ids (mapcar (lambda (th) (plist-get th :id)) (plist-get (bndos-task-store-load key) :threads)))
+          (shown (lambda (overlays) (sort (delete-dups (delq nil (mapcar (lambda (o) (and (overlay-buffer o) (gethash "id" (or (overlay-get o 'diff-review-comment) (make-hash-table))))) overlays))) #'string<))))
+      (should (equal (funcall shown (with-current-buffer file diff-review--overlays)) (sort (copy-sequence ids) #'string<)))
+      (should (equal (funcall shown (with-current-buffer (buffer-local-value 'diff-review--view file) diff-review--view-overlays))
+                     (sort (copy-sequence ids) #'string<))))))
+
+(ert-deftest bndos-review-diff-view-comments-on-the-whole-change ()
+  (bndos-test-with-diff-view (key wt review file)
+    (with-current-buffer (diff-review-toggle-view)
+      (bndos-test-view-goto "three")
+      (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "the change")))
+        (diff-review-view-comment-change)))
+    (let ((thread (car (plist-get (bndos-task-store-load key) :threads))))
+      (should (equal (bndos-task-get thread :anchor :line) 2))
+      (should (equal (bndos-task-get thread :anchor :end-line) 3))
+      (should (equal (bndos-task-get (bndos-task-thread-with-selection thread wt) :anchor :selection)
+                     "-two\n-three\n+TWO\n+four")))))
+
+(ert-deftest bndos-review-open-threads-keep-the-diff-colours ()
+  (let ((diff-review-thread-marker "▎")
+        (diff-review-tint-open-thread nil))
+    (bndos-test-with-diff-view (key wt review file)
+      (goto-char (diff-review--line-pos 2))
+      (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "a note")))
+        (diff-review-comment-in-view))
+      (should (= (buffer-local-value 'left-margin-width file) 1))
+      (let ((margin-mark-p (lambda (string)
+                           (equal (car-safe (get-text-property 0 'display string)) '(margin left-margin)))))
+        (with-current-buffer (buffer-local-value 'diff-review--view file)
+          (bndos-test-view-goto "TWO")
+          (diff-review--view-track)
+          (let ((thread (seq-find (lambda (o) (overlay-get o 'diff-review-comment)) diff-review--view-overlays)))
+            (should (overlay-get thread 'diff-review-open))
+            (should-not (overlay-get thread 'face)))
+          (should (= left-margin-width 1))
+          (should (seq-some (lambda (o) (and (overlay-get o 'before-string)
+                                             (funcall margin-mark-p (overlay-get o 'before-string))))
+                            diff-review--view-overlays)))
+        (with-current-buffer file
+          (let ((thread (seq-find (lambda (o) (overlay-get o 'diff-review-comment)) diff-review--overlays)))
+            (diff-review--redraw-thread thread t)
+            (should-not (overlay-get thread 'face)))
+          (should (seq-some (lambda (o) (and (overlay-get o 'before-string)
+                                             (funcall margin-mark-p (overlay-get o 'before-string))))
+                            diff-review--overlays)))))))
+
+(ert-deftest bndos-review-threads-are-walked-and-listed-across-files-and-views ()
+  (bndos-test-with-diff-view (key wt review file)
+    (bndos-test-write wt "b.txt" "b\n")
+    (with-current-buffer review (revert-buffer t t t))
+    (let ((say (lambda (body) (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say body)))
+                                (diff-review-comment)))))
+      (with-current-buffer (bndos-test-open-file review "b.txt")
+        (funcall say "on b"))
+      (with-current-buffer (bndos-test-open-file review "src/a.txt")
+        (goto-char (diff-review--line-pos 2))
+        (funcall say "on a")))
+    (let ((at (lambda () (with-current-buffer (window-buffer)
+                           (list major-mode
+                                 (or diff-review--file-path
+                                     (buffer-local-value 'diff-review--file-path diff-review--view-file))
+                                 (seq-some (lambda (o) (and (overlay-get o 'diff-review-comment)
+                                                            (gethash "body" (overlay-get o 'diff-review-comment))))
+                                           (overlays-in (line-beginning-position) (1+ (line-end-position)))))))))
+      ;; From a's diff view to b's thread, which opens in the view too.
+      (with-current-buffer (bndos-test-open-file review "src/a.txt")
+        (with-current-buffer (diff-review-toggle-view)
+          (goto-char (point-min))
+          (diff-review-next-comment)
+          (should (equal (funcall at) '(diff-review-view-mode "src/a.txt" "on a")))
+          (diff-review-next-comment)))
+      (should (equal (funcall at) '(diff-review-view-mode "b.txt" "on b")))
+      (with-current-buffer (window-buffer) (diff-review-previous-comment))
+      (should (equal (funcall at) '(diff-review-view-mode "src/a.txt" "on a")))
+      ;; From the overview, and through the list.
+      (with-current-buffer review
+        (goto-char (point-min))
+        (diff-review-next-comment))
+      ;; The tree's first file: directories come first.
+      (should (equal (cadr (funcall at)) "src/a.txt"))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt table &rest _)
+                   (seq-find (lambda (c) (string-match-p "on b" c)) (all-completions "" table)))))
+        (with-current-buffer review (diff-review-list-comments)))
+      (should (equal (funcall at) '(diff-review-view-mode "b.txt" "on b"))))))
+
+(ert-deftest bndos-review-drawn-rows-end-the-line-above ()
+  ;; Removed lines and threads hang off the newline above, so the line
+  ;; below starts its own row and keeps its number.
+  (bndos-test-with-diff-view (key wt review file)
+    (goto-char (diff-review--line-pos 2))
+    (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "a note")))
+      (diff-review-comment))
+    (let* ((lifts (seq-filter (lambda (o) (overlay-get o 'diff-review-rows-of)) diff-review--overlays))
+           (at (lambda (line) (seq-find (lambda (o) (= (overlay-end o) (diff-review--line-pos line))) lifts))))
+      ;; Above line 2: the removed lines two and three.
+      (should (string-match-p "\\`\n.*two\n.*three\\'"
+                              (substring-no-properties (overlay-get (funcall at 2) 'before-string))))
+      (should (= (overlay-start (funcall at 2)) (1- (diff-review--line-pos 2))))
+      ;; Under line 2: the thread.
+      (should (string-match-p "a note" (overlay-get (funcall at 3) 'before-string)))
+      (should-not (seq-some (lambda (o) (let ((b (overlay-get o 'before-string)))
+                                          (and b (not (overlay-get o 'diff-review-rows-of))
+                                               (string-match-p "\n" b))))
+                            diff-review--overlays)))))
+
+(ert-deftest bndos-review-commenting-in-a-file-goes-to-the-diff-view ()
+  (bndos-test-with-diff-view (key wt review file)
+    ;; Line 2 selected in the file: its removed lines come along.
+    (goto-char (diff-review--line-pos 2))
+    (push-mark (point) t t)
+    (end-of-line)
+    (activate-mark)
+    (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "from the file")))
+      (diff-review-comment-in-view))
+    (should (eq (buffer-local-value 'major-mode (window-buffer)) 'diff-review-view-mode))
+    (let ((thread (car (plist-get (bndos-task-store-load key) :threads))))
+      (should (equal (bndos-task-get thread :anchor :removed) '((2 3))))
+      (should (equal (bndos-task-get (bndos-task-thread-with-selection thread wt) :anchor :selection)
+                     "-two\n-three\n+TWO")))))
+
+(ert-deftest bndos-review-diff-view-follows-the-file-and-is-remembered ()
+  (bndos-test-with-diff-view (key wt review file)
+    (with-current-buffer (diff-review-toggle-view)
+      (bndos-test-view-goto "four")
+      ;; The file changes; the view is redrawn and stays on the same line
+      ;; of the file, as a reverted buffer does.
+      (bndos-test-write wt "src/a.txt" "zero\none\nTWO\nfour\n")
+      (with-current-buffer file (revert-buffer t t t))
+      (with-current-buffer review (revert-buffer t t t))
+      (should (equal (seq-take (diff-review--view-at (point)) 2) '("new" 3)))
+      (should (equal (cadr (assoc "zero" (mapcar (lambda (l) (list (nth 2 l) (nth 1 l))) (bndos-test-view-lines))))
+                     1)))
+    ;; The view was used last: the next file opens in it.
+    (bndos-test-write wt "b.txt" "b\n")
+    (with-current-buffer review (revert-buffer t t t))
+    (bndos-test-open-file review "b.txt")
+    (should (eq (buffer-local-value 'major-mode (window-buffer (selected-window))) 'diff-review-view-mode))))
+
+(ert-deftest bndos-review-thread-states-follow-both-sides ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+    (let ((file (bndos-test-open-file review "src/a.txt")))
+      (with-current-buffer file
+        (goto-char (diff-review--line-pos 2))
+        (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "check this")))
+          (diff-review-comment))
+        (goto-char (diff-review--line-pos 2))
+        ;; Our resolve sets diff-review's mark; its toggle reopens ours.
+        (bndos/task-review-resolve)
+        (should (equal (plist-get (car (plist-get (bndos-task-store-load key) :threads)) :state) "resolved"))
+        (should (gethash "resolved" (aref (bndos-task-review--in-review diff-review--comments) 0)))
+        (goto-char (diff-review--line-pos 2))
+        (diff-review-toggle-resolved)
+        (should (equal (plist-get (car (plist-get (bndos-task-store-load key) :threads)) :state) "open")))
+      ;; The overview lists threads by state.
+      (with-current-buffer review
+        (should (string-match-p "Open (1)" (buffer-string)))))))
+
+(ert-deftest bndos-review-threads-from-before-move-into-the-review-file ()
+  (bndos-test-with-store
+    (bndos-test-with-repo repo
+      (let* ((task (bndos-test-task repo "old" "main"))
+             (key (car task)) (wt (cdr task))
+             (file (bndos-task-store-file key)))
+        (bndos-test-commit wt "c" "a.txt" "a\n")
+        ;; A record as the old review kept it: threads inside.
+        (bndos-task-store--write-atomically
+         file (bndos-task-store-encode
+               (plist-put (bndos-task-store--read-json-file file) :threads
+                          (list (list :id "c-old" :kind "comment" :author "me" :state "sent" :body "from before"
+                                      :anchor (list :path "a.txt" :side "new" :line 1 :text "a"))))))
+        (clrhash bndos-task-store--cache)
+        (let ((review (bndos-test-open-review key)))
+          (unwind-protect
+              (let ((data (bndos-task-review-file-read (bndos-task-review-file (bndos-task-store-load key)))))
+                (should (equal (gethash "body" (aref (gethash "comments" data) 0)) "from before"))
+                (should (equal (gethash "lines" (aref (gethash "comments" data) 0)) [1 1]))
+                (with-current-buffer review (should-not (buffer-modified-p)))
+                ;; The record keeps no threads of its own now; the state survives.
+                (should-not (plist-get (bndos-task-store--read-json-file file) :threads))
+                (should (equal (plist-get (car (plist-get (bndos-task-store-load key) :threads)) :state) "sent")))
+            (kill-buffer review)))))))
+
+(ert-deftest bndos-review-threads-round-trip-through-comments ()
+  (let* ((thread (list :id "c-1" :kind "finding" :author "ai:codex" :created "2026-01-01T00:00:00+0000"
+                       :state "addressed" :body "Off by one" :title "Off by one"
+                       :anchor (list :path "a.el" :side "old" :line 4 :end-line 6 :blob "abc" :hunk "@@ -4 +4 @@")
+                       :suggestion (list :old "x" :new "y")
+                       :replies (list (list :id "m-1" :author "agent:stub" :created "2026-01-02T00:00:00+0000"
+                                            :body "done" :kind "reply" :status "addressed" :files '("a.el") :tests '("t")))))
+         (comment (bndos-task-thread-to-comment thread))
+         (back (bndos-task-thread-from-comment comment)))
+    ;; diff-review's own fields.
+    (should (equal (gethash "lines" comment) [4 6]))
+    (should (equal (gethash "side" comment) "old"))
+    (should-not (gethash "resolved" comment))
+    ;; Ours survive the trip.
+    (dolist (key '(:id :kind :author :created :state :body :title :suggestion))
+      (should (equal (plist-get back key) (plist-get thread key))))
+    (should (equal (bndos-task-get back :anchor :end-line) 6))
+    (should (equal (bndos-task-get back :anchor :hunk) "@@ -4 +4 @@"))
+    (should (equal (plist-get (car (plist-get back :replies)) :files) '("a.el")))
+    ;; A comment made in diff-review alone reads as an open comment; its resolved mark is a state.
+    (let ((plain (make-hash-table :test #'equal)))
+      (puthash "id" "x1" plain) (puthash "path" "a.el" plain) (puthash "lines" [2 2] plain)
+      (puthash "author" "me" plain) (puthash "body" "hm" plain) (puthash "replies" [] plain)
+      (should (equal (plist-get (bndos-task-thread-from-comment plain) :state) "open"))
+      (should (equal (plist-get (bndos-task-thread-from-comment plain) :kind) "comment"))
+      (puthash "resolved" t plain)
+      (should (equal (plist-get (bndos-task-thread-from-comment plain) :state) "resolved")))))
+
+(ert-deftest bndos-review-prompts-quote-the-commented-lines ()
+  (bndos-test-with-repo repo
+    (let* ((blob (bndos-test-git repo "rev-parse" "HEAD:src/a.txt"))
+           (thread (list :id "c-1" :anchor (list :path "src/a.txt" :side "new" :line 2 :end-line 3 :blob blob)))
+           (quoted (bndos-task-thread-with-selection thread repo)))
+      (should (equal (bndos-task-get quoted :anchor :selection) " two\n three"))
+      (should (equal (bndos-task-get quoted :anchor :text) "two")))))
+
+(ert-deftest bndos-review-a-selection-across-removed-lines-reaches-the-agent-as-a-diff ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nfour\nfive\n"))
+    ;; main has one / two / three; now two and three became TWO, four and five were added.
+    (let ((file (bndos-test-open-file review "src/a.txt")))
+      (with-current-buffer file
+        ;; Lines 1-3 selected: the removed two and three sit between one and TWO.
+        (push-mark (diff-review--line-pos 1) t t)
+        (goto-char (save-excursion (goto-char (diff-review--line-pos 3)) (line-end-position)))
+        (activate-mark)
+        (should (equal (diff-review--region-lines) '(1 . 3)))
+        (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "this rewrite")))
+          (diff-review-comment)))
+      (let* ((thread (car (plist-get (bndos-task-store-load key) :threads)))
+             (quoted (bndos-task-thread-with-selection thread wt)))
+        (should (equal (bndos-task-get thread :anchor :base-blob) (bndos-test-git wt "rev-parse" "main:src/a.txt")))
+        (should (equal (bndos-task-get quoted :anchor :selection) " one\n-two\n-three\n+TWO\n+four"))
+        ;; And that is what the agent's prompt quotes.
+        (should (string-match-p (regexp-quote "```diff\n one\n-two\n-three\n+TWO\n+four\n```")
+                                (bndos-task-agent-prompt (bndos-task-store-load key)
+                                                         (list :id "r-1" :mode "explain")
+                                                         (list thread))))))))
+
+(ert-deftest bndos-review-selections-take-the-removed-lines-of-their-lines ()
+  (let ((old '("one" "two" "three" "four")) (new '("one" "four")))
+    ;; Two removed after line 1, nothing added.
+    (should (equal (bndos-task-selection-diff new old '((2 2 1 0)) 1 2) " one\n-two\n-three\n four"))
+    ;; Removed lines belong to the line they're drawn above, all of them.
+    (should (equal (bndos-task-selection-diff new old '((2 2 1 0)) 2 2) "-two\n-three\n four"))
+    (should (equal (bndos-task-selection-diff new old '((2 2 1 0)) 1 1) " one"))
+    ;; A deletion at the end of the file belongs to the last line.
+    (should (equal (bndos-task-selection-diff '("one") '("one" "two") '((2 1 1 0)) 1 1) " one\n-two"))
+    ;; A change: removed, then added in their place.
+    (should (equal (bndos-task-selection-diff '("one" "TWO" "four") old '((2 2 2 1)) 1 3)
+                   " one\n-two\n-three\n+TWO\n four"))))
+
+(ert-deftest bndos-review-a-deletion-is-commented-on-the-line-below-it ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nthree\n"))
+    ;; main has one / two / three: two went, drawn above three.
+    (with-current-buffer (bndos-test-open-file review "src/a.txt")
+      (goto-char (diff-review--line-pos 2))
+      (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "why")))
+        (diff-review-comment))
+      ;; The change is at the line its removed lines are drawn above.
+      (goto-char (diff-review--line-pos 2))
+      (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "the change")))
+        (diff-review-comment-hunk)))
+    (let* ((threads (plist-get (bndos-task-store-load key) :threads))
+           (quote (lambda (body) (bndos-task-get (bndos-task-thread-with-selection
+                                                   (seq-find (lambda (th) (equal (plist-get th :body) body)) threads)
+                                                   wt)
+                                                  :anchor :selection))))
+      (should (equal (funcall quote "why") "-two\n three"))
+      ;; The change itself: the line its removed lines are drawn above.
+      (should (equal (bndos-task-get (seq-find (lambda (th) (equal (plist-get th :body) "the change")) threads)
+                                     :anchor :line)
+                     2))
+      (should (equal (funcall quote "the change") "-two\n three")))))
+
+(ert-deftest bndos-review-a-region-over-the-whole-file-can-be-a-file-comment ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+    (with-current-buffer (bndos-test-open-file review "src/a.txt")
+      (push-mark (point-min) t t)
+      (goto-char (point-max))
+      (activate-mark)
+      (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t))
+                ((symbol-function 'read-string-from-buffer) (bndos-test-say "all of it")))
+        (diff-review-comment)))
+    (let ((anchor (plist-get (car (plist-get (bndos-task-store-load key) :threads)) :anchor)))
+      (should (equal (plist-get anchor :path) "src/a.txt"))
+      (should-not (plist-get anchor :line)))))
+
+(ert-deftest bndos-review-submit-sends-the-thread-at-point ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+    (let ((file (bndos-test-open-file review "src/a.txt"))
+          sent)
+      (with-current-buffer file
+        (goto-char (diff-review--line-pos 2))
+        (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "rename")))
+          (diff-review-comment))
+        (goto-char (diff-review--line-pos 2))
+        (cl-letf (((symbol-function 'bndos-task-agent-submit)
+                   (lambda (k ids mode &rest keys) (setq sent (list k ids mode (plist-get keys :snapshot)))))
+                  ((symbol-function 'completing-read) (lambda (&rest _) "implement — the agent may edit files"))
+                  ((symbol-function 'y-or-n-p) #'ignore))
+          (bndos/task-review-submit)))
+      (pcase-let ((`(,k ,ids ,mode ,snapshot) sent))
+        (should (equal k key))
+        (should (equal ids (list (plist-get (car (plist-get (bndos-task-store-load key) :threads)) :id))))
+        (should (equal mode "implement"))
+        (should (plist-get snapshot :tree))))))
+
+(ert-deftest bndos-review-suggestions-apply-to-the-worktree ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+    (let ((thread (plist-put (bndos-task-make-thread :kind "finding" :author "ai:codex" :body "fix"
+                                                     :anchor (bndos-task-review--line-anchor wt "src/a.txt" 2 nil))
+                             :suggestion '(:old "TWO\n" :new "two\n"))))
+      (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r thread)))
+      (with-current-buffer review
+        (goto-char (point-min))
+        (re-search-forward "ai:codex")
+        (beginning-of-line)
+        (bndos/task-review-apply-suggestion)
+        ;; A save from the overview leaves it an overview, unmodified.
+        (should-not (buffer-modified-p))
+        (should (string-match-p "Task +repo/rv" (buffer-string))))
+      (should (equal (with-temp-buffer (insert-file-contents (expand-file-name "src/a.txt" wt)) (buffer-string))
+                     "one\ntwo\nthree\n"))
+      (should (equal (plist-get (bndos-task-thread (bndos-task-store-load key) (plist-get thread :id)) :state)
+                     "resolved")))))
 
 (ert-deftest bndos-review-multiple-reviews-are-isolated ()
   (bndos-test-with-store
     (bndos-test-with-repo repo
       (let* ((a (bndos-test-task repo "alpha" "main"))
              (b (bndos-test-task repo "beta" "main")))
-        (bndos-test-commit (cdr a) "a" "alpha.txt" "alpha\n")
-        (bndos-test-commit (cdr b) "b" "beta.txt" "beta\n")
-        (let ((ba (bndos-test-open-review (car a)))
-              (bb (bndos-test-open-review (car b))))
+        (bndos-test-commit (cdr a) "a" "a.txt" "a\n")
+        (bndos-test-commit (cdr b) "b" "b.txt" "b\n")
+        (let ((ra (bndos-test-open-review (car a)))
+              (rb (bndos-test-open-review (car b))))
           (unwind-protect
               (progn
-                (should-not (eq ba bb))
-                (should (equal (bndos-task-review-buffer (car a)) ba))
-                (with-current-buffer ba
-                  (should (equal (mapcar (lambda (f) (plist-get f :path)) (plist-get bndos-task-review--data :files))
-                                 '("alpha.txt")))
-                  (should (string-match-p "main (recorded parent)" (buffer-string))))
-                (with-current-buffer bb
-                  (should (equal (mapcar (lambda (f) (plist-get f :path)) (plist-get bndos-task-review--data :files))
-                                 '("beta.txt"))))
-                ;; A comment in one review never shows up in the other.
-                (bndos-test-goto-line-text ba "+alpha")
-                (with-current-buffer ba
-                  (let ((anchor (bndos-task-review-anchor-at-point)))
-                    (should (equal (plist-get anchor :path) "alpha.txt"))
-                    (should (equal (plist-get anchor :side) "new"))
-                    (should (equal (plist-get anchor :line) 1))
-                    (bndos-task-store-update (car a) (lambda (r) (bndos-task-add-thread
-                                                                  r (bndos-task-make-thread :kind "comment" :author "me"
-                                                                                            :body "why?" :anchor anchor))))))
+                (should-not (eq ra rb))
+                (should (equal (bndos-test-review-files ra) '("a.txt")))
+                (should (equal (bndos-test-review-files rb) '("b.txt")))
+                (bndos-test-add-thread (car a) "only alpha")
                 (should (= 1 (length (plist-get (bndos-task-store-load (car a)) :threads))))
-                (should (null (plist-get (bndos-task-store-load (car b)) :threads)))
-                ;; Stale callbacks: a refresh started then superseded doesn't clobber.
-                (with-current-buffer ba
-                  (let ((gen bndos-task-review--generation))
-                    (bndos-task-review-refresh)
-                    (bndos-task-review-refresh)
-                    (should (= bndos-task-review--generation (+ gen 2))))))
-            (kill-buffer ba) (kill-buffer bb)))))))
-
-(ert-deftest bndos-review-comments-persist-and-go-stale-when-code-moves ()
-  (bndos-test-with-store
-    (bndos-test-with-repo repo
-      (let* ((task (bndos-test-task repo "gamma" "main"))
-             (key (car task)) (wt (cdr task)))
-        (bndos-test-commit wt "g" "g.txt" "a\nb\ntarget\nc\n")
-        (let ((buffer (bndos-test-open-review key)))
-          (unwind-protect
-              (progn
-                (bndos-test-goto-line-text buffer "+target")
-                (with-current-buffer buffer
-                  (let ((anchor (bndos-task-review-anchor-at-point)))
-                    (should (equal (plist-get anchor :before) '("a" "b")))
-                    (should (equal (plist-get anchor :after) '("c")))
-                    (bndos-task-store-update key (lambda (r) (bndos-task-add-thread
-                                                              r (bndos-task-make-thread :kind "comment" :author "me"
-                                                                                        :body "check" :anchor anchor))))))
-                ;; Reload from disk: the discussion survives a restart.
-                (clrhash bndos-task-store--cache)
-                (should (equal (plist-get (car (plist-get (bndos-task-store-load key) :threads)) :body) "check"))
-                ;; Code moves down two lines: anchor follows.
-                (bndos-test-write wt "g.txt" "new1\nnew2\na\nb\ntarget\nc\n")
-                (with-current-buffer buffer (bndos-task-review-refresh))
-                (bndos-test-open-review key)
-                (let ((thread (car (plist-get (bndos-task-store-load key) :threads))))
-                  (should (equal (bndos-task-get thread :anchor :line) 5))
-                  (should-not (plist-get thread :stale)))
-                ;; The line disappears: thread kept, marked stale.
-                (bndos-test-write wt "g.txt" "new1\nnew2\na\nb\nc\n")
-                (bndos-test-open-review key)
-                (let ((thread (car (plist-get (bndos-task-store-load key) :threads))))
-                  (should (equal (plist-get thread :body) "check"))
-                  (should (equal (bndos-task-get thread :stale :reason) "line no longer present")))
-                (with-current-buffer buffer
-                  (should (string-match-p "\\[stale\\]" (buffer-string)))))
-            (kill-buffer buffer)))))))
-
-(ert-deftest bndos-review-iteration-scope-shows-only-the-latest-revision ()
-  (bndos-test-with-store
-    (bndos-test-with-repo repo
-      (let* ((task (bndos-test-task repo "delta" "main"))
-             (key (car task)) (wt (cdr task)))
-        (bndos-test-commit wt "first" "one.txt" "1\n")
-        (let ((buffer (bndos-test-open-review key)))
-          (unwind-protect
-              (progn
-                (should (= 1 (length (plist-get (bndos-task-store-load key) :iterations))))
-                (bndos-test-write wt "two.txt" "2\n")
-                (with-current-buffer buffer
-                  (setq bndos-task-review-scope 'iteration))
-                (bndos-test-open-review key)
-                (with-current-buffer buffer
-                  (should (equal (mapcar (lambda (f) (plist-get f :path)) (plist-get bndos-task-review--data :files))
-                                 '("two.txt")))
-                  (setq bndos-task-review-scope 'full))
-                (bndos-test-open-review key)
-                (with-current-buffer buffer
-                  (should (equal (mapcar (lambda (f) (plist-get f :path)) (plist-get bndos-task-review--data :files))
-                                 '("one.txt" "two.txt")))))
-            (kill-buffer buffer)))))))
-
+                (should-not (plist-get (bndos-task-store-load (car b)) :threads))
+                (should-not (equal (bndos-task-review-file (bndos-task-store-load (car a)))
+                                   (bndos-task-review-file (bndos-task-store-load (car b))))))
+            (kill-buffer ra)
+            (kill-buffer rb)))))))
 
 ;;; Responses
 
@@ -341,177 +771,154 @@
             (should (plist-get gone :missing))
             (should-not (seq-find (lambda (r) (equal (bndos-task-get r :worktree :path) repo)) rows))))))))
 
-;;; Review navigation: the tree, keeping your place, M-RET
+;;; The pr-review tree
 
-(defmacro bndos-test-with-open-review (spec &rest body)
-  "SPEC is (REVIEW WORKTREE): a task review over four changed files, shown."
-  (declare (indent 1))
-  `(bndos-test-with-store
-     (bndos-test-with-repo repo
-       (let* ((,(nth 1 spec) (bndos-test-worktree repo "nav" "main"))
-              (key (bndos-task-ensure-record
-                    (bndos-test-git ,(nth 1 spec) "rev-parse" "--path-format=absolute" "--git-common-dir")
-                    ,(nth 1 spec) "nav"))
-              (bndos-task-review-show-tree nil))
-         (dolist (f '("a.txt" "b.txt" "c.txt" "d/e.txt"))
-           (bndos-test-write ,(nth 1 spec) f (mapconcat (lambda (n) (format "%s line %d" f n)) (number-sequence 1 40) "\n")))
-         (bndos-test-commit ,(nth 1 spec) "four files" "z.txt" "z\n")
-         (bndos-task-review-open key)
-         (let ((,(car spec) (bndos-task-review-buffer key)))
-           (bndos-proc-wait (lambda () (with-current-buffer ,(car spec) (plist-get bndos-task-review--data :files))) 20)
-           (switch-to-buffer ,(car spec))
-           (delete-other-windows)
-           (unwind-protect (progn ,@body)
-             (with-current-buffer ,(car spec) (magit-treediff-follow-close (current-buffer)))
-             (kill-buffer ,(car spec))))))))
-
-(defun bndos-test-goto-diff-line (text)
-  (goto-char (point-min))
-  (search-forward text)
-  (beginning-of-line))
-
-(ert-deftest bndos-review-tree-window-follows-the-review ()
-  (skip-unless (locate-library "treemacs"))
-  (let ((magit-treediff-tree-backend 'treemacs))
-    (bndos-test-with-open-review (review _wt)
-      (bndos-task-review--update-tree t)
-      (let ((tree-window (seq-find (lambda (w) (not (eq (window-buffer w) review))) (window-list))))
-        (should tree-window)
-        (dolist (file '("b.txt" "d/e.txt" "a.txt" "z.txt"))
-          (with-current-buffer review
-            (bndos-task-review--goto-file file)
-            (magit-treediff-follow-sync))
-          ;; The tree's window, not just its buffer, is on the file.
-          (should (equal (with-current-buffer (window-buffer tree-window)
-                           (save-excursion (goto-char (window-point tree-window))
-                                           (magit-treediff--tree-file-at-point)))
-                         file)))))))
-
-(ert-deftest bndos-review-rerender-keeps-the-line-and-column ()
-  (bndos-test-with-open-review (review _wt)
-    (bndos-test-goto-diff-line "+c.txt line 17")
-    (forward-char 6)
-    (let ((line (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
-          (column (current-column)))
-      (bndos-task-review-render)
-      (should (equal (buffer-substring-no-properties (line-beginning-position) (line-end-position)) line))
-      (should (= (current-column) column)))))
-
-(ert-deftest bndos-review-files-reopen-where-you-left-them ()
-  (bndos-test-with-open-review (review _wt)
-    (bndos-test-goto-diff-line "+b.txt line 23")
-    (bndos-task-review--remember-position)
-    (bndos-task-review--goto-file "d/e.txt")
-    (should (equal (bndos-task-review--file-at-point) "d/e.txt"))
-    (bndos-task-review--goto-file "b.txt")
-    (should (string-match-p "b\\.txt line 23" (buffer-substring (line-beginning-position) (line-end-position))))
-    ;; A file never visited opens at its top.
-    (bndos-task-review--goto-file "c.txt")
-    (should (eq (oref (magit-current-section) type) 'bndos-task-file))))
-
-(ert-deftest bndos-review-m-ret-visits-the-worktree-line-in-another-window ()
-  (bndos-test-with-open-review (review wt)
-    (bndos-test-goto-diff-line "+a.txt line 12")
-    (bndos/task-review-visit-worktree-other-window)
-    (should (equal (buffer-file-name) (expand-file-name "a.txt" wt)))
-    (should (= (line-number-at-pos) 12))
-    (should (eq (window-buffer (next-window)) review))))
-
-(ert-deftest bndos-review-threads-render-as-blocks-and-are-jumpable ()
-  (bndos-test-with-open-review (review wt)
-    (let* ((anchor (bndos-task-review--line-anchor wt "b.txt" 5 nil))
-           (mine (bndos-task-make-thread :kind "comment" :author "me"
-                                         :body "A long comment that should wrap nicely across lines instead of running off the right edge of the window forever and ever."
-                                         :anchor anchor))
-           (ai (plist-put (plist-put (bndos-task-make-thread :kind "finding" :author "ai:codex"
-                                                              :body "Off by one\n\nThe loop stops early."
-                                                              :anchor (bndos-task-review--line-anchor wt "c.txt" 3 nil))
-                                     :title "Off by one")
-                          :suggestion '(:old "c.txt line 3" :new "c.txt line three")))
-           (done (plist-put (bndos-task-make-thread :kind "comment" :author "me" :body "old news" :anchor anchor)
-                            :state "resolved")))
-      (bndos-task-store-update key (lambda (r) (seq-reduce #'bndos-task-add-thread (list mine ai done) r)))
-      (bndos-task-review-render)
-      ;; Inline under their lines, framed, wrapped, with the suggestion.
-      (goto-char (point-min))
-      (bndos/task-review-next-thread)
-      (should (equal (bndos-task-review--thread-at-point) (plist-get mine :id)))
-      (should (looking-at-p " *╭ ● open  me"))
-      (let ((block (buffer-substring-no-properties
-                    (point) (next-single-property-change (point) 'bndos-task-thread))))
-        (should (seq-every-p (lambda (l) (<= (string-width l) 120)) (split-string block "\n")))
-        (should (string-match-p "instead of running\n *│ off the right edge" block)))
-      (bndos/task-review-next-thread)
-      (should (equal (bndos-task-review--thread-at-point) (plist-get ai :id)))
-      (let ((block (buffer-substring-no-properties
-                    (point) (next-single-property-change (point) 'bndos-task-thread))))
-        (should (string-match-p "ai:codex · finding.*Off by one" block))
-        (should (string-match-p "^ *│ -c.txt line 3$" block))
-        (should (string-match-p "^ *│ \\+c.txt line three$" block)))
-      ;; Resolved threads aren't inline, but the list reaches them.
-      (should-not (save-excursion (bndos/task-review-next-thread)
-                                  (equal (bndos-task-review--thread-at-point) (plist-get done :id))))
-      (cl-letf (((symbol-function 'completing-read)
-                 (lambda (_prompt table &rest _)
-                   (let ((all (all-completions "" table)))
-                     ;; Open ones first, resolved last.
-                     (should (string-match-p "^○ resolved" (car (last all))))
-                     (car (last all))))))
-        (bndos/task-review-jump-to-thread))
-      (should (equal (bndos-task-review--thread-at-point) (plist-get done :id))))))
-
-(ert-deftest bndos-review-suggestions-apply-to-the-worktree ()
-  (bndos-test-with-open-review (review wt)
-    (let ((ai (plist-put (bndos-task-make-thread :kind "finding" :author "ai:codex" :body "fix"
-                                                 :anchor (bndos-task-review--line-anchor wt "a.txt" 2 nil))
-                         :suggestion '(:old "a.txt line 2\n" :new "a.txt line two\n"))))
-      (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r ai)))
-      (bndos-task-review-render)
-      (bndos-task-review--goto-thread (plist-get ai :id))
-      (bndos/task-review-apply-suggestion)
-      (should (string-match-p "^a.txt line two$" (with-temp-buffer (insert-file-contents (expand-file-name "a.txt" wt))
-                                                                   (buffer-string))))
-      (should (equal (plist-get (bndos-task-thread (bndos-task-store-load key) (plist-get ai :id)) :state) "resolved"))
-      ;; A suggestion that no longer matches is refused, not guessed at.
-      (let ((stale (plist-put (bndos-task-make-thread :kind "finding" :author "ai:codex" :body "x"
-                                                      :anchor (list :path "a.txt"))
-                              :suggestion '(:old "not in the file" :new "y"))))
-        (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r stale)))
-        (bndos-task-review-render)
-        (bndos-task-review--goto-thread (plist-get stale :id))
-        (should-error (bndos/task-review-apply-suggestion) :type 'user-error)))))
-
-(ert-deftest bndos-review-code-is-coloured-by-its-mode ()
-  (bndos-test-with-store
-    (bndos-test-with-repo repo
-      (let* ((wt (bndos-test-worktree repo "col" "main"))
-             (key (bndos-task-ensure-record (bndos-test-git wt "rev-parse" "--path-format=absolute" "--git-common-dir") wt "col"))
-             (bndos-task-review-show-tree nil))
-        (bndos-test-write wt "x.el" "(defun my-fn ()\n  \"Doc.\"\n  (let ((a 1)) a))\n")
-        (bndos-test-commit wt "elisp" "y.txt" "y\n")
-        (bndos-task-review-open key)
-        (let ((review (bndos-task-review-buffer key)))
-          (bndos-proc-wait (lambda () (with-current-buffer review (plist-get bndos-task-review--data :files))) 20)
-          (with-current-buffer review
-            (bndos-test-goto-diff-line "+(defun my-fn")
-            (forward-char 2)
-            (let ((faces (ensure-list (get-text-property (point) 'font-lock-face))))
-              ;; The keyword's own colour, with the added-line face behind it.
-              (should (memq 'font-lock-keyword-face faces))
-              (should (eq (car (last faces)) 'magit-diff-added))))
-          (kill-buffer review))))))
+(ert-deftest bndos-pr-review-tree-lists-the-pr-files-and-follows ()
+  (require 'pr-review)
+  (require 'pr-review-tree)
+  (require 'magit-diff)
+  (let ((buffer (get-buffer-create "*pr-review test*")))
+    (unwind-protect
+        (progn
+          (switch-to-buffer buffer)
+          (delete-other-windows)
+          (let ((inhibit-read-only t))
+            (pr-review-mode)
+            (setq-local pr-review--pr-path '("me" "repo" 7)
+                        pr-review--pr-info '((files (nodes . [((path . "src/a.el") (additions . 3) (deletions . 1))
+                                                              ((path . "src/b.el") (additions . 5) (deletions . 0))]))))
+            (magit-insert-section (pr-review-root)
+              (dolist (file '("src/a.el" "src/b.el"))
+                (magit-insert-section (file file)
+                  (magit-insert-heading (concat file "\n"))
+                  (insert "diff lines\n" "more lines\n")))))
+          (goto-char (point-min))
+          (pr-review-tree-toggle)
+          (should (diff-review-host-sidebar-visible-p buffer))
+          (let* ((sidebar (buffer-local-value 'diff-review--sidebar buffer))
+                 (tree (get-buffer-window sidebar)))
+            (with-current-buffer sidebar
+              (should (derived-mode-p 'diff-review-sidebar-mode))
+              (should (string-match-p "\\`src/.*\n.*a\\.el +\\+3 [−-]1\n.*b\\.el +\\+5 [−-]0"
+                                      (buffer-substring-no-properties (point-min) (point-max))))
+              (should (string-match-p "me/repo #7  0/2 viewed" (diff-review-sidebar--header))))
+            ;; Choosing b.el in the tree goes to its section in the review.
+            (with-selected-window tree
+              (goto-char (point-min))
+              (re-search-forward "b\\.el")
+              (diff-review-open-at-point))
+            (should (eq (window-buffer) buffer))
+            (should (equal (pr-review-tree--file-at-point) "src/b.el"))
+            ;; Viewed marks are kept for the session, not written anywhere.
+            (with-selected-window tree (diff-review-toggle-viewed))
+            (with-current-buffer sidebar
+              (should (string-match-p "1/2 viewed" (diff-review-sidebar--header))))
+            ;; Moving in the review marks the file there.
+            (goto-char (point-min)) (forward-line 1)
+            (diff-review--host-track)
+            (should (equal (plist-get (diff-review--file) :path) "src/a.el"))
+            (with-current-buffer sidebar
+              (should (equal (plist-get (diff-review--file (get-text-property (point) 'diff-review-index)) :path)
+                             "src/a.el"))))
+          (pr-review-tree-toggle)
+          (should-not (diff-review-host-sidebar-visible-p buffer)))
+      (kill-buffer buffer))))
 
 (ert-deftest bndos-review-agent-reply-blocks-parse-into-findings ()
-  (require 'hutch-agent-shell)
-  (should-not (hutch-agent-shell-extract "no block here"))
-  (should (equal (hutch-agent-shell-extract "x\n```hutch-review\n{\"findings\": [{\"file\": \"a\", \"lgtm\": true}]}\n```\n")
+  (should-not (bndos-task-review-ai-extract "no block here"))
+  (should (equal (bndos-task-review-ai-extract "x\n```review-findings\n{\"findings\": [{\"file\": \"a\", \"lgtm\": true}]}\n```\n")
                  '(:ok ((:file "a" :lgtm t)))))
   ;; The last block wins (an agent may quote the format first).
-  (should (equal (car (hutch-agent-shell-extract
-                       "```hutch-review\n{\"findings\": []}\n```\nthen\n```hutch-review\n{\"oops\": 1}\n```\n"))
+  (should (equal (car (bndos-task-review-ai-extract
+                       "```review-findings\n{\"findings\": []}\n```\nthen\n```review-findings\n{\"oops\": 1}\n```\n"))
                  :error))
-  (should (eq (car (hutch-agent-shell-extract "```hutch-review\n{not json\n```\n")) :error)))
+  (should (eq (car (bndos-task-review-ai-extract "```review-findings\n{not json\n```\n")) :error)))
 
+(ert-deftest bndos-review-agent-findings-are-checked-against-the-change ()
+  (let ((repo (file-name-as-directory (make-temp-file "bndos-ai-" t))))
+    (unwind-protect
+        (let ((default-directory repo))
+          (bndos-test-write repo "a.txt" "one\ntwo\nthree\ntwo\n")
+          (dolist (args '(("init" "-q") ("add" ".") ("-c" "user.name=t" "-c" "user.email=t@t" "commit" "-qm" "a")))
+            (apply #'call-process "git" nil nil nil args))
+          (let* ((result (bndos-task-review-ai--result
+                          repo "HEAD"
+                          (concat "```review-findings\n"
+                                  (json-encode
+                                   `((findings . [((file . "a.txt") (title . "Comment") (lines . "2"))
+                                                  ((file . "a.txt") (title . "Fix") (old_lines . "three") (new_lines . "3"))
+                                                  ((file . "a.txt") (title . "Twice") (old_lines . "two") (new_lines . "2"))
+                                                  ((file . "gone.txt") (title . "Nowhere") (lines . "1"))
+                                                  ((file . "a.txt") (title . "Better") (lines . "4") (thread . "c1"))
+                                                  ((thread . "c2") (withdraw . t) (description . "it was fine"))
+                                                  ((file . "a.txt") (lgtm . t))])))
+                                  "\n```\n")
+                          "end_turn"))
+                 (findings (plist-get result :findings))
+                 (titled (lambda (title) (seq-find (lambda (f) (equal (plist-get f :title) title)) findings))))
+            (should (eq (plist-get result :status) :ok))
+            (should (= (length findings) 6))
+            (should (equal (plist-get (funcall titled "Comment") :lines) "2"))
+            ;; An edit matching once is anchored on its lines, with a patch.
+            (should (equal (plist-get (funcall titled "Fix") :lines) "3"))
+            (should (string-match-p "^-three\n\\+3$" (plist-get (funcall titled "Fix") :patch)))
+            ;; One matching twice is a comment.
+            (should (equal (plist-get (funcall titled "Twice") :lines) "?"))
+            (should-not (plist-get (funcall titled "Twice") :old-lines))
+            (should-not (funcall titled "Nowhere"))
+            (should (equal (plist-get (funcall titled "Better") :thread) "c1"))
+            (should (equal (seq-find (lambda (f) (eq (plist-get f :type) 'withdraw)) findings)
+                           '(:type withdraw :thread "c2" :desc "it was fine"))))
+          (should (equal (bndos-task-review-ai--result repo "HEAD" "no block" nil)
+                         '(:status :error :emsg "the reviewer's reply had no review-findings block"))))
+      (delete-directory repo t))))
+
+(defun bndos-test-ai-thread (id author title path line &optional state)
+  (append (list :id id :kind "finding" :author author :state (or state "open") :title title
+                :body (concat title "\n\nwhy") :anchor (list :path path :side "new" :line line))
+          nil))
+
+(ert-deftest bndos-review-ai-reviews-dont-repeat-and-revise-their-own ()
+  (let* ((record (list :threads (list (bndos-test-ai-thread "c1" "ai:claude" "Off by one" "a.el" 10)
+                                      (bndos-test-ai-thread "c2" "ai:claude" "Leaks a buffer" "a.el" 20)
+                                      (bndos-test-ai-thread "c3" "alex" "Rename this" "b.el" 5)
+                                      (bndos-test-ai-thread "c4" "ai:claude" "Race" "c.el" 1 "resolved"))))
+         (finding (lambda (title path line &optional revises)
+                    (append (bndos-test-ai-thread nil "ai:codex" title path line) (list :revises revises))))
+         (result (bndos-task-review--ai-apply
+                  record
+                  (list (funcall finding "off  by ONE" "a.el" 10)         ; a repeat, worded the same
+                        (funcall finding "Race" "c.el" 1)                 ; resolved: still a repeat
+                        (funcall finding "Leaks a buffer on error" "a.el" 21 "c2")
+                        (funcall finding "Rename it differently" "b.el" 5 "c3") ; a person's: added
+                        (funcall finding "Unchecked nil" "a.el" 30))
+                  '((:thread "c1" :reason "it is fine") (:thread "c3" :reason "no"))
+                  "ai:codex"))
+         (threads (plist-get (car result) :threads))
+         (by-id (lambda (id) (bndos-task-thread (car result) id))))
+    (should (equal (cdr result) '(2 1 1 2)))
+    (should (= (length threads) 6))
+    (should (equal (plist-get (funcall by-id "c2") :title) "Leaks a buffer on error"))
+    (should (equal (bndos-task-get (funcall by-id "c2") :anchor :line) 21))
+    (should (equal (plist-get (funcall by-id "c1") :state) "resolved"))
+    (should (string-match-p "Withdrawn: it is fine" (plist-get (car (last (plist-get (funcall by-id "c1") :replies))) :body)))
+    ;; A person's thread is never revised or withdrawn.
+    (should (equal (plist-get (funcall by-id "c3") :title) "Rename this"))
+    (should (equal (plist-get (funcall by-id "c3") :state) "open"))
+    (should-not (seq-some (lambda (th) (plist-member th :revises)) threads))))
+
+(ert-deftest bndos-review-ai-prompt-lists-the-threads ()
+  (let* ((thread (bndos-test-ai-thread "c1" "ai:claude" "Off by one" "a.el" 10))
+         (thread (plist-put thread :replies (list (list :author "alex" :body "agreed" :status nil))))
+         (context (let ((bndos-task-review-ai-include-brief nil))
+                    (bndos-task-review--ai-context (list :threads (list thread)) nil))))
+    (should (string-match-p "id c1, a.el:10, by ai:claude, open" context))
+    (should (string-match-p "Off by one" context))
+    (should (string-match-p "alex:\n    agreed" context))
+    (should (string-match-p "\"withdraw\": true" context)))
+  (should (equal (let ((bndos-task-review-ai-include-brief nil))
+                   (bndos-task-review--ai-context (list :threads nil) nil))
+                 "")))
 
 ;;; Dashboard tree
 
@@ -569,14 +976,14 @@
     (bndos-test-with-fake-shells (("kd" shell 'ready "s1"))
       (with-temp-buffer
         (setq-local bndos-task-review-key "kd")
-        (cl-letf (((symbol-function 'bndos-task-review--ensure) #'ignore)
-                  ((symbol-function 'bndos-task-review-anchor-at-point)
+        (cl-letf (((symbol-function 'bndos-task-review--ensure) (lambda () (current-buffer)))
+                  ((symbol-function 'bndos-task-review--anchor-at-point)
                    (lambda () (list :path "src/a.txt" :side "new" :line 2 :end-line 3
-                                    :selection "+two\n+three")))
+                                    :selection "two\nthree")))
                   ((symbol-function 'pop-to-buffer) #'ignore))
           (bndos/task-review-send-to-agent)))
       (should (equal inserted
-                     `((,shell . "In src/a.txt:2-3:\n```diff\n+two\n+three\n```\n\n"))))
+                     `((,shell . "In src/a.txt:2:\n```diff\ntwo\nthree\n```\n\n"))))
       (should-not (plist-get (bndos-task-store-load "kd") :threads)))))
 
 
@@ -660,13 +1067,11 @@
         (should (string-match-p "Small · fast" annotation))))))
 
 (ert-deftest bndos-review-ai-context-joins-instructions-project-file-and-brief ()
-  (require 'hutch-agent-shell)
   (bndos-test-with-store
     (let* ((worktree (file-name-as-directory (make-temp-file "bndos-wt-" t)))
            (main (file-name-as-directory (make-temp-file "bndos-main-" t)))
            (record (list :key "k1" :ticket "GT-1"
                          :worktree (list :path worktree) :repo (list :main-path main)))
-           (scope (list :scope 'worktree :base "b0" :head "h0" :manifest "a.txt +1 -0"))
            (bndos-task-review-ai-instructions "Focus on error handling."))
       (unwind-protect
           (progn
@@ -675,7 +1080,7 @@
             (bndos-test-write bndos-task-store-directory "briefs/k1.md" "Add a slugify helper.\nCommit when done.\n")
             (let* ((instructions (bndos-task-review--ai-instructions record))
                    (context (bndos-task-review--ai-context record instructions))
-                   (prompt (hutch-agent-shell--prompt scope context)))
+                   (prompt (bndos-task-review-ai--prompt "b0" "h0" "a.txt (+1 -0)" context)))
               (should (equal instructions "Focus on error handling.\n\nUse the review skill."))
               (should (string-match-p (concat "Instructions for this review:\n\nFocus on error handling\\.\n\n"
                                               "Use the review skill\\.")
@@ -693,7 +1098,7 @@
                   (bndos-task-review-ai-include-brief nil))
               (should (equal (bndos-task-review--ai-context record (bndos-task-review--ai-instructions record)) ""))
               (should (string-match-p "manufacturing findings\\.\n\nEnd your reply"
-                                      (hutch-agent-shell--prompt scope "")))))
+                                      (bndos-task-review-ai--prompt "b0" "h0" "a.txt (+1 -0)" "")))))
         (delete-directory worktree t)
         (delete-directory main t)))))
 
@@ -709,13 +1114,14 @@
       (kill-buffer draft))))
 
 (ert-deftest bndos-review-ai-instructions-can-be-edited-for-one-review ()
-  (bndos-test-with-open-review (review _wt)
+  (bndos-test-with-review (_key _wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "a.txt" "a\n"))
     (let ((bndos-task-review-ai-instructions "Use the review skill.")
           started)
       (cl-letf (((symbol-function 'bndos-task-review--ai-start)
                  (lambda (&optional instructions) (push instructions started))))
         ;; Without a prefix the defaults go straight in.
-        (bndos/task-review-ai-review)
+        (with-current-buffer review (bndos/task-review-ai-review))
         (should (equal (car started) "Use the review skill."))
         ;; C-c C-w (or a prefix) starts a draft from them; what's submitted
         ;; is used, even nothing.

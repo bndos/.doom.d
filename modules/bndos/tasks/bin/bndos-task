@@ -135,16 +135,27 @@ def task_key(common, worktree):
     return hashlib.sha1(text.encode()).hexdigest()[:16]
 
 
-def review_summary(common, worktree):
-    path = os.path.join(state_dir(), "tasks", task_key(common, worktree) + ".json")
+def review_summary(common, worktree, branch):
+    """The task's review state (Emacs's record) and its unresolved threads.
+
+Threads are the comments of the task's diff-review file; a record from
+before that keeps them itself."""
+    key = task_key(common, worktree)
     try:
-        with open(path) as f:
+        with open(os.path.join(state_dir(), "tasks", key + ".json")) as f:
             record = json.load(f)
     except (OSError, ValueError):
+        record = None
+    review_file = os.path.join(common, "review", (branch or f"task-{key}") + ".json")
+    try:
+        with open(review_file) as f:
+            comments = json.load(f).get("comments") or []
+        unresolved = sum(1 for c in comments if not c.get("resolved"))
+    except (OSError, ValueError):
+        unresolved = sum(1 for t in ((record or {}).get("threads") or []) if t.get("state") != "resolved")
+    if record is None and not unresolved:
         return None, 0
-    threads = record.get("threads") or []
-    return ((record.get("review") or {}).get("state"),
-            sum(1 for t in threads if t.get("state") != "resolved"))
+    return ((record or {}).get("review") or {}).get("state"), unresolved
 
 
 # ---------------------------------------------------------------- Hydra REST
@@ -559,7 +570,7 @@ def describe(repo, tree, config, sessions, common):
         state = "idle" if session.get("status") == "warm" else "stopped"
     prompted = int(config.get("prompted") or 0) or None
     ended = session.get("lastTurnEndedAt") if session else None
-    review, unresolved = review_summary(common, tree["path"])
+    review, unresolved = review_summary(common, tree["path"], tree.get("branch"))
     return {"protocol": "bndos-task-status/2", "branch": tree.get("branch"),
             "worktree": os.path.realpath(tree["path"]), "repo": repo,
             "parent": config.get("base"), "ticket": config.get("ticket"),

@@ -61,7 +61,10 @@
      (bndos-test-git ,var "config" "commit.gpgsign" "false")
      (bndos-test-commit ,var "init" "README" "hello\n" "src/a.txt" "one\ntwo\nthree\n")
      (unwind-protect (progn ,@body)
-       (delete-directory root t))))
+       ;; A git process the test started may still be writing objects.
+       (condition-case nil
+           (delete-directory root t)
+         (file-error (sleep-for 1) (delete-directory root t))))))
 
 (defun bndos-test-worktree (repo branch base)
   "Add a worktree for new BRANCH from BASE next to REPO, recording its parent."

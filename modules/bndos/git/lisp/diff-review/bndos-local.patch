@@ -1,0 +1,1538 @@
+]2;T/tmp.EVlstTRmju--- a/diff-review.el	2026-11-10 12:16:09
++++ b/diff-review.el	2026-11-10 12:16:09
+@@ -153,6 +153,15 @@
+   "The fringe the hunk bars are drawn in, or nil for no bars."
+   :type '(choice (const left) (const right) (const :tag "No bars" nil)))
+ 
++(defcustom diff-review-thread-marker nil
++  "bndos: a string marking a thread's lines and rows in the left margin, or nil.
++Nil draws a bar in `diff-review-fringe', shared with the hunk bars."
++  :type '(choice (const :tag "Fringe bar" nil) string))
++
++(defcustom diff-review-tint-open-thread t
++  "bndos: whether an open thread's lines get its background, over the diff's."
++  :type 'boolean)
++
+ (defcustom diff-review-hunk-recenter 6
+   "The window line a hunk is shown on when moved to, or nil to center it."
+   :type '(choice (integer :tag "Line from the top") (const :tag "Center" nil)))
+@@ -184,6 +193,8 @@
+ (defface diff-review-comment-range '((t :extend t))
+   "Face for the lines of an open comment thread, over the syntax faces.
+ Without a background of its own, it takes `diff-review-comment's.")
++(defface diff-review-comment-bar '((t :inherit font-lock-comment-face))
++  "bndos: face for the fringe bar of a thread's lines and rows.")
+ (defface diff-review-comment-author '((t :inherit bold))
+   "Face for the author of a comment.")
+ 
+@@ -191,6 +202,33 @@
+   "The value of the format key a review file starts with.")
+ 
+ ;;;; State
++
++;; bndos: callers can add to the overview and the threads.
++(defvar diff-review-overview-functions nil
++  "Functions called with no arguments, in the review buffer, to insert
++sections in the overview, after its summary and before its files.")
++
++(defvar diff-review-thread-label-function nil
++  "Function called with a comment, returning text for its first line, or nil.")
++
++(defvar diff-review-message-lines-function nil
++  "Function called with a comment or reply, returning lines to show after its body.")
++
++(defvar diff-review-comment-groups-function nil
++  "Function called with the comments, in order, returning (HEADING . COMMENTS)
++groups for the overview's Comments, or nil for one list.")
++
++;; bndos: callers can give a review its range.
++(defvar diff-review-range-function nil
++  "Function called in a review buffer for its range, or nil.
++Called after the file is read, on every scan.  It returns nil for the
++usual range (the base's merge-base with the head, to the head or the
++worktree), or a plist:
++  :base           the exact commit or tree to compare against;
++  :head           a commit or tree under review, or nil for the worktree;
++  :worktree-tree  with no :head, a tree of the worktree's contents to diff
++                  to, so that untracked files count;
++  :base-name, :head-name  how the overview names them.")
+ 
+ ;; In the review buffer.
+ (defvar-local diff-review--data nil "The review file as parsed: a hash table, written back as is.")
+@@ -205,11 +243,29 @@
+ (defvar-local diff-review--superseded nil
+   "The throwaway worktree of the tip before, until a rescan shows the new files.")
+ (defvar-local diff-review--blobs nil "Alist of a revision buffer's name to the buffer, this review's.")
++;; bndos: a range given by `diff-review-range-function'.
++(defvar-local diff-review--ranged nil "The range `diff-review-range-function' gave, or nil.")
++(defvar-local diff-review--diff-to nil "The worktree's tree a worktree review diffs to, or nil.")
++(defvar-local diff-review--tip-tree nil "Non-nil when the tip is a tree, not a commit.")
++;; bndos: the diff view.
++(defvar-local diff-review--view nil "In a file buffer, its diff view, once made.")
++(defvar-local diff-review--view-file nil "In a diff view, the file buffer it shows.")
++(defvar-local diff-review--view-index nil
++  "In a diff view, hash of (SIDE . LINE) -> its line here, and (block . LINE) -> the
++first line of LINE's removed lines here.")
++(defvar-local diff-review--view-overlays nil "In a diff view, its overlays.")
++(defvar-local diff-review--prefer-view nil "In a review buffer, whether its files open in the diff view.")
++(defvar-local diff-review--blob-texts nil "In a review buffer, blob -> its lines fontified, by mode.")
+ (defvar-local diff-review--files nil "Vector of file plists, in tree order.")
+ (defvar-local diff-review--index nil "Index of the file shown, or nil for none.")
+ (defvar-local diff-review--viewed nil "Hash table of path to the blob hash it was viewed at.")
+ (defvar-local diff-review--comments nil "Vector of the comments, hash tables as parsed.")
+ (defvar-local diff-review--sidebar nil "The sidebar buffer, once created.")
++(defvar-local diff-review-host nil
++  "bndos: in a buffer that is not a review, what its sidebar shows.
++A plist: :title, :files a function returning the file plists (:path,
++:status, :added, :removed), :open a function showing a path, :current one
++returning the path at point.  Set by `diff-review-host-sidebar'.")
+ (defvar-local diff-review--sidebar-enabled nil "Whether this review shows its sidebar.")
+ (defvar-local diff-review--sidebar-width nil "The width of this review's sidebar, in columns.")
+ (defvar-local diff-review--inline-removed nil "Whether this review shows removed lines inline.")
+@@ -232,6 +288,7 @@
+ (defun diff-review--review-buffer ()
+   "The review buffer this buffer belongs to, or nil."
+   (cond ((derived-mode-p 'diff-review-mode) (current-buffer))
++        (diff-review-host (current-buffer))   ; bndos
+         ((buffer-live-p diff-review--review) diff-review--review)))
+ 
+ (defmacro diff-review--in-review (&rest body)
+@@ -356,8 +413,8 @@
+ (defun diff-review--range ()
+   "The revisions to give `git diff': the base, and the head's tip when set.
+ The tip as scanned, not the branch: the files shown are the tip's, and
+-the branch may have moved on since."
+-  (delq nil (list diff-review--base diff-review--tip)))
++the branch may have moved on since.  bndos: or the worktree's tree."
++  (delq nil (list diff-review--base (or diff-review--tip diff-review--diff-to))))
+ 
+ (defun diff-review--hashes (paths &optional rev)
+   "The blob hashes of the files at PATHS, at REV or the tip, in one git call."
+@@ -377,18 +434,44 @@
+           (error "Git hash-object: %s" (string-trim (buffer-string))))
+         (split-string (buffer-string) "\n" t))))))
+ 
++(defun diff-review--base-hashes (paths)
++  "bndos: the blob of each of PATHS at the base, nil where the base has none."
++  (when paths
++    (let ((default-directory diff-review--root)
++          (base diff-review--base))
++      (with-temp-buffer
++        (insert (mapconcat (lambda (p) (concat base ":" p)) paths "\n") "\n")
++        (call-process-region (point-min) (point-max) "git" t t nil
++                             "cat-file" "--batch-check=%(objectname)")
++        (mapcar (lambda (line) (and (string-match-p "\\`[0-9a-f]+\\'" line) line))
++                (seq-take (split-string (buffer-string) "\n") (length paths)))))))
++
+ (defun diff-review--scan ()
+   "Fill the file vector from git: a handful of calls for any number of files."
+-  (setq diff-review--head-name (or diff-review--head
+-                                   (diff-review--git "rev-parse" "--abbrev-ref" "HEAD"))
+-        diff-review--base
+-        (condition-case err
+-            (diff-review--git "merge-base" diff-review--base-name
+-                              (or diff-review--head "HEAD"))
+-          (error (user-error "No merge base with base %S: set \"base\" in the review \
++  (if-let* ((range (and diff-review-range-function (funcall diff-review-range-function))))
++      ;; bndos: the range as given.
++      (let ((tip (plist-get range :head)))
++        (setq diff-review--ranged range
++              diff-review--head-name (or (plist-get range :head-name) tip "worktree")
++              diff-review--base-name (or (plist-get range :base-name) diff-review--base-name)
++              diff-review--base (plist-get range :base)
++              diff-review--tip tip
++              diff-review--tip-tree (and tip (equal (diff-review--git "cat-file" "-t" tip) "tree"))
++              diff-review--diff-to (and (null tip) (plist-get range :worktree-tree))
++              diff-review--moved nil))
++    (setq diff-review--ranged nil
++          diff-review--tip-tree nil
++          diff-review--diff-to nil)
++    (setq diff-review--head-name (or diff-review--head
++                                     (diff-review--git "rev-parse" "--abbrev-ref" "HEAD"))
++          diff-review--base
++          (condition-case err
++              (diff-review--git "merge-base" diff-review--base-name
++                                (or diff-review--head "HEAD"))
++            (error (user-error "No merge base with base %S: set \"base\" in the review \
+ file, or `diff-review-default-base' for new reviews (%s)"
+-                             diff-review--base-name (error-message-string err)))))
+-  (diff-review--follow-tip)
++                               diff-review--base-name (error-message-string err)))))
++    (diff-review--follow-tip))
+   (let* ((shown (and diff-review--index   ; keeps its place by path: the index may move
+                      (< diff-review--index (length diff-review--files))
+                      (plist-get (diff-review--file) :path)))
+@@ -411,13 +494,16 @@
+                          commented)))
+     (setq diff-review--files
+           (vconcat
+-           (mapcar (lambda (entry)
+-                     (pcase-let ((`(,path ,status ,old) entry))
+-                       (let ((stat (gethash path numstat)))
+-                         (list :path path :status status :old old
+-                               :added (or (car stat) 0) :removed (or (cdr stat) 0)
+-                               :hash (cdr (assoc path hashes))))))
+-                   entries)))
++           (cl-mapcar (lambda (entry base-hash)
++                        (pcase-let ((`(,path ,status ,old) entry))
++                          (let ((stat (gethash path numstat)))
++                            (list :path path :status status :old old
++                                  :added (or (car stat) 0) :removed (or (cdr stat) 0)
++                                  :hash (cdr (assoc path hashes))
++                                  :base-hash base-hash))))
++                      entries
++                      (diff-review--base-hashes
++                       (mapcar (lambda (e) (or (nth 2 e) (car e))) entries)))))
+     (setq diff-review--index (and shown (diff-review--file-index shown)))))
+ 
+ (defun diff-review--follow-tip ()
+@@ -507,12 +593,12 @@
+ 
+ (defun diff-review--set-viewed (file flag)
+   "Mark FILE viewed at its current contents when FLAG, else unmark it, and write."
+-  (unless (verify-visited-file-modtime)   ; someone else wrote it: take theirs first
++  (unless (or diff-review-host (verify-visited-file-modtime))   ; someone else wrote it: take theirs first
+     (diff-review--revert))
+   (if flag
+       (puthash (plist-get file :path) (plist-get file :hash) diff-review--viewed)
+     (remhash (plist-get file :path) diff-review--viewed))
+-  (diff-review--write))
++  (unless diff-review-host (diff-review--write)))   ; bndos: a host's marks are for the session
+ 
+ ;;;; Comments
+ 
+@@ -548,6 +634,14 @@
+     (and (vectorp lines) (= (length lines) 2)
+          (cons (aref lines 0) (aref lines 1)))))
+ 
++(defun diff-review--comment-old-p (comment)
++  "bndos: non-nil when COMMENT is on removed lines (its lines are the base's)."
++  (equal (gethash "side" comment) "old"))
++
++(defun diff-review--comment-file-p (comment)
++  "bndos: non-nil when COMMENT is on a whole file."
++  (and (gethash "path" comment) (null (diff-review--comment-lines comment))))
++
+ (defun diff-review--first-line (comment)
+   "The first line of COMMENT's body."
+   (car (split-string (or (gethash "body" comment) "") "\n")))
+@@ -580,15 +674,20 @@
+   (diff-review--render-all)
+   (diff-review--redecorate-files))
+ 
+-(defun diff-review--add-comment (path lines blob body)
++(defun diff-review--add-comment (path lines blob body &optional side base-blob)
+   "Add a thread of BODY on LINES of PATH as BLOB has it, and return it.
+-Without PATH it is on the review as a whole.  The review buffer must be current."
++Without PATH it is on the review as a whole; bndos: without LINES on the
++whole file, and with SIDE \"old\" on the base's lines (removed ones).
++BASE-BLOB, the file at the base, lets a reader rebuild the change the lines
++are in, removed lines included.  The review buffer must be current."
+   (let ((c (make-hash-table :test #'equal)))
+     (puthash "id" (diff-review--comment-id) c)
+     (when path
+       (puthash "path" path c)
+-      (puthash "lines" (vector (car lines) (cdr lines)) c)
+-      (when blob (puthash "blob" blob c)))
++      (when lines (puthash "lines" (vector (car lines) (cdr lines)) c))
++      (when side (puthash "side" side c))
++      (when blob (puthash "blob" blob c))
++      (when base-blob (puthash "base-blob" base-blob c)))
+     (diff-review--message (diff-review--author) body c)
+     (puthash "replies" [] c)
+     (diff-review--modify-comments
+@@ -625,6 +724,7 @@
+ (defun diff-review--set-verdict (state)
+   "Write the verdict STATE on the tip the review shows, and redraw.
+ The review buffer must be current."
++  (when diff-review-host (user-error "Not a review"))   ; bndos
+   (let ((tip (or diff-review--tip
+                  (user-error "A verdict is on a commit: this review is of the worktree"))))
+     (unless (verify-visited-file-modtime) ; someone else wrote it: take theirs first
+@@ -835,6 +935,9 @@
+       "  "
+       (propertize (or (gethash "author" comment) "?") 'face 'diff-review-comment-author)
+       "  "
++      (when-let* ((label (and diff-review-thread-label-function   ; bndos
++                              (funcall diff-review-thread-label-function comment))))
++        (concat label "  "))
+       (propertize (diff-review--first-line comment) 'face (and resolved 'shadow))
+       (and (> replies 0) (propertize (format "  +%d" replies) 'face 'shadow))
+       (and resolved (propertize (concat "  " (diff-review--glyph "✓" "*")) 'face 'success))
+@@ -860,17 +963,27 @@
+                                  (t most-positive-fixnum))
+                            path
+                            (or (car (diff-review--comment-lines c)) 0))))))
+-        (dolist (entry (sort (mapcar (lambda (c) (cons (funcall key c) c))
+-                                     (append diff-review--comments nil))
+-                             (pcase-lambda (`((,ia ,pa ,la) . ,_) `((,ib ,pb ,lb) . ,_))
+-                               (cond ((/= ia ib) (< ia ib))
+-                                     ((not (equal pa pb)) (string< pa pb))
+-                                     (t (< la lb))))))
+-          (let ((comment (cdr entry)))
+-            (magit-insert-section (diff-review-comment (gethash "id" comment))
+-              (magit-insert-heading (diff-review--comment-line comment))
+-              (unless (gethash "path" comment)
+-                (insert (diff-review--thread-string comment nil nil nil t))))))))))
++        (let* ((sorted (mapcar #'cdr
++                               (sort (mapcar (lambda (c) (cons (funcall key c) c))
++                                             (append diff-review--comments nil))
++                                     (pcase-lambda (`((,ia ,pa ,la) . ,_) `((,ib ,pb ,lb) . ,_))
++                                       (cond ((/= ia ib) (< ia ib))
++                                             ((not (equal pa pb)) (string< pa pb))
++                                             (t (< la lb)))))))
++               (insert-one (lambda (comment)
++                             (magit-insert-section (diff-review-comment (gethash "id" comment))
++                               (magit-insert-heading (diff-review--comment-line comment))
++                               (unless (gethash "path" comment)
++                                 (insert (diff-review--thread-string comment nil nil nil t))))))
++               (groups (and diff-review-comment-groups-function   ; bndos
++                            (funcall diff-review-comment-groups-function sorted))))
++          (if (null groups)
++              (mapc insert-one sorted)
++            (pcase-dolist (`(,heading . ,comments) groups)
++              (when comments
++                (magit-insert-section (diff-review-comment-group heading)
++                  (magit-insert-heading (format "  %s (%d)" heading (length comments)))
++                  (mapc insert-one comments))))))))))
+ 
+ (defun diff-review--goto-current ()
+   "Put point on the current file's line, or the first file."
+@@ -901,6 +1014,7 @@
+                                   (abbreviate-file-name buffer-file-name))
+                           'face 'shadow)
+               "\n")
++      (run-hooks 'diff-review-overview-functions)   ; bndos
+       (diff-review--insert-files)
+       (diff-review--insert-comments))
+     (set-buffer-modified-p nil)
+@@ -908,7 +1022,7 @@
+ 
+ (defun diff-review--render-all ()
+   "Redraw the overview and the sidebar.  The review buffer must be current."
+-  (diff-review--render)
++  (unless diff-review-host (diff-review--render))   ; bndos: a host draws itself
+   (when (buffer-live-p diff-review--sidebar)
+     (with-current-buffer diff-review--sidebar (diff-review-sidebar--render)))
+   (force-mode-line-update t))
+@@ -948,7 +1062,7 @@
+                   window-or-frame)))
+     (when (window-live-p window)
+       (with-current-buffer (window-buffer window)
+-        (when (and (derived-mode-p 'diff-review-mode) diff-review--head)
++        (when (and (derived-mode-p 'diff-review-mode) diff-review--head (not diff-review--ranged))
+           (let* ((tip (ignore-errors
+                         (diff-review--git "rev-parse" "--verify"
+                                           (concat diff-review--head "^{commit}"))))
+@@ -1027,7 +1141,8 @@
+   "Reread the file and rescan the diff.
+ A file that changed since it was viewed loses its mark."
+   (interactive)
+-  (diff-review--in-review (revert-buffer)))
++  (diff-review--in-review
++    (if diff-review-host (diff-review--host-refresh) (revert-buffer))))   ; bndos
+ 
+ (defun diff-review-approve ()
+   "Approve the head as the review shows it, as `diff-review-author'.
+@@ -1108,6 +1223,9 @@
+   "v" #'diff-review-toggle-viewed
+   "g" #'diff-review-refresh
+   "t" #'diff-review-toggle-sidebar
++  "N" #'diff-review-next-comment        ; bndos
++  "P" #'diff-review-previous-comment    ; bndos
++  "j" #'diff-review-list-comments       ; bndos
+   "A" #'diff-review-approve
+   "C" #'diff-review-request-changes
+   "C-c C-c" #'diff-review-toggle-raw
+@@ -1182,8 +1300,9 @@
+       (diff-review--remove-worktree dir))
+     (unless (seq-some (lambda (buffer)
+                         (and (not (eq buffer review))
+-                             (provided-mode-derived-p (buffer-local-value 'major-mode buffer)
+-                                                      'diff-review-mode)))
++                             (or (provided-mode-derived-p (buffer-local-value 'major-mode buffer)
++                                                          'diff-review-mode)
++                                 (buffer-local-value 'diff-review-host buffer))))   ; bndos
+                       (buffer-list))
+       (remove-hook 'window-buffer-change-functions #'diff-review--follow)
+       (remove-hook 'find-file-hook #'diff-review--protect))))
+@@ -1236,8 +1355,9 @@
+ (defun diff-review-sidebar--header ()
+   "The sidebar's header line: the head and the review's summary."
+   (diff-review--in-review
+-    (concat (propertize (format " %s  " diff-review--head-name) 'face 'bold)
+-            (diff-review--summary))))
++    (if diff-review-host (diff-review--host-header)   ; bndos
++      (concat (propertize (format " %s  " diff-review--head-name) 'face 'bold)
++              (diff-review--summary)))))
+ 
+ (defun diff-review-sidebar--render ()
+   "Redraw the sidebar.  The sidebar buffer must be current."
+@@ -1325,7 +1445,84 @@
+             (unless (eq (and sidebar (window-buffer sidebar)) wanted)
+               (when sidebar (diff-review--detach sidebar))
+               (when wanted (diff-review--attach window wanted)))))))))
++
++;;;; bndos: a sidebar for another buffer
++
++;; A buffer that shows a diff its own way (pr-review's) gets the sidebar
++;; reviews have: the buffer stands in for the review, with its files and
++;; session-only viewed marks, and choosing a file asks the buffer to show it.
++
++(defun diff-review--host-files ()
++  "The host's files as a review's, in tree order."
++  (vconcat (sort (mapcar (lambda (file)
++                           (list :path (plist-get file :path) :status (or (plist-get file :status) " ")
++                                 :added (or (plist-get file :added) 0) :removed (or (plist-get file :removed) 0)
++                                 :hash ""))
++                         (funcall (plist-get diff-review-host :files)))
++                 (lambda (a b) (diff-review--tree-less-p (plist-get a :path) (plist-get b :path))))))
++
++(defun diff-review--host-index (path)
++  (and path (seq-position diff-review--files path (lambda (file p) (equal (plist-get file :path) p)))))
++
++(defun diff-review--host-header ()
++  (concat (propertize (format " %s  " (plist-get diff-review-host :title)) 'face 'bold)
++          (format "%d/%d viewed  %s"
++                  (seq-count #'diff-review--viewed-p diff-review--files) (length diff-review--files)
++                  (diff-review--counts (diff-review--sum diff-review--files :added)
++                                       (diff-review--sum diff-review--files :removed)))))
+ 
++(defun diff-review--host-redraw ()
++  (when (buffer-live-p diff-review--sidebar)
++    (with-current-buffer diff-review--sidebar (diff-review-sidebar--render))))
++
++(defun diff-review--host-refresh ()
++  "Reread the host's files, keeping the viewed marks of those still there."
++  (setq diff-review--files (diff-review--host-files)
++        diff-review--index (diff-review--host-index (funcall (plist-get diff-review-host :current))))
++  (diff-review--host-redraw))
++
++(defun diff-review--host-open (i)
++  "Show the host's file I in its window."
++  (let ((host (current-buffer)))
++    (diff-review--host-redraw)
++    (diff-review--show-in-main host)
++    (with-current-buffer host
++      (funcall (plist-get diff-review-host :open) (plist-get (diff-review--file i) :path)))
++    host))
++
++(defun diff-review--host-track ()
++  "Mark the file point is in, as point moves through the host."
++  (let ((i (diff-review--host-index (funcall (plist-get diff-review-host :current)))))
++    (when (and i (not (eql i diff-review--index)))
++      (setq diff-review--index i)
++      (diff-review--host-redraw))))
++
++(defun diff-review--host-end ()
++  (when (buffer-live-p diff-review--sidebar)
++    (kill-buffer diff-review--sidebar)))
++
++(cl-defun diff-review-host-sidebar (&key title files open current)
++  "Show or hide a review's sidebar beside this buffer, for its files.
++TITLE heads it; FILES returns the file plists (:path, :status a letter,
++:added, :removed); OPEN shows a path in this buffer; CURRENT returns the
++path at point, or nil."
++  (unless diff-review-host
++    (setq diff-review-host (list :title title :files files :open open :current current)
++          diff-review--viewed (make-hash-table :test #'equal)
++          diff-review--comments []
++          diff-review--sidebar-width diff-review-sidebar-width)
++    (diff-review--host-refresh)
++    (add-hook 'post-command-hook #'diff-review--host-track nil t)
++    (add-hook 'kill-buffer-hook #'diff-review--host-end nil t)
++    (add-hook 'window-buffer-change-functions #'diff-review--follow))
++  (diff-review-toggle-sidebar))
++
++(defun diff-review-host-sidebar-visible-p (&optional buffer)
++  "Non-nil when BUFFER (default the current one) shows its sidebar."
++  (with-current-buffer (or buffer (current-buffer))
++    (and diff-review--sidebar-enabled (buffer-live-p diff-review--sidebar)
++         (get-buffer-window diff-review--sidebar t) t)))
++
+ ;;;; Showing a file
+ 
+ (defun diff-review--main-window ()
+@@ -1553,7 +1750,9 @@
+   "The buffer that shows FILE as the review has it, made or brought up to date.
+ The review buffer must be current."
+   (cond ((equal (plist-get file :status) "D") (diff-review--blob-for file))
+-        (diff-review--head (diff-review--head-buffer file))
++        ;; bndos: a tree has no worktree to show its files in.
++        (diff-review--tip-tree (diff-review--blob-for file))
++        (diff-review--tip (diff-review--head-buffer file))
+         (t (find-file-noselect (expand-file-name (plist-get file :path) diff-review--root)))))
+ 
+ (defun diff-review--refresh-files ()
+@@ -1582,6 +1781,7 @@
+   (unless (< -1 i (length diff-review--files))
+     (user-error "The review has no files"))
+   (setq diff-review--index i)
++  (if diff-review-host (diff-review--host-open i)   ; bndos
+   (let* ((file (diff-review--file i))
+          (path (plist-get file :path))
+          (buffer (diff-review--file-buffer file)))
+@@ -1595,8 +1795,11 @@
+     (with-current-buffer buffer          ; the caller may be in the review buffer
+       (goto-char (point-min))
+       (when diff-review--hunks
+-        (diff-review--goto-hunk (car diff-review--hunks))))
+-    buffer))
++        (diff-review--goto-hunk (car diff-review--hunks)))
++      ;; bndos: in the view last used.
++      (when (diff-review--in-review diff-review--prefer-view)
++        (diff-review--to-view)))
++    buffer)))
+ 
+ ;;;; The file side
+ 
+@@ -1613,13 +1816,17 @@
+       (while (re-search-forward diff-hunk-header-re-unified nil t)
+         (let ((line (diff-review--hunk-field 3))   ; the new side
+               (count (diff-review--hunk-field 4))
++              (old-line (diff-review--hunk-field 1))   ; bndos: the old side too
++              (old-count (diff-review--hunk-field 2))
+               removed)
+           (forward-line 1)
+           (while (and (not (eobp)) (looking-at "^\\([-+]\\)\\(.*\\)$"))
+             (when (equal (match-string 1) "-")
+               (push (match-string 2) removed))
+             (forward-line 1))
+-          (push (list :line line :count count :removed (nreverse removed)) hunks))))
++          (push (list :line line :count count :removed (nreverse removed)
++                      :old-line old-line :old-count old-count)
++                hunks))))
+     (nreverse hunks)))
+ 
+ (defun diff-review--line-pos (line)
+@@ -1654,15 +1861,32 @@
+         face
+       (list face `(:background ,borrowed :extend t)))))
+ 
+-(defun diff-review--fringe-mark (face)
+-  "A string that draws a bar in `diff-review-fringe' on its line, in FACE.
++(defun diff-review--fringe-mark (face &optional side)
++  "A string that draws a bar in `diff-review-fringe' (bndos: or SIDE) on its line, in FACE.
+ Empty without that option or the bitmap.  A text terminal draws nothing for
+ it, so it is the same string on every frame."
+   (if (and diff-review-fringe (fboundp 'fringe-bitmap-p) (fringe-bitmap-p 'diff-review-bar))
+-      (propertize " " 'display `(,(if (eq diff-review-fringe 'right) 'right-fringe 'left-fringe)
++      (propertize " " 'display `(,(if (eq (or side diff-review-fringe) 'right) 'right-fringe 'left-fringe)
+                                  diff-review-bar ,face))
+     ""))
+ 
++(defun diff-review--thread-bar ()
++  "bndos: the mark of a thread's lines and rows."
++  (if diff-review-thread-marker
++      (propertize " " 'display `((margin left-margin)
++                                 ,(propertize diff-review-thread-marker 'face 'diff-review-comment-bar)))
++    (diff-review--fringe-mark 'diff-review-comment-bar)))
++
++(defun diff-review--margins ()
++  "bndos: give this buffer's windows their margins again."
++  (dolist (window (get-buffer-window-list nil nil t))
++    (set-window-margins window left-margin-width right-margin-width)
++    (set-window-fringes window left-fringe-width right-fringe-width fringes-outside-margins)))
++
++(defun diff-review--open-face ()
++  "bndos: the face of an open thread's lines, or nil."
++  (and diff-review-tint-open-thread (diff-review--tint 'diff-review-comment-range 'diff-review-comment)))
++
+ (defun diff-review--bars (start lines mark)
+   "Put MARK before each of LINES lines from START, in zero-width overlays.
+ Not `line-prefix': an overlay's would hide the one `org-indent-mode' draws."
+@@ -1719,28 +1943,77 @@
+           (push overlay diff-review--overlays)
+           (diff-review--bars (point-min) (count-lines (point-min) (point-max))
+                              (diff-review--fringe-mark 'diff-indicator-removed)))
+-      (dolist (hunk diff-review--hunks)
+-        (let* ((line (diff-review--hunk-line hunk))
+-               (start (diff-review--line-pos line))
+-               (count (plist-get hunk :count))
+-               (end (if (zerop count) start
+-                      (diff-review--line-pos (+ (plist-get hunk :line) count))))
+-               (overlay (make-overlay start end nil t nil))
+-               (mark (if (> count 0) (diff-review--fringe-mark 'diff-indicator-added) ""))
+-               above)
+-          (overlay-put overlay 'face (and (> count 0) added))
+-          (when (and inline (plist-get hunk :removed))
+-            (let ((n (length (plist-get hunk :removed))))
+-              (setq above (diff-review--removed-string (seq-take texts n) removed))
+-              (setq texts (nthcdr n texts))))
+-          ;; The first added line's bar goes after the removed lines, in one
+-          ;; string: two before-strings at one place have no reliable order.
+-          (overlay-put overlay 'before-string (concat above mark))
+-          (push overlay diff-review--overlays)
+-          (when (> count 1)
+-            (diff-review--bars (diff-review--line-pos (1+ line)) (1- count) mark))))
+-      (when diff-review--focus (diff-review--fold)))))
++      (let ((old-threads (diff-review--old-threads))   ; bndos: threads among removed lines
++            (top nil))
++        (dolist (hunk diff-review--hunks)
++          (let* ((line (diff-review--hunk-line hunk))
++                 (start (diff-review--line-pos line))
++                 (count (plist-get hunk :count))
++                 (end (if (zerop count) start
++                        (diff-review--line-pos (+ (plist-get hunk :line) count))))
++                 (overlay (make-overlay start end nil t nil))
++                 (mark (if (> count 0) (diff-review--fringe-mark 'diff-indicator-added) ""))
++                 lines)
++            (overlay-put overlay 'face (and (> count 0) added))
++            (when (and inline (plist-get hunk :removed))
++              (let ((n (length (plist-get hunk :removed))))
++                (setq lines (mapcar (lambda (text) (diff-review--removed-string (list text) removed))
++                                    (seq-take texts n)))
++                (setq texts (nthcdr n texts))))
++            ;; The first added line's bar goes after the removed lines, in one
++            ;; string: two before-strings at one place have no reliable order.
++            ;; bndos: so do the threads on removed lines, after the line each ends on.
++            (overlay-put overlay 'diff-review-texts lines)
++            (overlay-put overlay 'diff-review-mark mark)
++            (let ((first (plist-get hunk :old-line))
++                  (last (+ (plist-get hunk :old-line) (plist-get hunk :old-count) -1)))
++              (dolist (thread old-threads)
++                (pcase-let ((`(,comment ,lines ,stale) thread))
++                  (when (and lines (> (plist-get hunk :old-count) 0) (<= first (cdr lines) last))
++                    (diff-review--embed overlay comment lines (- (cdr lines) first) stale)
++                    (setq old-threads (delq thread old-threads))))))
++            (diff-review--draw-carrier overlay)
++            (when (= start (point-min)) (setq top overlay))
++            (push overlay diff-review--overlays)
++            (when (> count 1)
++              (diff-review--bars (diff-review--line-pos (1+ line)) (1- count) mark))))
++        ;; Threads on the whole file, and removed lines no hunk has now, atop the file.
++        (let* ((path diff-review--file-path)   ; this buffer's, read before entering the review
++               (file-threads (seq-filter #'diff-review--comment-file-p
++                                         (diff-review--in-review (diff-review--file-comments path)))))
++          (when (or file-threads old-threads)
++            (unless top
++              (setq top (make-overlay (point-min) (point-min)))
++              (overlay-put top 'diff-review-mark "")
++              (push top diff-review--overlays))
++            (dolist (comment file-threads)
++              (diff-review--embed top comment nil -1 nil))
++            (pcase-dolist (`(,comment ,lines ,_) old-threads)
++              (diff-review--embed top comment (or lines (diff-review--comment-lines comment)) -1 t))
++            (diff-review--draw-carrier top))))
++      (when diff-review--focus (diff-review--fold))))
++  ;; bndos: the diff view follows.
++  (when (buffer-live-p diff-review--view)
++    (diff-review--view-refresh diff-review--view)))
+ 
++(defun diff-review--old-threads ()
++  "bndos: this file's threads on removed lines, as (COMMENT LINES STALE).
++LINES are where they are in the base's blob now, followed through `git diff'
++from the blob each was made on; nil, and STALE, when that blob changed in them."
++  (let* ((path diff-review--file-path)
++         (base (plist-get (diff-review--this-file) :base-hash)))
++    (delq nil
++          (mapcar (lambda (comment)
++                    (when (and (diff-review--comment-old-p comment) (diff-review--comment-lines comment))
++                      (let* ((lines (diff-review--comment-lines comment))
++                             (old (gethash "blob" comment))
++                             (mapped (if (or (null old) (null base) (equal old base))
++                                         lines
++                                       (let ((hunks (diff-review--in-review (diff-review--hunks-between old base))))
++                                         (and (listp hunks) (diff-review--map-lines hunks lines))))))
++                        (list comment mapped (not mapped)))))
++                  (diff-review--in-review (diff-review--file-comments path))))))
++
+ (defun diff-review--fold ()
+   "Hide unchanged lines beyond `diff-review-context' of any hunk."
+   (let ((last (line-number-at-pos (point-max)))
+@@ -1844,7 +2117,7 @@
+ mark.  Every row carries the fringe bar the range has, so range and thread
+ read as one block.  Bodies fill at the buffer's `fill-column', less the
+ margin; the keys are hinted where they are bound, in a file."
+-  (let* ((bar (diff-review--fringe-mark 'diff-review-comment))
++  (let* ((bar (diff-review--thread-bar))
+          (width (max 20 (- fill-column 4)))
+          (who (lambda (m)
+                 (concat (propertize (or (gethash "author" m) "?") 'face 'diff-review-comment-author)
+@@ -1854,10 +2127,17 @@
+           (list (concat
+                  (diff-review--glyph "💬" "#") " " (funcall who comment) "  "
+                  (if open
+-                     (and first
+-                          (propertize (if (= first last) (format "line %d" first)
+-                                        (format "lines %d-%d" first last))
+-                                      'face 'shadow))
++                     (cond
++                      ;; bndos: removed lines and whole files.
++                      ((diff-review--comment-file-p comment) (propertize "the whole file" 'face 'shadow))
++                      ((and first (diff-review--comment-old-p comment))
++                       (propertize (if (= first last) (format "removed line %d" first)
++                                     (format "removed lines %d-%d" first last))
++                                   'face 'shadow))
++                      (first
++                       (propertize (if (= first last) (format "line %d" first)
++                                     (format "lines %d-%d" first last))
++                                   'face 'shadow)))
+                    (concat (truncate-string-to-width (diff-review--first-line comment)
+                                                      width nil nil (diff-review--glyph "…" "..."))
+                            (and (> (length replies) 0)
+@@ -1865,13 +2145,23 @@
+                  (and (gethash "resolved" comment)
+                       (propertize (concat "  " (diff-review--glyph "✓" "*") " resolved")
+                                   'face 'success))
++                 ;; bndos
++                 (when-let* ((label (and diff-review-thread-label-function
++                                         (funcall diff-review-thread-label-function comment))))
++                   (concat "  " label))
+                  (and stale (propertize "  outdated" 'face 'warning))))))
+     (when open
+       (dolist (line (diff-review--body-lines (gethash "body" comment) width))
+         (push (concat "  " line) lines))
++      (dolist (line (and diff-review-message-lines-function   ; bndos
++                         (funcall diff-review-message-lines-function comment)))
++        (push (concat "  " line) lines))
+       (seq-doseq (reply replies)
+         (push (concat "  " (funcall who reply)) lines)
+         (dolist (line (diff-review--body-lines (gethash "body" reply) width))
++          (push (concat "    " line) lines))
++        (dolist (line (and diff-review-message-lines-function   ; bndos
++                           (funcall diff-review-message-lines-function reply)))
+           (push (concat "    " line) lines)))
+       (when (and diff-review-file-header-keys diff-review-file-mode)
+         (push (concat "  " (diff-review--key-hints
+@@ -1894,22 +2184,129 @@
+   "The lines thread OVERLAY covers, (FIRST . LAST)."
+   (cons (line-number-at-pos (overlay-start overlay) t)
+         (line-number-at-pos (max (overlay-start overlay) (1- (overlay-end overlay))) t)))
++
++(defun diff-review--lift (pos)
++  "bndos: the overlay drawing rows above the line at POS, made if needed.
++It covers the newline before POS and draws the rows before it, so they
++end the line above instead of starting this one: this line keeps its
++number and prefix.  At the end of a file without one, it is empty."
++  (let* ((newline (eq (char-before pos) ?\n))
++         (start (if newline (1- pos) pos)))
++    (or (seq-find (lambda (o) (and (overlay-get o 'diff-review-rows-of) (= (overlay-start o) start)))
++                  (overlays-in start pos))
++        (let ((lift (make-overlay start pos nil t nil)))
++          (overlay-put lift 'diff-review-rows-of (list nil))
++          (overlay-put lift 'priority 100)
++          (if (derived-mode-p 'diff-review-view-mode)
++              (push lift diff-review--view-overlays)
++            (push lift diff-review--overlays))
++          lift))))
+ 
++(defun diff-review--row-face (pos)
++  "The face the line ending at POS extends with."
++  (or (seq-some (lambda (o) (and (not (overlay-get o 'diff-review-rows-of))
++                                 (not (overlay-get o 'diff-review-comment))
++                                 (overlay-get o 'face)))
++                (overlays-at pos))
++      (get-text-property pos 'face)))
++
++(defun diff-review--set-rows (source pos rank rows)
++  "bndos: draw ROWS, lines each ending in a newline, for SOURCE above the line at POS.
++Rows of a lower RANK come first, then by SOURCE's place."
++  (let* ((lift (diff-review--lift pos))
++         (entries (sort (cons (list source rank rows)
++                              (seq-remove (lambda (e) (or (eq (car e) source) (null (overlay-buffer (car e)))))
++                                          (cdr (overlay-get lift 'diff-review-rows-of))))
++                        (lambda (a b) (if (= (nth 1 a) (nth 1 b))
++                                          (< (overlay-start (car a)) (overlay-start (car b)))
++                                        (< (nth 1 a) (nth 1 b))))))
++         (all (mapconcat #'caddr entries "")))
++    (overlay-put lift 'diff-review-rows-of (cons nil entries))
++    (if (string-empty-p all)
++        (progn (overlay-put lift 'before-string nil) (overlay-put lift 'face nil))
++      (let* ((last (1- (length all)))
++             (body (substring all 0 last)))
++        (when (= (overlay-start lift) (overlay-end lift))   ; no newline to end the last row
++          (setq body (concat body "\n")))
++        (overlay-put lift 'before-string
++                     (concat (propertize "\n" 'face (diff-review--row-face (overlay-start lift)))
++                             (propertize body 'line-prefix "" 'wrap-prefix "")))
++        ;; The buffer's newline ends the last row: with its face.
++        (overlay-put lift 'face (get-text-property last 'face all))))))
++
++(defun diff-review--draw-carrier (carrier)
++  "bndos: draw CARRIER's rows above its line, its mark on the line."
++  (let ((rows (diff-review--carrier-string carrier))
++        (mark (overlay-get carrier 'diff-review-mark)))
++    (if (= (overlay-start carrier) (point-min))
++        (overlay-put carrier 'before-string (concat rows mark))
++      (overlay-put carrier 'before-string mark)
++      (diff-review--set-rows carrier (overlay-start carrier) 1 rows))))
++
++(defun diff-review--carrier-string (carrier)
++  "bndos: the rows of CARRIER, an overlay drawing removed lines and threads.
++Threads on the whole file first, then each removed line followed by the
++threads on removed lines that end with it."
++  (let ((anchors (overlay-get carrier 'diff-review-anchors))
++        (texts (overlay-get carrier 'diff-review-texts)))
++    (cl-flet ((threads-at (index)
++                (mapconcat (lambda (anchor)
++                             (if (eql (overlay-get anchor 'diff-review-index) index)
++                                 (let ((lines (overlay-get anchor 'diff-review-lines)))
++                                   (diff-review--thread-string (overlay-get anchor 'diff-review-comment)
++                                                               (car lines) (cdr lines)
++                                                               (overlay-get anchor 'diff-review-stale)
++                                                               (overlay-get anchor 'diff-review-open)))
++                               ""))
++                           anchors "")))
++      (concat (threads-at -1)
++              (let ((i -1))
++                (mapconcat (lambda (text) (cl-incf i) (concat text (threads-at i))) texts ""))
++              ;; Threads past the lines drawn (removed lines hidden) still show.
++              (mapconcat (lambda (anchor)
++                           (let ((index (overlay-get anchor 'diff-review-index)))
++                             (if (>= index (length texts))
++                                 (let ((lines (overlay-get anchor 'diff-review-lines)))
++                                   (diff-review--thread-string (overlay-get anchor 'diff-review-comment)
++                                                               (car lines) (cdr lines)
++                                                               (overlay-get anchor 'diff-review-stale)
++                                                               (overlay-get anchor 'diff-review-open)))
++                               "")))
++                         anchors "")))))
++
++(defun diff-review--embed (carrier comment lines index stale)
++  "bndos: draw COMMENT, on LINES, in CARRIER's before-string after its removed line INDEX.
++INDEX -1 is before them all.  Returns the thread's anchor overlay, empty, at
++CARRIER's start, so the thread is at point there like any other."
++  (let ((anchor (make-overlay (overlay-start carrier) (overlay-start carrier))))
++    (overlay-put anchor 'diff-review-comment comment)
++    (overlay-put anchor 'diff-review-stale stale)
++    (overlay-put anchor 'diff-review-carrier carrier)
++    (overlay-put anchor 'diff-review-index index)
++    (overlay-put anchor 'diff-review-lines lines)
++    (overlay-put carrier 'diff-review-anchors
++                 (append (overlay-get carrier 'diff-review-anchors) (list anchor)))
++    (push anchor diff-review--overlays)
++    anchor))
++
+ (defun diff-review--redraw-thread (overlay open)
+   "Draw thread OVERLAY: in full when OPEN, its lines tinted; else as one line.
+ A file whose last line has no newline gets one drawn, so the thread
+ still hangs under that line."
+-  (pcase-let ((`(,first . ,last) (diff-review--thread-span overlay))
+-              (ends-a-line (save-excursion (goto-char (overlay-end overlay)) (bolp))))
++  (if-let* ((carrier (overlay-get overlay 'diff-review-carrier)))
++      ;; bndos: a thread drawn among removed lines or atop the file.
++      (progn (overlay-put overlay 'diff-review-open open)
++             (diff-review--draw-carrier carrier))
++  (pcase-let ((`(,first . ,last) (diff-review--thread-span overlay)))
+     (overlay-put overlay 'diff-review-open open)
+     (overlay-put overlay 'face
+-                 (and open (diff-review--tint 'diff-review-comment-range 'diff-review-comment)))
+-    (overlay-put overlay 'after-string
+-                 (concat (if ends-a-line "" "\n")
+-                         (diff-review--thread-string (overlay-get overlay 'diff-review-comment)
+-                                                     first last
+-                                                     (overlay-get overlay 'diff-review-stale)
+-                                                     open)))))
++                 (and open (diff-review--open-face)))
++    ;; bndos: under its last line's own row, which keeps its number.
++    (diff-review--set-rows overlay (overlay-end overlay) 0
++                           (diff-review--thread-string (overlay-get overlay 'diff-review-comment)
++                                                       first last
++                                                       (overlay-get overlay 'diff-review-stale)
++                                                       open)))))
+ 
+ (defun diff-review--decorate-comments ()
+   "Draw this file's threads, each under the last line of its range.
+@@ -1921,7 +2318,9 @@
+          (comments (diff-review--in-review (diff-review--file-comments path)))
+          (blob (and comments (diff-review--buffer-blob))))
+     (dolist (comment comments)
+-      (when (diff-review--comment-lines comment)
++      (when (and (diff-review--comment-lines comment)
++                 ;; bndos: a deleted file's buffer is the base's text, so its old side.
++                 (or (not (diff-review--comment-old-p comment)) diff-review--deleted))
+         (pcase-let* ((`(,first ,last ,stale) (diff-review--thread-lines comment blob))
+                      (overlay (make-overlay (diff-review--line-pos first)
+                                             (diff-review--line-pos (1+ last)) nil t nil)))
+@@ -1930,7 +2329,7 @@
+           (overlay-put overlay 'priority 1)      ; the open tint over the added one
+           (push overlay diff-review--overlays)
+           (diff-review--bars (diff-review--line-pos first) (1+ (- last first))
+-                             (diff-review--fringe-mark 'diff-review-comment))
++                             (diff-review--thread-bar))
+           (diff-review--redraw-thread overlay nil))))
+     (diff-review--track-threads)))
+ 
+@@ -1971,7 +2370,12 @@
+   (let* ((comment (or (diff-review--comment id) (user-error "No comment %s" id)))
+          (path (gethash "path" comment))
+          (i (and path (diff-review--file-index path))))
+-    (cond (i (with-current-buffer (diff-review--open i) (diff-review--goto-thread comment)))
++    (cond (i (diff-review--open i)
++             ;; bndos: in the view the file opened in, if it did.
++             (with-current-buffer (window-buffer)
++               (if (derived-mode-p 'diff-review-view-mode)
++                   (diff-review--view-goto-thread (gethash "id" comment))
++                 (diff-review--goto-thread comment))))
+           (t (message "The review has no file %s" (or path "to show this in"))))))
+ 
+ (defun diff-review--region-lines ()
+@@ -2003,18 +2407,60 @@
+                (cdr (assoc pick names)))))))
+ 
+ (defun diff-review-comment ()
+-  "Comment on the region's lines, or the line at point."
++  "Comment on the region's lines, or the line at point.
++bndos: removed lines belong to the line they're drawn above, so a comment
++takes the removed lines of every line it's on, all of them; the comment
++keeps the base's blob too, so the change can be rebuilt.  A region over
++the whole file offers a comment on the file instead."
+   (interactive)
+   (unless diff-review-file-mode (user-error "Not in a file under review"))
+-  (let* ((lines (diff-review--region-lines))
++  (let ((lines (diff-review--region-lines)))
++    (if (and (use-region-p) (= (car lines) 1) (>= (cdr lines) (diff-review--last-line))
++             (y-or-n-p "The region is the whole file: comment on the file instead? "))
++        (progn (deactivate-mark) (diff-review-comment-file))
++      (let* ((path diff-review--file-path)
++             (blob (diff-review--buffer-blob))
++             (base (plist-get (diff-review--this-file) :base-hash))
++             (body (diff-review--read-body
++                    (format "Comment on %s:%d%s" path (car lines)
++                            (if (= (car lines) (cdr lines)) "" (format "-%d" (cdr lines)))))))
++        (deactivate-mark)
++        (diff-review--in-review (diff-review--add-comment path lines blob body nil base))))))
++
++(defun diff-review--hunk-at-point (&optional removed)
++  "bndos: the hunk at or before point, or one with REMOVED lines; an error if none."
++  (let ((line (line-number-at-pos)) found)
++    (dolist (hunk diff-review--hunks)
++      (when (and (<= (diff-review--hunk-line hunk) line)
++                 (or (not removed) (plist-get hunk :removed)))
++        (setq found hunk)))
++    (or found (user-error (if removed "No removed lines at or above point" "No change at or above point")))))
++
++(defun diff-review-comment-hunk ()
++  "Comment on the change at or above point: its added lines, else the line its
++removed lines are drawn above.  Either way the removed lines are part of it."
++  (interactive)
++  (unless diff-review-file-mode (user-error "Not in a file under review"))
++  (let* ((hunk (diff-review--hunk-at-point))
+          (path diff-review--file-path)
++         (lines (if (> (plist-get hunk :count) 0)
++                    (cons (plist-get hunk :line) (+ (plist-get hunk :line) (plist-get hunk :count) -1))
++                  (let ((line (min (diff-review--hunk-line hunk) (diff-review--last-line))))
++                    (cons line line))))
+          (blob (diff-review--buffer-blob))
+-         (body (diff-review--read-body
+-                (format "Comment on %s:%d%s" path (car lines)
+-                        (if (= (car lines) (cdr lines)) "" (format "-%d" (cdr lines)))))))
+-    (deactivate-mark)
+-    (diff-review--in-review (diff-review--add-comment path lines blob body))))
++         (base (plist-get (diff-review--this-file) :base-hash))
++         (body (diff-review--read-body (format "Comment on this change in %s" path))))
++    (diff-review--in-review (diff-review--add-comment path lines blob body nil base))))
+ 
++(defun diff-review-comment-file ()
++  "Comment on the whole file."
++  (interactive)
++  (unless diff-review-file-mode (user-error "Not in a file under review"))
++  (let* ((path diff-review--file-path)
++         (blob (diff-review--buffer-blob))
++         (body (diff-review--read-body (format "Comment on %s" path))))
++    (diff-review--in-review (diff-review--add-comment path nil blob body))))
++
+ (defun diff-review--change-comment (comment fn)
+   "Apply FN to the live table of COMMENT, then write.
+ The table at point may be stale once someone else's write is taken."
+@@ -2074,23 +2520,68 @@
+                                step))))
+ 
+ (defun diff-review--walk-comments (step)
+-  "Go to the thread after point when STEP is 1, before it when -1, across files."
+-  (let* ((line (line-number-at-pos nil t))
+-         (forward (> step 0))
+-         (threads (if forward (diff-review--thread-overlays)
+-                    (reverse (diff-review--thread-overlays))))
+-         (next (seq-find (lambda (o)
+-                           (funcall (if forward #'> #'<) (car (diff-review--thread-span o)) line))
+-                         threads))
+-         (i (and (not next)
+-                 (diff-review--file-with-comments (diff-review--this-index) step))))
+-    (cond (next (diff-review--goto-line (car (diff-review--thread-span next))))
+-          (i (with-current-buffer (diff-review--in-review (diff-review--open i))
+-               (when-let* ((threads (diff-review--thread-overlays)))
+-                 (diff-review--goto-line
+-                  (car (diff-review--thread-span (if forward (car threads) (car (last threads)))))))))
++  "Go to the thread after point when STEP is 1, before it when -1, across files.
++bndos: from a file, its diff view, the overview or the sidebar."
++  (let* ((forward (> step 0))
++         (view (derived-mode-p 'diff-review-view-mode))
++         (file (cond (view diff-review--view-file) (diff-review-file-mode (current-buffer))))
++         (next (cond (view (diff-review--view-thread-after forward))
++                     (file (let ((line (line-number-at-pos nil t)))
++                             (seq-find (lambda (o)
++                                         (funcall (if forward #'> #'<) (car (diff-review--thread-span o)) line))
++                                       (if forward (diff-review--thread-overlays)
++                                         (reverse (diff-review--thread-overlays))))))))
++         (from (cond (file (with-current-buffer file (diff-review--this-index)))
++                     ((diff-review--index-at-point))
++                     (forward -1)
++                     (t (diff-review--in-review (length diff-review--files)))))
++         (i (and (not next) (diff-review--file-with-comments from step))))
++    (cond ((and next view) (goto-char (overlay-start next)))
++          (next (diff-review--goto-line (car (diff-review--thread-span next))))
++          (i (diff-review--in-review (diff-review--open i))
++             (with-current-buffer (window-buffer)
++               (if (derived-mode-p 'diff-review-view-mode)
++                   (when-let* ((threads (diff-review--view-thread-overlays)))
++                     (goto-char (overlay-start (if forward (car threads) (car (last threads))))))
++                 (when-let* ((threads (diff-review--thread-overlays)))
++                   (diff-review--goto-line
++                    (car (diff-review--thread-span (if forward (car threads) (car (last threads))))))))))
+           (t (message "No comment %s this one" (if forward "after" "before"))))))
+ 
++(defun diff-review-list-comments ()
++  "bndos: pick a thread of the review, open ones first, and go to it."
++  (interactive)
++  (let* ((comments (diff-review--in-review
++                     (let ((order (lambda (c) (or (and (gethash "path" c) (diff-review--file-index (gethash "path" c)))
++                                                  -1))))
++                       (sort (append diff-review--comments nil)
++                             (lambda (a b)
++                               (let ((ra (and (gethash "resolved" a) t)) (rb (and (gethash "resolved" b) t)))
++                                 (if (eq ra rb) (< (funcall order a) (funcall order b)) rb)))))))
++         (candidates
++          (mapcar (lambda (c)
++                    (let ((lines (diff-review--comment-lines c))
++                          (label (and diff-review-thread-label-function
++                                      (diff-review--in-review (funcall diff-review-thread-label-function c)))))
++                      (cons (format "%s  %s  %s%s  [%s]"
++                                    (propertize (concat (or (gethash "path" c) "review")
++                                                        (if lines (format ":%d" (car lines)) ""))
++                                                'face (if (gethash "resolved" c) 'shadow 'default))
++                                    (propertize (or (gethash "author" c) "?") 'face 'diff-review-comment-author)
++                                    (if label (concat label "  ") "")
++                                    (diff-review--first-line c)
++                                    (gethash "id" c))   ; two may read the same
++                            (gethash "id" c))))
++                  comments)))
++    (unless candidates (user-error "No comments yet"))
++    (let ((choice (completing-read "Comment: "
++                                   (lambda (string pred action)
++                                     (if (eq action 'metadata)
++                                         '(metadata (display-sort-function . identity))
++                                       (complete-with-action action candidates string pred)))
++                                   nil t)))
++      (diff-review--in-review (diff-review--goto-comment (cdr (assoc choice candidates)))))))
++
+ (defun diff-review-next-comment ()
+   "Go to the next comment thread, continuing into later files."
+   (interactive)
+@@ -2144,7 +2635,8 @@
+                    (concat "   " (diff-review--key-hints
+                                   '((diff-review-next-hunk . "next hunk")
+                                     (diff-review-viewed-and-next . "viewed")
+-                                    (diff-review-comment . "comment")
++                                    (diff-review-comment-in-view . "comment")
++                                    (diff-review-toggle-view . "diff view")
+                                     (diff-review-toggle-focus . "focus")
+                                     (diff-review-overview . "overview"))))
+                  "")))
+@@ -2258,13 +2750,17 @@
+   "v" #'diff-review-viewed-and-next
+   "d" #'diff-review-toggle-inline-removed
+   "z" #'diff-review-toggle-focus
+-  "c" #'diff-review-comment
++  "c" #'diff-review-comment-in-view     ; bndos: comments on lines are made there
++  "=" #'diff-review-toggle-view         ; bndos
++  "h" #'diff-review-comment-hunk        ; bndos
++  "f" #'diff-review-comment-file        ; bndos
+   "r" #'diff-review-reply
+   "x" #'diff-review-toggle-resolved
+   "D" #'diff-review-delete-comment
+   "o" #'diff-review-toggle-threads
+   "N" #'diff-review-next-comment
+   "P" #'diff-review-previous-comment
++  "j" #'diff-review-list-comments       ; bndos
+   "t" #'diff-review-toggle-sidebar
+   "l" #'diff-review-overview
+   "q" #'diff-review-quit)
+@@ -2317,6 +2813,10 @@
+                   (list (list :line 1 :count 0 :removed nil))
+                 (diff-review--in-review (diff-review--parse-hunks (diff-review--this-file))))
+               diff-review--texts nil)
++        (when diff-review-thread-marker   ; bndos
++          (diff-review--set 'left-margin-width (max 1 (or left-margin-width 0)))
++          (diff-review--set 'fringes-outside-margins t)
++          (diff-review--margins))
+         (diff-review--decorate)
+         (add-hook 'post-command-hook #'diff-review--track-threads nil t)
+         (add-hook 'change-major-mode-hook #'diff-review--before-major-mode nil t)
+@@ -2327,13 +2827,475 @@
+                                                    diff-review-file-header
+                                                  #'diff-review--file-header))))))
+     (diff-review--undecorate)
++    (when (buffer-live-p diff-review--view)   ; bndos
++      (kill-buffer diff-review--view))
+     (remove-hook 'post-command-hook #'diff-review--track-threads t)
+     (remove-hook 'change-major-mode-hook #'diff-review--before-major-mode t)
+     (pcase-dolist (`(,var ,local . ,value) diff-review--saved)
+       (if local (set var value) (kill-local-variable var)))
+     (kill-local-variable 'diff-review--saved)
++    (diff-review--margins)   ; bndos
+     (setq diff-review--review nil)))
++
++;;;; bndos: the diff view
++
++;; A file under review has a second view: its change as one read-only text,
++;; removed lines as lines of their own, so point and the region reach them.
++;; Every line knows its side and number, and the line of the file it is
++;; drawn above, so the two views map onto each other exactly.  Comments on
++;; lines are made here; threads show in both.
++
++
++(defun diff-review--view-old-lines (file-buffer)
++  "FILE-BUFFER's file as the base has it, fontified, as a list of lines."
++  (with-current-buffer file-buffer
++    (let ((base (plist-get (diff-review--this-file) :base-hash))
++          (mode major-mode))
++      (when base
++        (diff-review--in-review
++          (let ((key (cons base mode)))
++            (or (cdr (assoc key diff-review--blob-texts))
++                (let ((lines (diff-review--fontify
++                              (split-string (diff-review--git "cat-file" "blob" base) "\n")
++                              mode)))
++                  (push (cons key lines) diff-review--blob-texts)
++                  lines))))))))
++
++(defun diff-review--view-entries (file-buffer)
++  "The lines of FILE-BUFFER's diff view: (SIDE LINE TEXT ATTACH ADDED) each.
++SIDE is \"new\" or \"old\", LINE its number on that side, ATTACH the line of
++the file it is drawn above (itself for a new line)."
++  (with-current-buffer file-buffer
++    (save-restriction
++      (widen)
++      (font-lock-ensure)
++      (let* ((old (diff-review--view-old-lines file-buffer))
++             (hunks diff-review--hunks)
++             (count (diff-review--last-line))
++             entries)
++        (if diff-review--deleted
++            (cl-loop for text in (or old (split-string (buffer-string) "\n")) for n from 1
++                     do (push (list "old" n text 1 nil) entries))
++          (cl-flet ((removed-above (line)
++                      (dolist (hunk hunks)
++                        (when (and (plist-get hunk :removed) (= (diff-review--hunk-line hunk) line))
++                          (cl-loop for i from 0 below (plist-get hunk :old-count)
++                                   for n = (+ (plist-get hunk :old-line) i)
++                                   do (push (list "old" n (or (nth (1- n) old) (nth i (plist-get hunk :removed)))
++                                                  (min line count) nil)
++                                            entries))))))
++            (save-excursion
++              (goto-char (point-min))
++              (cl-loop for line from 1 to count do
++                       (removed-above line)
++                       (push (list "new" line (buffer-substring (line-beginning-position) (line-end-position))
++                                   line
++                                   (seq-some (lambda (h) (and (> (plist-get h :count) 0)
++                                                              (<= (plist-get h :line) line
++                                                                  (+ (plist-get h :line) (plist-get h :count) -1))))
++                                             hunks))
++                             entries)
++                       (forward-line 1)))
++            ;; Removed lines after the last line.
++            (removed-above (1+ count))))
++        (nreverse entries)))))
++
++(defun diff-review--view-build ()
++  "Fill this diff view from its file buffer."
++  (let ((inhibit-read-only t)
++        (entries (diff-review--view-entries diff-review--view-file))
++        (index (make-hash-table :test #'equal))
++        (added (and diff-review-tint-added (diff-review--tint 'diff-review-added 'diff-added)))
++        (removed (and diff-review-tint-removed (diff-review--tint 'diff-review-removed 'diff-removed)))
++        (n 0))
++    (mapc #'delete-overlay diff-review--view-overlays)
++    (setq diff-review--view-overlays nil)
++    (erase-buffer)
++    (pcase-dolist (`(,side ,line ,text ,attach ,is-added) entries)
++      (cl-incf n)
++      (let ((start (point))
++            (old (equal side "old")))
++        (insert (or text "") "\n")
++        (add-text-properties start (point)
++                             (list 'diff-review-side side 'diff-review-line line 'diff-review-attach attach
++                                   'diff-review-added (and is-added t)
++                                   'line-prefix (cond (old (propertize "-" 'face 'diff-indicator-removed))
++                                                      (is-added (propertize "+" 'face 'diff-indicator-added))
++                                                      (t " "))))
++        (when-let* ((face (cond (old removed) (is-added added))))
++          (add-face-text-property start (point) face t))
++        (puthash (cons side line) n index)
++        (unless (gethash (cons 'block attach) index) (puthash (cons 'block attach) n index))))
++    (setq diff-review--view-index index)
++    (diff-review--view-draw-threads)
++    (set-buffer-modified-p nil)))
++
++(defun diff-review--view-line-pos (n)
++  (save-excursion (goto-char (point-min)) (forward-line (1- n)) (point)))
++
++(defun diff-review--view-threads ()
++  "This view's threads: (COMMENT VIEW-LINES LABEL-LINES STALE), VIEW-LINES nil on the file."
++  (let* ((file diff-review--view-file)
++         (comments (with-current-buffer file
++                     (let ((path diff-review--file-path))
++                       (diff-review--in-review (diff-review--file-comments path)))))
++         (blob (and comments (with-current-buffer file (diff-review--buffer-blob))))
++         (old (and comments (with-current-buffer file (diff-review--old-threads))))
++         (index diff-review--view-index))
++    (delq nil
++          (mapcar
++           (lambda (comment)
++             (cond
++              ((diff-review--comment-file-p comment) (list comment nil nil nil))
++              ((diff-review--comment-old-p comment)
++               (pcase-let ((`(,_ ,lines ,stale) (assq comment old)))
++                 (let ((lines (or lines (diff-review--comment-lines comment))))
++                   (list comment
++                         (delq nil (mapcar (lambda (n) (gethash (cons "old" n) index))
++                                           (number-sequence (car lines) (cdr lines))))
++                         lines stale))))
++              ((diff-review--comment-lines comment)
++               (pcase-let ((`(,first ,last ,stale) (with-current-buffer file
++                                                     (diff-review--thread-lines comment blob))))
++                 (list comment
++                       (delq nil (append
++                                  (mapcar (lambda (n) (gethash (cons "new" n) index))
++                                          (number-sequence first last))
++                                  (seq-mapcat (lambda (range)
++                                                (mapcar (lambda (n) (gethash (cons "old" n) index))
++                                                        (number-sequence (aref range 0) (aref range 1))))
++                                              (gethash "removed" comment))))
++                       (cons first last) stale)))))
++           comments))))
++
++(defun diff-review--view-draw-threads ()
++  "Draw this view's threads under the last line each is on."
++  (pcase-dolist (`(,comment ,lines ,label ,stale) (diff-review--view-threads))
++    (let* ((first (if lines (apply #'min lines) 1))
++           (last (if lines (apply #'max lines) 1))
++           (overlay (if lines
++                        (make-overlay (diff-review--view-line-pos first) (diff-review--view-line-pos (1+ last)) nil t nil)
++                      (make-overlay (point-min) (point-min)))))
++      (overlay-put overlay 'diff-review-comment comment)
++      (overlay-put overlay 'diff-review-stale stale)
++      (overlay-put overlay 'diff-review-view-label label)
++      (overlay-put overlay 'diff-review-view-top (null lines))
++      (push overlay diff-review--view-overlays)
++      (when lines
++        (let ((mark (diff-review--thread-bar)))
++          (unless (string-empty-p mark)
++            (dolist (line (number-sequence first last))
++              (let ((bar (make-overlay (diff-review--view-line-pos line) (diff-review--view-line-pos line))))
++                (overlay-put bar 'before-string mark)
++                (push bar diff-review--view-overlays))))))
++      (diff-review--view-redraw-thread overlay nil)))
++  (diff-review--view-track))
++
++(defun diff-review--view-redraw-thread (overlay open)
++  "Draw thread OVERLAY of a diff view: in full when OPEN, else as one line."
++  (let* ((label (overlay-get overlay 'diff-review-view-label))
++         (string (diff-review--thread-string (overlay-get overlay 'diff-review-comment)
++                                             (car label) (cdr label)
++                                             (overlay-get overlay 'diff-review-stale) open)))
++    (overlay-put overlay 'diff-review-open open)
++    (if (overlay-get overlay 'diff-review-view-top)
++        (overlay-put overlay 'before-string string)
++      (overlay-put overlay 'face (and open (diff-review--open-face)))
++      (diff-review--set-rows overlay (overlay-end overlay) 0 string))))
++
++(defun diff-review--view-track ()
++  "Open the threads point is at, in a diff view (`post-command-hook')."
++  (when (derived-mode-p 'diff-review-view-mode)
++    (let ((at (overlays-in (max (point-min) (1- (line-beginning-position)))
++                           (min (point-max) (1+ (line-end-position)))))
++          (all (ignore-errors (diff-review--in-review diff-review--threads-open))))
++      (dolist (overlay (seq-filter (lambda (o) (overlay-get o 'diff-review-comment)) diff-review--view-overlays))
++        (let ((open (or all (and (memq overlay at) t))))
++          (unless (eq open (overlay-get overlay 'diff-review-open))
++            (diff-review--view-redraw-thread overlay open)))))))
++
++(defun diff-review--view-header ()
++  (concat (propertize " diff view " 'face '(:inverse-video t)) " "
++          (propertize (or diff-review--file-path "") 'face 'bold) "   "
++          (diff-review--key-hints '((diff-review-toggle-view . "file view")
++                                    (diff-review-view-comment . "comment")
++                                    (diff-review-reply . "reply")
++                                    (diff-review-toggle-resolved . "resolve")))))
++
++(defvar-keymap diff-review-view-command-map
++  :doc "Commands of a diff view, under `diff-review-command-prefix'."
++  "c" #'diff-review-view-comment
++  "h" #'diff-review-view-comment-change
++  "f" #'diff-review-view-comment-file
++  "r" #'diff-review-reply
++  "x" #'diff-review-toggle-resolved
++  "D" #'diff-review-delete-comment
++  "o" #'diff-review-toggle-threads
++  "N" #'diff-review-next-comment
++  "P" #'diff-review-previous-comment
++  "j" #'diff-review-list-comments
++  "n" #'diff-review-view-next-change
++  "p" #'diff-review-view-previous-change
++  "=" #'diff-review-toggle-view
++  "t" #'diff-review-toggle-sidebar
++  "l" #'diff-review-overview
++  "q" #'diff-review-toggle-view)
++
++(defvar-keymap diff-review-view-mode-map
++  :doc "Keymap for `diff-review-view-mode'."
++  :parent special-mode-map
++  "c" #'diff-review-view-comment
++  "r" #'diff-review-reply
++  "x" #'diff-review-toggle-resolved
++  "n" #'diff-review-view-next-change
++  "p" #'diff-review-view-previous-change
++  "N" #'diff-review-next-comment
++  "P" #'diff-review-previous-comment
++  "j" #'diff-review-list-comments
++  "=" #'diff-review-toggle-view
++  "q" #'diff-review-toggle-view)
++
++(define-derived-mode diff-review-view-mode special-mode "Review-Diff"
++  "The change of a file under review as one text, removed lines included.
++Select lines on both sides as usual and \\<diff-review-view-mode-map>\\[diff-review-view-comment] comments on them;
++\\[diff-review-toggle-view] goes back to the file, at the same place.
++
++\\{diff-review-view-mode-map}"
++  (setq truncate-lines t
++        header-line-format '(:eval (diff-review--view-header)))
++  (when diff-review-thread-marker (setq left-margin-width 1 fringes-outside-margins t))
++  (add-hook 'post-command-hook #'diff-review--view-track nil t)
++  (when (fboundp 'display-line-numbers-mode) (display-line-numbers-mode -1)))
++
++(when diff-review-command-prefix
++  (keymap-set diff-review-view-mode-map diff-review-command-prefix diff-review-view-command-map))
++
++(defun diff-review--view-buffer (file-buffer)
++  "FILE-BUFFER's diff view, made and filled."
++  (with-current-buffer file-buffer
++    (unless (buffer-live-p diff-review--view)
++      (let ((review diff-review--review) (path diff-review--file-path) (file file-buffer)
++            (root default-directory))
++        (setq diff-review--view
++              (with-current-buffer (generate-new-buffer (format "*review diff: %s*" path))
++                (diff-review-view-mode)
++                (setq diff-review--review review
++                      diff-review--file-path path
++                      diff-review--view-file file
++                      default-directory root)
++                (current-buffer)))))
++    (let ((view diff-review--view))
++      (with-current-buffer view (diff-review--view-build))
++      view)))
++
++(defun diff-review--view-pos (side line &optional block)
++  "Where SIDE's LINE is in this view; with BLOCK, the start of its removed lines."
++  (when-let* ((n (gethash (if block (cons 'block line) (cons side line)) diff-review--view-index)))
++    (diff-review--view-line-pos n)))
++
++(defun diff-review--view-at (pos)
++  "(SIDE LINE ATTACH) of the view line at POS."
++  (list (get-text-property pos 'diff-review-side) (get-text-property pos 'diff-review-line)
++        (get-text-property pos 'diff-review-attach)))
++
++(defun diff-review--view-refresh (view)
++  "Rebuild VIEW, keeping each window on the same lines."
++  (with-current-buffer view
++    (let ((spots (mapcar (lambda (window)
++                           (list window (diff-review--view-at (window-point window))
++                                 (save-excursion (goto-char (window-point window)) (current-column))
++                                 (diff-review--view-at (window-start window))))
++                         (get-buffer-window-list view nil t)))
++          (here (list (diff-review--view-at (point)) (current-column))))
++      (diff-review--view-build)
++      (cl-flet ((back (at)
++                  (pcase-let ((`(,side ,line ,attach) at))
++                    (or (and side (diff-review--view-pos side line))
++                        (and attach (diff-review--view-pos "new" attach))
++                        (point-min)))))
++        (goto-char (back (car here)))
++        (move-to-column (cadr here))
++        (pcase-dolist (`(,window ,at ,column ,top) spots)
++          (set-window-start window (back top) t)
++          (set-window-point window (save-excursion (goto-char (back at)) (move-to-column column) (point))))))))
++
++(defun diff-review--to-view ()
++  "Show this file's diff view in its window, at the same place, the region kept."
++  (let* ((file (current-buffer))
++         (window (or (get-buffer-window file) (selected-window)))
++         (line (line-number-at-pos nil t))
++         (column (current-column))
++         (top (line-number-at-pos (window-start window) t))
++         (region (and (use-region-p)
++                      (cons (cons (line-number-at-pos (mark) t) (save-excursion (goto-char (mark)) (current-column)))
++                            (cons line column))))
++         (visual (and (bound-and-true-p evil-local-mode) (fboundp 'evil-visual-state-p) (evil-visual-state-p)
++                      (bound-and-true-p evil-visual-selection)))
++         (view (diff-review--view-buffer file)))
++    (when (use-region-p) (deactivate-mark))
++    (when (and visual (fboundp 'evil-exit-visual-state)) (evil-exit-visual-state))
++    (diff-review--in-review (setq diff-review--prefer-view t))
++    (diff-review--show-quietly window view)
++    (select-window window)
++    (with-current-buffer view
++      (cl-flet ((spot (line column) (save-excursion (goto-char (or (diff-review--view-pos "new" line) (point-max)))
++                                                    (move-to-column column) (point))))
++        (set-window-start window (or (diff-review--view-pos "new" top t) (point-min)) t)
++        (goto-char (spot line column))
++        (when region
++          (let ((from (spot (caar region) (cdar region)))
++                (to (spot (cadr region) (cddr region))))
++            ;; The removed lines above the region's first line belong to it.
++            (when (< from to)
++              (setq from (or (diff-review--view-pos "new" (caar region) t) from)))
++            (if (and visual (fboundp 'evil-visual-select))
++                (evil-visual-select from to visual)
++              (push-mark from t t)
++              (goto-char to)
++              (activate-mark))))))
++    view))
+ 
++(defun diff-review--from-view ()
++  "Show this view's file in its window, at the same place."
++  (let* ((view (current-buffer))
++         (window (or (get-buffer-window view) (selected-window)))
++         (file diff-review--view-file)
++         (at (diff-review--view-at (point)))
++         (column (if (equal (car at) "new") (current-column) 0))
++         (top (diff-review--view-at (window-start window))))
++    (diff-review--in-review (setq diff-review--prefer-view nil))
++    (diff-review--show-quietly window file)
++    (select-window window)
++    (with-current-buffer file
++      (cl-flet ((spot (at) (pcase-let ((`(,side ,line ,attach) at))
++                             (diff-review--line-pos (if (equal side "new") line (or attach 1))))))
++        (set-window-start window (spot top) t)
++        (goto-char (spot at))
++        (move-to-column column)))
++    file))
++
++(defun diff-review-toggle-view ()
++  "Switch between a file under review and its diff view, staying in place."
++  (interactive)
++  (cond ((derived-mode-p 'diff-review-view-mode) (diff-review--from-view))
++        (diff-review-file-mode (diff-review--to-view))
++        (t (user-error "Not in a file under review"))))
++
++(defun diff-review--view-region-anchor ()
++  "The lines the region (or the line at point) covers in this view:
++\(PATH LINES SIDE REMOVED BLOB BASE), as a comment takes them."
++  (let* ((beg (if (use-region-p) (region-beginning) (line-beginning-position)))
++         (end (if (use-region-p)
++                  (if (and (> (region-end) beg) (save-excursion (goto-char (region-end)) (bolp)))
++                      (1- (region-end)) (region-end))
++                (line-end-position)))
++         new old)
++    (save-excursion
++      (goto-char beg)
++      (while (and (<= (point) end) (not (eobp)))
++        (pcase-let ((`(,side ,line ,_) (diff-review--view-at (point))))
++          (if (equal side "old") (push line old) (when line (push line new))))
++        (forward-line 1)))
++    (let* ((file diff-review--view-file)
++           (base (with-current-buffer file (plist-get (diff-review--this-file) :base-hash)))
++           (path diff-review--file-path))
++      (if new
++          (list path (cons (apply #'min new) (apply #'max new)) nil
++                (diff-review--ranges (sort old #'<))
++                (with-current-buffer file (diff-review--buffer-blob)) base)
++        (list path (cons (apply #'min old) (apply #'max old)) "old" nil base nil)))))
++
++(defun diff-review--ranges (numbers)
++  "Sorted NUMBERS as runs, a vector of [FIRST LAST] each."
++  (let (runs)
++    (dolist (n numbers)
++      (if (and runs (= n (1+ (aref (car runs) 1))))
++          (aset (car runs) 1 n)
++        (push (vector n n) runs)))
++    (vconcat (nreverse runs))))
++
++(defun diff-review-view-comment ()
++  "Comment on the region's lines in this diff view, or the line at point.
++They are taken exactly: lines of the file, removed lines, or both."
++  (interactive)
++  (unless (derived-mode-p 'diff-review-view-mode) (user-error "Not in a diff view"))
++  (pcase-let* ((`(,path ,lines ,side ,removed ,blob ,base) (diff-review--view-region-anchor))
++               (body (diff-review--read-body
++                      (format "Comment on %s, %s%d%s%s" path (if side "removed line " "")
++                              (car lines)
++                              (if (= (car lines) (cdr lines)) "" (format "-%d" (cdr lines)))
++                              (if (> (length removed) 0) " and removed lines" "")))))
++    (deactivate-mark)
++    (when (fboundp 'evil-exit-visual-state) (ignore-errors (evil-exit-visual-state)))
++    (let ((comment (diff-review--in-review (diff-review--add-comment path lines blob body side base))))
++      (when (> (length removed) 0)
++        (diff-review--change-comment comment (lambda (c) (puthash "removed" removed c)))))))
++
++(defun diff-review-view-comment-change ()
++  "Comment on the whole change at point, as `diff-review-comment-hunk' in the file."
++  (interactive)
++  (unless (derived-mode-p 'diff-review-view-mode) (user-error "Not in a diff view"))
++  (pcase-let ((`(,side ,line ,attach) (diff-review--view-at (point))))
++    (deactivate-mark)
++    (with-current-buffer diff-review--view-file
++      (save-excursion
++        (goto-char (diff-review--line-pos (if (equal side "old") attach line)))
++        (diff-review-comment-hunk)))))
++
++(defun diff-review-view-comment-file ()
++  "Comment on the whole file of this diff view."
++  (interactive)
++  (with-current-buffer diff-review--view-file (diff-review-comment-file)))
++
++(defun diff-review-comment-in-view ()
++  "Comment on lines: in the diff view, at the same place, the region kept."
++  (interactive)
++  (unless diff-review-file-mode (user-error "Not in a file under review"))
++  (with-current-buffer (diff-review--to-view)
++    (diff-review-view-comment)))
++
++(defun diff-review--view-step (forward test)
++  (let ((pos (save-excursion
++               (forward-line (if forward 1 -1))
++               (cl-loop until (or (bobp) (eobp) (funcall test)) do (forward-line (if forward 1 -1)))
++               (and (funcall test) (point)))))
++    (if pos (goto-char pos) (message "No %s one here" (if forward "later" "earlier")))))
++
++(defun diff-review--view-changed-p (pos)
++  "Non-nil when the view line at POS is removed or added."
++  (or (equal (get-text-property pos 'diff-review-side) "old")
++      (get-text-property pos 'diff-review-added)))
++
++(defun diff-review--view-change-start-p ()
++  "Non-nil at the first line of a run of changed lines."
++  (and (diff-review--view-changed-p (point))
++       (or (bobp) (not (diff-review--view-changed-p (save-excursion (forward-line -1) (point)))))))
++
++(defun diff-review-view-next-change ()
++  "Go to the next change in this diff view."
++  (interactive) (diff-review--view-step t #'diff-review--view-change-start-p))
++(defun diff-review-view-previous-change ()
++  "Go to the previous change in this diff view."
++  (interactive) (diff-review--view-step nil #'diff-review--view-change-start-p))
++
++(defun diff-review--view-thread-overlays ()
++  "This diff view's threads, in order."
++  (sort (seq-filter (lambda (o) (overlay-get o 'diff-review-comment)) diff-review--view-overlays)
++        (lambda (a b) (< (overlay-start a) (overlay-start b)))))
++
++(defun diff-review--view-thread-after (forward)
++  "The view's first thread after this line, or the last before it."
++  (let ((threads (diff-review--view-thread-overlays)))
++    (if forward
++        (seq-find (lambda (o) (> (overlay-start o) (line-end-position))) threads)
++      (seq-find (lambda (o) (< (overlay-start o) (line-beginning-position))) (reverse threads)))))
++
++(defun diff-review--view-goto-thread (id)
++  "Go to thread ID in this diff view."
++  (when-let* ((o (seq-find (lambda (o) (equal (gethash "id" (overlay-get o 'diff-review-comment)) id))
++                           (diff-review--view-thread-overlays))))
++    (goto-char (overlay-start o))))
++
+ ;;;; Evil
+ 
+ ;; Normal state shadows n, p and g, so the lists get gj, gk and gr in their

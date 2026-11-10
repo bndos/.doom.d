@@ -133,6 +133,10 @@
   '(org-block-end-line :background "#0f0f0f")
   '(ein:basecell-input-area-face :background "#0f0f0f")
 
+  ;; Neutral review threads: this theme's `highlight' reads as a removal.
+  '(diff-review-comment :inherit font-lock-comment-face :background "#141420" :extend t)
+  '(diff-review-comment-bar :foreground "#e0af68")
+
   ;; Emacs 31/Doom theme workaround: the default doom-themes Gnus face chain can
   ;; form an inheritance cycle when child frames are created by Corfu/Flycheck.
   '(gnus-group-news-low :inherit nil :foreground "#545577" :weight normal)

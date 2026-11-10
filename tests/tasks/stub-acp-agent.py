@@ -9,12 +9,12 @@
 * session/prompt answers a [bndos-review request ...] prompt with a valid
   ```bndos-review``` block covering every "### c-..." item: "addressed" in
   IMPLEMENT mode, "answered" otherwise.  A prompt containing PERMIT first asks
-  the client for permission and reports the outcome.  A Hutch review prompt
-  (asking for a ```hutch-review``` block) gets one comment on the first
+  the client for permission and reports the outcome.  An AI review prompt
+  (asking for a ```review-findings``` block) gets one comment on the first
   changed file and an lgtm for the rest.  While the file $STUB_CANCEL_ONCE
   exists, a review prompt is answered as an interrupted turn (stop reason
   "cancelled", no block) and the file is removed; a later prompt asking for
-  the hutch-review block (a resume) gets the review of the session's last
+  the review-findings block (a resume) gets the review of the session's last
   review prompt.  Other prompts get "ok mode=M model=M".
 * session/list reports the conversations in $STUB_PAST_SESSIONS
   ("id|title,id|title"), as made in the requested directory.
@@ -72,11 +72,11 @@ def review_for(text):
     files = [line.split()[0] for line in manifest.splitlines() if line.strip()]
     findings = [{"file": files[0], "title": "stub finding", "description": "stub looked at this",
                  "lines": "1"}] + [{"file": f, "lgtm": True} for f in files[1:]]
-    return "Reviewed.\n\n```hutch-review\n" + json.dumps({"findings": findings}) + "\n```\n"
+    return "Reviewed.\n\n```review-findings\n" + json.dumps({"findings": findings}) + "\n```\n"
 
 
 def reply_for(text, s):
-    if "```hutch-review" in text:
+    if "```review-findings" in text:
         return review_for(text)
     m = re.search(r"\[bndos-review request (\S+) · task (\S+) · snapshot (\S+)\]", text)
     if not m:
@@ -163,16 +163,16 @@ for line in sys.stdin:
             answer = wait_for_response("perm")
             outcome = (answer.get("result") or {}).get("outcome") or {}
             say(sid, f"permission {outcome.get('optionId') or 'refused'}")
-        elif "```hutch-review" in text and os.path.exists(os.environ.get("STUB_CANCEL_ONCE") or "\0"):
+        elif "```review-findings" in text and os.path.exists(os.environ.get("STUB_CANCEL_ONCE") or "\0"):
             os.remove(os.environ["STUB_CANCEL_ONCE"])
             s["review"] = text
             say(sid, "Looking at the diff")
             ok({"stopReason": "cancelled"})
             continue
-        elif "hutch-review" in text and "```hutch-review" not in text and s.get("review"):
+        elif "review-findings" in text and "```review-findings" not in text and s.get("review"):
             say(sid, review_for(s["review"]))
         else:
-            if "```hutch-review" in text:
+            if "```review-findings" in text:
                 s["review"] = text
             say(sid, reply_for(text, s))
         ok({"stopReason": "end_turn"})

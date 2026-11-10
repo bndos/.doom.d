@@ -1,11 +1,14 @@
 ;;; bndos/tasks/config.el -*- lexical-binding: t; -*-
 
 ;; Parallel coding tasks: worktrees from worktrunk, agents as Hydra ACP
-;; sessions (bin/bndos-task) that agent-shell attaches to, reviews in Hutch.
-;; See README.org in this directory.  Needs the git module (hutch,
-;; magit-treediff), the ai module (agent-shell) and hydra-acp on PATH.
+;; sessions (bin/bndos-task) that agent-shell attaches to, reviews in
+;; diff-review.  Needs the git module
+;; (diff-review), the ai module (agent-shell) and hydra-acp on PATH.
 
 (add-load-path! "lisp")
+
+;; A task's review file opened any way gets its scopes and agent commands.
+(after! diff-review (require 'bndos-task-review))
 
 (use-package! bndos-task-dashboard
   :commands (bndos/task-dashboard bndos/task-select bndos/task-start bndos/task-review-here
@@ -22,27 +25,12 @@
        :desc "Set parent branch"  "b" #'bndos/task-set-parent
        :desc "Add project"        "p" #'bndos/task-add-project))
 
-;; Both buffers are read-only UIs in evil's normal state, like magit's: ESC,
-;; visual selection and counts work as usual; the letter keys below are the
-;; buffers' own, and the review's actions are on C-c C-<key> (like pr-review)
-;; so they also work on a selected region.
+;; The dashboard is a read-only UI in evil's normal state, like magit's.  A
+;; task's review is diff-review's (its overview and sidebar start in normal
+;; state too); the agent flow adds C-c C-<key> to the overview and keys
+;; under diff-review's prefix (C-c _) in its files.
 (after! evil
-  (evil-set-initial-state 'bndos-task-review-mode 'normal)
   (evil-set-initial-state 'bndos-task-dashboard-mode 'normal))
-
-(map! :after bndos-task-review
-      :map bndos-task-review-mode-map
-      :n "RET"   #'bndos/task-review-visit
-      :n "M-<return>" #'bndos/task-review-visit-worktree-other-window
-      :n "TAB"   #'magit-section-toggle
-      :n "q"     #'quit-window
-      :n "g r"   #'bndos/task-review-refresh
-      :n "g t"   #'bndos/task-review-toggle-tree
-      :n "g f"   #'bndos/task-review-visit
-      :n "]t"    #'bndos/task-review-next-thread
-      :n "[t"    #'bndos/task-review-previous-thread
-      :n "]]"    #'magit-section-forward-sibling
-      :n "[["    #'magit-section-backward-sibling)
 
 (map! :after bndos-task-dashboard
       :map bndos-task-dashboard-mode-map

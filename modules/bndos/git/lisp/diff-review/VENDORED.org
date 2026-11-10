@@ -1,0 +1,13 @@
+#+title: Vendored diff-review
+
+- Upstream :: https://github.com/xiaoxinghu/diff-review
+- Commit :: 49cba292bb933e2a1a90f61145e29311636544ae
+- License :: GPL-3.0-or-later (=LICENSE=)
+
+Local changes are marked =bndos:= in =diff-review.el=; =bndos-local.patch=
+is the diff against the commit above.  They add review ranges, comments on
+removed lines, changes and whole files, a per-file diff view, a sidebar for
+other buffers (pr-review), and hooks for the tasks module.
+
+To update: copy the new upstream files, apply the patch, regenerate it and
+run =tests/tasks/run-tests.sh=.

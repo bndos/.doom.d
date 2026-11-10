@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Byte-compile and run the tasks/hutch/review test suites in `emacs -Q --batch'
+# Byte-compile and run the tasks and review test suites in `emacs -Q --batch'
 # against Doom's built packages.  No network, no model calls: git repos are
 # temporary, worktrunk (wt) is real, and agents are stub-acp-agent.py behind a
 # private Hydra daemon (its own HYDRA_ACP_HOME and port; skipped without

@@ -185,11 +185,7 @@ Return (KEY WORKTREE REVIEW-BUFFER)."
          (key (plist-get result :key))
          (wt (plist-get result :worktree)))
     (bndos-test-commit wt "work" "w.txt" "w\n")
-    (let ((bndos-task-review-show-tree nil))
-      (bndos-task-review-open key))
-    (let ((review (bndos-task-review-buffer key)))
-      (bndos-proc-wait (lambda () (with-current-buffer review (plist-get bndos-task-review--data :files))) 20)
-      (list key wt review))))
+    (list key wt (bndos-task-review-open key :select nil))))
 
 (defun bndos-test-stub-methods ()
   "Methods of every message the stub agents received, in order."
@@ -209,7 +205,7 @@ Return (KEY WORKTREE REVIEW-BUFFER)."
                  (set-model (seq-position methods "large"
                                           (lambda (m model) (and (equal (car m) "session/set_model")
                                                                  (string-match-p model (cdr m))))))
-                 (review-prompt (seq-position methods "hutch-review"
+                 (review-prompt (seq-position methods "review-findings"
                                               (lambda (m text) (and (equal (car m) "session/prompt")
                                                                     (string-match-p text (cdr m)))))))
             ;; The session's own models, as agent-shell lists them.
@@ -229,11 +225,30 @@ Return (KEY WORKTREE REVIEW-BUFFER)."
                  (before (length (bndos-test-stub-methods))))
             (bndos-test-ai-review "done")
             (let ((prompt (cdr (seq-find (lambda (m) (and (equal (car m) "session/prompt")
-                                                          (string-match-p "hutch-review" (cdr m))))
+                                                          (string-match-p "review-findings" (cdr m))))
                                          (nthcdr before (bndos-test-stub-methods))))))
               (should (string-match-p "Use the review skill" prompt))
               (should (string-match-p "> Build the slug helper" prompt)))
             (bndos-test-kill-shell (plist-get bndos-task-review--ai :buffer))))))))
+
+(ert-deftest bndos-integration-a-second-ai-review-sees-the-threads-and-adds-no-repeats ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      (pcase-let ((`(,key ,_wt ,review) (bndos-test-review-task repo "again")))
+        (with-current-buffer review
+          (bndos-test-ai-review "done")
+          (bndos-test-kill-shell (plist-get bndos-task-review--ai :buffer))
+          (let ((first (car (plist-get (bndos-task-store-load key) :threads)))
+                (before (length (bndos-test-stub-methods))))
+            ;; The stub finds the same thing again.
+            (bndos-test-ai-review "done")
+            (let ((prompt (cdr (seq-find (lambda (m) (and (equal (car m) "session/prompt")
+                                                          (string-match-p "review-findings" (cdr m))))
+                                         (nthcdr before (bndos-test-stub-methods))))))
+              (should (string-match-p (regexp-quote (format "id %s" (plist-get first :id))) prompt)))
+            (should (string-match-p "1 already there" (plist-get bndos-task-review--ai :message)))
+            (should (= (length (plist-get (bndos-task-store-load key) :threads)) 1)))
+          (bndos-test-kill-shell (plist-get bndos-task-review--ai :buffer)))))))
 
 (ert-deftest bndos-integration-interrupted-ai-review-pauses-and-resumes ()
   (bndos-test-with-hydra
@@ -288,10 +303,7 @@ Return (KEY WORKTREE REVIEW-BUFFER)."
              (wt (plist-get result :worktree))
              (worker (bndos-task-get (bndos-task-store-load key) :agent :session-id)))
         (bndos-test-commit wt "work" "w.txt" "w\n" "v.txt" "v\n")
-        (let ((bndos-task-review-show-tree nil))
-          (bndos-task-review-open key))
-        (let ((review (bndos-task-review-buffer key)))
-          (bndos-proc-wait (lambda () (with-current-buffer review (plist-get bndos-task-review--data :files))) 20)
+        (let ((review (bndos-task-review-open key :select nil)))
           (with-current-buffer review
             (bndos-test-ai-review "done"))
           (let* ((threads (plist-get (bndos-task-store-load key) :threads))
@@ -303,12 +315,13 @@ Return (KEY WORKTREE REVIEW-BUFFER)."
             (should (equal (plist-get finding :title) "stub finding"))
             (should (equal (bndos-task-get finding :anchor :line) 1))
             (should (member (bndos-task-get finding :anchor :path) '("v.txt" "w.txt")))
-            ;; It's shown in the diff like any thread and reached with ]t.
+            ;; It's drawn in its file like any thread, and listed in the overview.
             (with-current-buffer review
-              (goto-char (point-min))
-              (bndos/task-review-next-thread)
-              (should (equal (bndos-task-review--thread-at-point) (plist-get finding :id)))
-              (should (string-match-p "stub finding" (buffer-substring (line-beginning-position) (line-end-position)))))
+              (should (string-match-p "ai:bndos-stub.*finding" (buffer-string)))
+              (with-current-buffer (diff-review--open (diff-review--file-index (bndos-task-get finding :anchor :path)))
+                (should (seq-some (lambda (o) (equal (gethash "id" (overlay-get o 'diff-review-comment))
+                                                     (plist-get finding :id)))
+                                  (diff-review--thread-overlays)))))
             ;; And it goes to the worker (not the reviewer) like your comments.
             (let ((snapshot (bndos-test-await (lambda (cb) (bndos-task-git-snapshot wt cb)))))
               (bndos-task-agent-submit key (list (plist-get finding :id)) "implement"

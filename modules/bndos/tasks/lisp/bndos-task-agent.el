@@ -514,7 +514,10 @@ An attached shell is used as is; otherwise one is attached (see
          "Mode: IMPLEMENT. You may edit files in this worktree to address the items below. Do not commit, push, open pull requests, merge, or delete branches or worktrees unless an item explicitly asks for it.\n"
        "Mode: DISCUSS ONLY. Answer the questions; do NOT modify any files, run formatters, or make commits.\n")
      "\n"
-     (mapconcat #'bndos-task-agent--thread-prompt threads "\n")
+     (mapconcat (lambda (thread)
+                  (bndos-task-agent--thread-prompt
+                   (bndos-task-thread-with-selection thread (bndos-task-get record :worktree :path))))
+                threads "\n")
      "\n---\n"
      "End your reply with exactly one fenced block in this format (valid JSON, one entry per item above):\n\n"
      "```bndos-review\n"
