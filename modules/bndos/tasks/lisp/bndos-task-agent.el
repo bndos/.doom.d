@@ -377,10 +377,18 @@ with BUFFER."
     ;; git config: record any conversation that isn't the one recorded there.
     (when-let* ((branch (plist-get record :branch))
                 ((and actual (not (equal expected actual)))))
-      (let ((worktree (bndos-task-agent--worktree record)))
-        (bndos-task-git worktree (list "config" (format "branch.%s.bndos-session" branch) actual) #'ignore)
-        (when-let* ((provider (bndos-task-get record :agent :provider)))
-          (bndos-task-git worktree (list "config" (format "branch.%s.bndos-agent" branch) provider) #'ignore))))
+      (let ((worktree (bndos-task-agent--worktree record))
+            (provider (bndos-task-get record :agent :provider)))
+        ;; One after the other, since concurrent writers contend for git
+        ;; config's lock and the loser's value is dropped.  The session goes
+        ;; last: readers that see it can rely on the agent being there.
+        (cl-flet ((set-session (&rest _)
+                    (bndos-task-git worktree (list "config" (format "branch.%s.bndos-session" branch) actual)
+                                    #'ignore)))
+          (if provider
+              (bndos-task-git worktree (list "config" (format "branch.%s.bndos-agent" branch) provider)
+                              #'set-session)
+            (set-session)))))
     (if failed
         (display-warning 'bndos-task
                          (format "Couldn't load session %s; started NEW conversation %s.  The earlier conversation isn't in it."

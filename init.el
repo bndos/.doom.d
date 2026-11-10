@@ -3,15 +3,15 @@
 ;; Must be set before evil loads.
 (setq evil-respect-visual-line-mode t)
 
-;; Homebrew's libgccjit can't find libemutls_w on its own, so native-comp
-;; trampolines (built when a primitive is advised) fail to link.
+;; On macOS libgccjit can't find libemutls_w on its own, so native-comp
+;; trampolines (built when a primitive is advised) fail to link.  Ask the
+;; newest real gcc on PATH (`gcc' itself is clang there) where it is.
 (when (featurep :system 'macos)
   (with-eval-after-load 'comp
-    (when-let* ((jit (file-truename "/opt/homebrew/opt/libgccjit"))
-                (major (car (split-string (file-name-nondirectory jit) "\\.")))
-                (lib (car (file-expand-wildcards
-                           (format "/opt/homebrew/Cellar/gcc/%s.*/lib/gcc/current/gcc/*/%s/libemutls_w.a"
-                                   major major)))))
+    (when-let* ((gcc (seq-some (lambda (n) (executable-find (format "gcc-%d" n)))
+                               (number-sequence 30 10 -1)))
+                (lib (car (ignore-errors (process-lines gcc "-print-file-name=libemutls_w.a"))))
+                ((file-exists-p lib)))
       (add-to-list 'native-comp-driver-options
                    (concat "-L" (file-name-directory lib)) t))))
 
