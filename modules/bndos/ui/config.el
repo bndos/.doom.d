@@ -134,7 +134,7 @@
   '(ein:basecell-input-area-face :background "#0f0f0f")
 
   ;; Neutral review threads: this theme's `highlight' reads as a removal.
-  '(diff-review-comment :inherit font-lock-comment-face :background "#141420" :extend t)
+  '(diff-review-comment :foreground "#b4b4c8" :background "#141420" :extend t)
   '(diff-review-comment-bar :foreground "#e0af68")
 
   ;; Emacs 31/Doom theme workaround: the default doom-themes Gnus face chain can

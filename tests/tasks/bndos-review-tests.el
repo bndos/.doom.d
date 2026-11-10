@@ -317,6 +317,64 @@ task's one / TWO / four, shown in FILE's window."
                                                (string-match-p "\n" b))))
                             diff-review--overlays)))))
 
+(ert-deftest bndos-review-a-file-toggles-to-plain-and-back ()
+  (let ((diff-review-thread-marker "▐"))
+    (bndos-test-with-diff-view (key wt review file)
+      (goto-char (diff-review--line-pos 2))
+      (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "a note")))
+        (diff-review-comment))
+      (should diff-review--overlays)
+      (diff-review-toggle-plain)
+      (should-not diff-review--overlays)
+      (should (= left-margin-width 0))
+      ;; Still the plain file after the review redraws.
+      (with-current-buffer review (revert-buffer t t t))
+      (should-not diff-review--overlays)
+      (should diff-review-file-mode)
+      (diff-review-toggle-plain)
+      (should (seq-some (lambda (o) (overlay-get o 'diff-review-comment)) diff-review--overlays))
+      (should (= left-margin-width 1)))))
+
+(ert-deftest bndos-review-markdown-bodies-keep-lists-and-code ()
+  (skip-unless (require 'markdown-mode nil t))
+  (let ((lines (diff-review--body-lines "Done:\n\n- one thing\n- another thing\n\n```elisp\n(defun f (x)\n  x)\n```\n\nRan `make`." 40)))
+    (should (member "- one thing" (mapcar (lambda (l) (replace-regexp-in-string "^[•●◦*] " "- " l)) lines)))
+    (should (member "(defun f (x)" lines))
+    (should (member "  x)" lines))
+    (should-not (seq-some (lambda (l) (string-match-p "```\\|`make`" l)) lines))))
+
+(ert-deftest bndos-review-the-thread-panel-follows-and-replies ()
+  (skip-unless (require 'markdown-mode nil t))
+  (bndos-test-with-diff-view (key wt review file)
+    (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "first")))
+      (goto-char (diff-review--line-pos 1)) (diff-review-comment))
+    (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "second")))
+      (goto-char (diff-review--line-pos 3)) (diff-review-comment))
+    (goto-char (diff-review--line-pos 1))
+    (diff-review-thread-panel)
+    (let ((panel (get-buffer "*review thread*")))
+      (unwind-protect
+          (progn
+            (should (get-buffer-window panel))
+            (with-current-buffer panel (should (string-match-p "first" (buffer-string))))
+            ;; Inline, threads are one row while the panel shows them.
+            (diff-review--track-threads)
+            (should-not (seq-some (lambda (o) (overlay-get o 'diff-review-open)) (diff-review--thread-overlays)))
+            ;; It follows point.
+            (goto-char (diff-review--line-pos 3))
+            (diff-review--track-threads)
+            (with-current-buffer panel (should (string-match-p "second" (buffer-string))))
+            ;; A reply from it lands on its thread and shows.
+            (with-current-buffer panel
+              (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "a reply")))
+                (diff-review-panel-reply))
+              (should (string-match-p "a reply" (buffer-string))))
+            (let ((thread (seq-find (lambda (th) (equal (plist-get th :body) "second"))
+                                    (plist-get (bndos-task-store-load key) :threads))))
+              (should (equal (plist-get (car (plist-get thread :replies)) :body) "a reply"))))
+        (when (get-buffer-window panel) (delete-window (get-buffer-window panel)))
+        (kill-buffer panel)))))
+
 (ert-deftest bndos-review-commenting-in-a-file-goes-to-the-diff-view ()
   (bndos-test-with-diff-view (key wt review file)
     ;; Line 2 selected in the file: its removed lines come along.

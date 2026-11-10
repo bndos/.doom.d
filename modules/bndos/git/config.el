@@ -28,6 +28,8 @@
       "]c" #'diff-review-next-hunk
       "[c" #'diff-review-previous-hunk
       "zv" #'diff-review-viewed-and-next
+      "zp" #'diff-review-toggle-plain
+      "g RET" #'diff-review-thread-panel
       "gC" #'diff-review-comment-in-view
       "g=" #'diff-review-toggle-view
       "]t" #'diff-review-next-comment
@@ -49,8 +51,16 @@
       "]t" #'diff-review-next-comment
       "[t" #'diff-review-previous-comment
       "gL" #'diff-review-list-comments
+      "g RET" #'diff-review-thread-panel
       "gl" #'diff-review-overview
       "q"  #'diff-review-toggle-view)
+    (evil-set-initial-state 'diff-review-thread-mode 'normal)
+    (evil-define-key* 'normal diff-review-thread-mode-map
+      "r" #'diff-review-panel-reply
+      "x" #'diff-review-panel-toggle-resolved
+      "]t" #'diff-review-panel-next
+      "[t" #'diff-review-panel-previous
+      "q" #'quit-window)
     ;; Threads across the review's files from the overview and the sidebar too.
     (dolist (map (list diff-review-mode-map diff-review-sidebar-mode-map))
       (evil-define-key* 'normal map
