@@ -280,13 +280,13 @@ status' does (refresh the dashboard to update it)."
   (let ((agent (plist-get record :agent)))
     (concat
      (pcase (bndos-task-agent-lifecycle record)
-       ('busy "working")
-       ('blocked "waiting for permission")
-       ('idle "idle")
-       ('detached "idle (not attached)")
-       ('stopped "stopped (resumes on open)")
+       ('busy (propertize "working" 'face 'warning))
+       ('blocked (propertize "waiting for permission" 'face 'error))
+       ('idle (propertize "idle" 'face 'success))
+       ('detached (concat (propertize "idle" 'face 'success) (propertize " (not attached)" 'face 'shadow)))
+       ('stopped (propertize "stopped (resumes on open)" 'face 'shadow))
        ('missing (propertize "session gone" 'face 'warning))
-       (_ "no agent"))
+       (_ (propertize "no agent" 'face 'shadow)))
      (if-let* ((sid (plist-get agent :session-id)))
          (format " · %s %s" (or (plist-get agent :provider) "agent") (bndos-task-agent--short sid))
        "")
@@ -459,9 +459,11 @@ An attached shell is used as is; otherwise one is attached (see
   "Show task KEY's agent-shell, attaching to its session if needed."
   (interactive (list (or (bound-and-true-p bndos-task-review-key) (user-error "No task here"))))
   (bndos-task-agent-sync-from-git key)
-  (if-let* ((live (bndos-task-agent-buffer (bndos-task-store-load key))))
-      (pop-to-buffer live)
-    (pop-to-buffer (bndos-task-agent--start-shell key :display t))))
+  (pop-to-buffer (or (bndos-task-agent-buffer (bndos-task-store-load key))
+                     (bndos-task-agent--start-shell key))
+                 ;; Beside what's shown, a review keeps its window.
+                 '((display-buffer-reuse-window display-buffer-in-direction)
+                   (direction . right) (window-width . 0.45))))
 
 
 ;;; Prompts
@@ -594,8 +596,19 @@ reviewer was looking at."
                                                                          :mode (plist-get request :mode)
                                                                          :at (bndos-task-now)))))))))))))
 
+(defun bndos-task-agent--note-prompted (key)
+  "Record in git config that KEY's agent was just prompted, as bin/bndos-task
+does, so `status' tells a finished turn from the one before it."
+  (let* ((record (bndos-task-store-load key))
+         (branch (plist-get record :branch)))
+    (when (and branch (bndos-task-get record :worktree :path))
+      (let ((default-directory (bndos-task-agent--worktree record)))
+        (process-file "git" nil nil nil "config" (format "branch.%s.bndos-prompted" branch)
+                      (format "%d" (truncate (* 1000 (float-time)))))))))
+
 (defun bndos-task-agent--on-input (key prompt)
-  "Start collecting the reply when PROMPT is our pending request."
+  "Note the prompt; start collecting the reply when PROMPT is our pending request."
+  (bndos-task-agent--note-prompted key)
   (let ((pending (plist-get bndos-task-agent--watch :pending)))
     (when (and pending prompt (string-search (format "[bndos-review request %s " pending) prompt))
       (setq bndos-task-agent--watch

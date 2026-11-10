@@ -108,6 +108,25 @@
                 (should (equal (plist-get row :base) "main"))
                 (should (memq (bndos-task-agent-lifecycle (plist-get row :record)) '(detached busy)))))))))))
 
+(ert-deftest bndos-integration-a-prompt-typed-in-agent-shell-counts-for-done ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      ;; Started without a prompt: nothing was ever prompted, so never done.
+      (let* ((result (bndos-test-start repo "mp"))
+             (key (plist-get result :key))
+             (wt (plist-get result :worktree))
+             (status (lambda () (cdr (bndos-test-cli repo "status" "mp")))))
+        (should-not (plist-get (funcall status) :done))
+        (let ((shell (bndos-test-attach key)))
+          (unwind-protect
+              (progn
+                (agent-shell-insert :text "typed by hand" :submit t :no-focus t :shell-buffer shell)
+                (bndos-proc-wait (lambda () (member "typed by hand" (bndos-test-stub-prompts))) 20)
+                (should (bndos-test-git wt "config" "branch.mp.bndos-prompted"))
+                (bndos-proc-wait (lambda () (eq (plist-get (funcall status) :done) t)) 20)
+                (should (eq (plist-get (funcall status) :done) t)))
+            (bndos-test-kill-shell shell)))))))
+
 (ert-deftest bndos-integration-agent-here-attaches-from-inside-the-worktree ()
   (bndos-test-with-hydra
     (bndos-test-with-repo repo

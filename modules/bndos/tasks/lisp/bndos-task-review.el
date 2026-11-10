@@ -286,7 +286,8 @@ SELECT, show it in the selected window."
       (bndos-task-review-switch-workspace worktree))
     (let ((buffer (find-file-noselect file)))
       (with-current-buffer buffer
-        (unless (derived-mode-p 'diff-review-mode) (diff-review-mode)))
+        (unless (derived-mode-p 'diff-review-mode) (diff-review-mode))
+        (rename-buffer (format "review: %s" (plist-get record :branch)) t))
       (when select
         (switch-to-buffer buffer)
         (when (fboundp 'persp-add-buffer) (ignore-errors (persp-add-buffer buffer))))
@@ -312,6 +313,20 @@ SELECT, show it in the selected window."
 (defun bndos-task-review--label (label)
   (propertize (format "%-9s " label) 'face 'bndos-task-review-label))
 
+(defun bndos-task-review--actions ()
+  "The agent flow's main keys, as the overview shows them."
+  (mapconcat (lambda (action)
+               (concat (propertize (key-description (where-is-internal (car action) bndos-task-review-mode-map t))
+                                   'face 'help-key-binding)
+                       " " (cdr action)))
+             '((bndos/task-review-visit-agent . "agent")
+               (bndos/task-review-submit . "send threads")
+               (bndos/task-review-ask . "ask")
+               (bndos/task-review-ai-review . "AI review")
+               (bndos/task-review-set-scope . "scope")
+               (bndos/task-review-approve . "approve"))
+             (propertize " · " 'face 'shadow)))
+
 (defun bndos-task-review--short (sha)
   (if (and sha (> (length sha) 8)) (substring sha 0 8) (or sha "?")))
 
@@ -328,8 +343,7 @@ SELECT, show it in the selected window."
               "\n"
               (bndos-task-review--label "Scope")
               (propertize (cadr (assq scope bndos-task-review-scopes)) 'face 'bold)
-              ": " (nth 2 (assq scope bndos-task-review-scopes))
-              (substitute-command-keys "  (\\[bndos/task-review-set-scope] changes it)")
+              (propertize (concat ": " (nth 2 (assq scope bndos-task-review-scopes))) 'face 'shadow)
               "\n")
       (when bndos-task-review--scope-error
         (insert (propertize (format "          showing Uncommitted: %s\n" bndos-task-review--scope-error)
@@ -346,6 +360,7 @@ SELECT, show it in the selected window."
                 (or (bndos-task-get record :review :state) "unreviewed")
                 (if threads (format " — %s" (bndos-task-review--thread-counts threads)) "")
                 "\n"))
+      (insert (bndos-task-review--label "Actions") (bndos-task-review--actions) "\n")
       (when ai
         (insert (bndos-task-review--label "AI review")
                 (propertize (format "%s: %s" (plist-get ai :agent) (plist-get ai :message))

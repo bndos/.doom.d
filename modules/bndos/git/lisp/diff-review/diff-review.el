@@ -1246,6 +1246,12 @@ and \\[diff-review-toggle-sidebar] shows or hides the sidebar.
 \\[diff-review-quit] ends the review, as does killing the buffer.
 
 \\{diff-review-mode-map}"
+  ;; bndos: the overview visits a file, so global font-lock turns on after
+  ;; this, and its faces are text properties font-lock doesn't show (and
+  ;; strips as it goes): off, then drawn again.
+  :after-hook (when font-lock-mode
+                (font-lock-mode -1)
+                (diff-review--render-all))
   ;; `setq-local': in Emacs 31 a plain `setq' sets the global default, and
   ;; every file buffer's auto-revert then runs this, leaving it modified.
   (setq-local revert-buffer-function #'diff-review--revert)

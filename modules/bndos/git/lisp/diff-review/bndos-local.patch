@@ -1,5 +1,5 @@
-]2;T/tmp.oAt8SkffCg--- a/diff-review.el	2026-11-10 13:13:21
-+++ b/diff-review.el	2026-11-10 13:13:21
+]2;T/tmp.96rTuT6BaD--- a/diff-review.el	2026-11-10 15:30:10
++++ b/diff-review.el	2026-11-10 15:30:10
 @@ -153,6 +153,15 @@
    "The fringe the hunk bars are drawn in, or nil for no bars."
    :type '(choice (const left) (const right) (const :tag "No bars" nil)))
@@ -345,7 +345,20 @@
    "A" #'diff-review-approve
    "C" #'diff-review-request-changes
    "C-c C-c" #'diff-review-toggle-raw
-@@ -1182,8 +1301,9 @@
+@@ -1127,6 +1246,12 @@
+ \\[diff-review-quit] ends the review, as does killing the buffer.
+ 
+ \\{diff-review-mode-map}"
++  ;; bndos: the overview visits a file, so global font-lock turns on after
++  ;; this, and its faces are text properties font-lock doesn't show (and
++  ;; strips as it goes): off, then drawn again.
++  :after-hook (when font-lock-mode
++                (font-lock-mode -1)
++                (diff-review--render-all))
+   ;; `setq-local': in Emacs 31 a plain `setq' sets the global default, and
+   ;; every file buffer's auto-revert then runs this, leaving it modified.
+   (setq-local revert-buffer-function #'diff-review--revert)
+@@ -1182,8 +1307,9 @@
        (diff-review--remove-worktree dir))
      (unless (seq-some (lambda (buffer)
                          (and (not (eq buffer review))
@@ -357,7 +370,7 @@
                        (buffer-list))
        (remove-hook 'window-buffer-change-functions #'diff-review--follow)
        (remove-hook 'find-file-hook #'diff-review--protect))))
-@@ -1236,8 +1356,9 @@
+@@ -1236,8 +1362,9 @@
  (defun diff-review-sidebar--header ()
    "The sidebar's header line: the head and the review's summary."
    (diff-review--in-review
@@ -369,7 +382,7 @@
  
  (defun diff-review-sidebar--render ()
    "Redraw the sidebar.  The sidebar buffer must be current."
-@@ -1325,7 +1446,84 @@
+@@ -1325,6 +1452,83 @@
              (unless (eq (and sidebar (window-buffer sidebar)) wanted)
                (when sidebar (diff-review--detach sidebar))
                (when wanted (diff-review--attach window wanted)))))))))
@@ -398,7 +411,7 @@
 +                  (seq-count #'diff-review--viewed-p diff-review--files) (length diff-review--files)
 +                  (diff-review--counts (diff-review--sum diff-review--files :added)
 +                                       (diff-review--sum diff-review--files :removed)))))
- 
++
 +(defun diff-review--host-redraw ()
 +  (when (buffer-live-p diff-review--sidebar)
 +    (with-current-buffer diff-review--sidebar (diff-review-sidebar--render))))
@@ -450,11 +463,10 @@
 +  (with-current-buffer (or buffer (current-buffer))
 +    (and diff-review--sidebar-enabled (buffer-live-p diff-review--sidebar)
 +         (get-buffer-window diff-review--sidebar t) t)))
-+
+ 
  ;;;; Showing a file
  
- (defun diff-review--main-window ()
-@@ -1553,7 +1751,9 @@
+@@ -1553,7 +1757,9 @@
    "The buffer that shows FILE as the review has it, made or brought up to date.
  The review buffer must be current."
    (cond ((equal (plist-get file :status) "D") (diff-review--blob-for file))
@@ -465,7 +477,7 @@
          (t (find-file-noselect (expand-file-name (plist-get file :path) diff-review--root)))))
  
  (defun diff-review--refresh-files ()
-@@ -1582,6 +1782,7 @@
+@@ -1582,6 +1788,7 @@
    (unless (< -1 i (length diff-review--files))
      (user-error "The review has no files"))
    (setq diff-review--index i)
@@ -473,7 +485,7 @@
    (let* ((file (diff-review--file i))
           (path (plist-get file :path))
           (buffer (diff-review--file-buffer file)))
-@@ -1595,8 +1796,11 @@
+@@ -1595,8 +1802,11 @@
      (with-current-buffer buffer          ; the caller may be in the review buffer
        (goto-char (point-min))
        (when diff-review--hunks
@@ -487,7 +499,7 @@
  
  ;;;; The file side
  
-@@ -1613,13 +1817,17 @@
+@@ -1613,13 +1823,17 @@
        (while (re-search-forward diff-hunk-header-re-unified nil t)
          (let ((line (diff-review--hunk-field 3))   ; the new side
                (count (diff-review--hunk-field 4))
@@ -506,7 +518,7 @@
      (nreverse hunks)))
  
  (defun diff-review--line-pos (line)
-@@ -1654,14 +1862,31 @@
+@@ -1654,15 +1868,32 @@
          face
        (list face `(:background ,borrowed :extend t)))))
  
@@ -534,14 +546,15 @@
 +  (dolist (window (get-buffer-window-list nil nil t))
 +    (set-window-margins window left-margin-width right-margin-width)
 +    (set-window-fringes window left-fringe-width right-fringe-width fringes-outside-margins)))
-+
+ 
 +(defun diff-review--open-face ()
 +  "bndos: the face of an open thread's lines, or nil."
 +  (and diff-review-tint-open-thread (diff-review--tint 'diff-review-comment-range 'diff-review-comment)))
- 
++
  (defun diff-review--bars (start lines mark)
    "Put MARK before each of LINES lines from START, in zero-width overlays.
-@@ -1700,6 +1925,7 @@
+ Not `line-prefix': an overlay's would hide the one `org-indent-mode' draws."
+@@ -1700,6 +1931,7 @@
  (defun diff-review--decorate ()
    "Add the inline removed lines, the added tint, the fringe bars and the folds."
    (diff-review--undecorate)
@@ -549,7 +562,7 @@
    (let* ((inline (diff-review--in-review diff-review--inline-removed))
           (added (and diff-review-tint-added (diff-review--tint 'diff-review-added 'diff-added)))
           (removed (and diff-review-tint-removed
-@@ -1719,28 +1945,78 @@
+@@ -1719,28 +1951,78 @@
            (push overlay diff-review--overlays)
            (diff-review--bars (point-min) (count-lines (point-min) (point-max))
                               (diff-review--fringe-mark 'diff-indicator-removed)))
@@ -648,7 +661,7 @@
  (defun diff-review--fold ()
    "Hide unchanged lines beyond `diff-review-context' of any hunk."
    (let ((last (line-number-at-pos (point-max)))
-@@ -1830,13 +2106,50 @@
+@@ -1830,13 +2112,50 @@
        (concat (match-string 1 at) " " (match-string 2 at))
      (or at "")))
  
@@ -701,7 +714,7 @@
  
  (defun diff-review--thread-string (comment first last stale open)
    "COMMENT drawn under its lines FIRST to LAST: in full when OPEN, else one line.
-@@ -1844,7 +2157,7 @@
+@@ -1844,7 +2163,7 @@
  mark.  Every row carries the fringe bar the range has, so range and thread
  read as one block.  Bodies fill at the buffer's `fill-column', less the
  margin; the keys are hinted where they are bound, in a file."
@@ -710,7 +723,7 @@
           (width (max 20 (- fill-column 4)))
           (who (lambda (m)
                  (concat (propertize (or (gethash "author" m) "?") 'face 'diff-review-comment-author)
-@@ -1854,24 +2167,48 @@
+@@ -1854,24 +2173,48 @@
            (list (concat
                   (diff-review--glyph "💬" "#") " " (funcall who comment) "  "
                   (if open
@@ -767,7 +780,7 @@
            (push (concat "    " line) lines)))
        (when (and diff-review-file-header-keys diff-review-file-mode)
          (push (concat "  " (diff-review--key-hints
-@@ -1895,21 +2232,128 @@
+@@ -1895,21 +2238,128 @@
    (cons (line-number-at-pos (overlay-start overlay) t)
          (line-number-at-pos (max (overlay-start overlay) (1- (overlay-end overlay))) t)))
  
@@ -905,7 +918,7 @@
  
  (defun diff-review--decorate-comments ()
    "Draw this file's threads, each under the last line of its range.
-@@ -1921,7 +2365,9 @@
+@@ -1921,7 +2371,9 @@
           (comments (diff-review--in-review (diff-review--file-comments path)))
           (blob (and comments (diff-review--buffer-blob))))
      (dolist (comment comments)
@@ -916,7 +929,7 @@
          (pcase-let* ((`(,first ,last ,stale) (diff-review--thread-lines comment blob))
                       (overlay (make-overlay (diff-review--line-pos first)
                                              (diff-review--line-pos (1+ last)) nil t nil)))
-@@ -1930,7 +2376,7 @@
+@@ -1930,7 +2382,7 @@
            (overlay-put overlay 'priority 1)      ; the open tint over the added one
            (push overlay diff-review--overlays)
            (diff-review--bars (diff-review--line-pos first) (1+ (- last first))
@@ -925,7 +938,7 @@
            (diff-review--redraw-thread overlay nil))))
      (diff-review--track-threads)))
  
-@@ -1944,10 +2390,12 @@
+@@ -1944,10 +2396,12 @@
    "Open the threads point is at and close the ones it left.
  On `post-command-hook' in a file under review; nothing elsewhere."
    (when diff-review-file-mode
@@ -940,7 +953,7 @@
            (unless (eq open (overlay-get overlay 'diff-review-open))
              (diff-review--redraw-thread overlay open)))))))
  
-@@ -1971,7 +2419,12 @@
+@@ -1971,7 +2425,12 @@
    (let* ((comment (or (diff-review--comment id) (user-error "No comment %s" id)))
           (path (gethash "path" comment))
           (i (and path (diff-review--file-index path))))
@@ -954,7 +967,7 @@
            (t (message "The review has no file %s" (or path "to show this in"))))))
  
  (defun diff-review--region-lines ()
-@@ -2003,18 +2456,60 @@
+@@ -2003,18 +2462,60 @@
                 (cdr (assoc pick names)))))))
  
  (defun diff-review-comment ()
@@ -1022,7 +1035,7 @@
  (defun diff-review--change-comment (comment fn)
    "Apply FN to the live table of COMMENT, then write.
  The table at point may be stale once someone else's write is taken."
-@@ -2074,22 +2569,67 @@
+@@ -2074,22 +2575,67 @@
                                 step))))
  
  (defun diff-review--walk-comments (step)
@@ -1105,7 +1118,7 @@
  
  (defun diff-review-next-comment ()
    "Go to the next comment thread, continuing into later files."
-@@ -2144,7 +2684,8 @@
+@@ -2144,7 +2690,8 @@
                     (concat "   " (diff-review--key-hints
                                    '((diff-review-next-hunk . "next hunk")
                                      (diff-review-viewed-and-next . "viewed")
@@ -1115,7 +1128,7 @@
                                      (diff-review-toggle-focus . "focus")
                                      (diff-review-overview . "overview"))))
                   "")))
-@@ -2218,6 +2759,18 @@
+@@ -2218,6 +2765,18 @@
    (setq diff-review--focus (not diff-review--focus))
    (diff-review--decorate))
  
@@ -1134,7 +1147,7 @@
  (defun diff-review-toggle-inline-removed ()
    "Show or hide the removed lines, in this and later files of the review."
    (interactive)
-@@ -2258,13 +2811,19 @@
+@@ -2258,13 +2817,19 @@
    "v" #'diff-review-viewed-and-next
    "d" #'diff-review-toggle-inline-removed
    "z" #'diff-review-toggle-focus
@@ -1155,7 +1168,7 @@
    "t" #'diff-review-toggle-sidebar
    "l" #'diff-review-overview
    "q" #'diff-review-quit)
-@@ -2317,6 +2876,10 @@
+@@ -2317,6 +2882,10 @@
                    (list (list :line 1 :count 0 :removed nil))
                  (diff-review--in-review (diff-review--parse-hunks (diff-review--this-file))))
                diff-review--texts nil)
@@ -1166,7 +1179,7 @@
          (diff-review--decorate)
          (add-hook 'post-command-hook #'diff-review--track-threads nil t)
          (add-hook 'change-major-mode-hook #'diff-review--before-major-mode nil t)
-@@ -2327,13 +2890,659 @@
+@@ -2327,13 +2896,659 @@
                                                     diff-review-file-header
                                                   #'diff-review--file-header))))))
      (diff-review--undecorate)
@@ -1310,7 +1323,7 @@
 +                                              (gethash "removed" comment))))
 +                       (cons first last) stale)))))
 +           comments))))
-+
+ 
 +(defun diff-review--view-draw-threads ()
 +  "Draw this view's threads under the last line each is on."
 +  (pcase-dolist (`(,comment ,lines ,label ,stale) (diff-review--view-threads))
@@ -1643,7 +1656,7 @@
 +    (goto-char (overlay-start o))))
 +
 +;;;; bndos: the thread panel
- 
++
 +;; The thread at point, in a buffer of its own beside the file: what it is
 +;; on, then each message rendered, so a long reply reads, scrolls and copies
 +;; like any text.  It follows point from thread to thread.
