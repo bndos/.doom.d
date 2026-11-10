@@ -717,9 +717,12 @@
         ;; Without a prefix the defaults go straight in.
         (bndos/task-review-ai-review)
         (should (equal (car started) "Use the review skill."))
-        ;; With one, a draft starts from them; what's submitted is used, even nothing.
+        ;; C-c C-w (or a prefix) starts a draft from them; what's submitted
+        ;; is used, even nothing.
+        (should (eq (keymap-lookup bndos-task-review-mode-map "C-c C-w")
+                    #'bndos/task-review-ai-review-with-instructions))
         (dolist (text '("Focus on the locking." ""))
-          (with-current-buffer review (bndos/task-review-ai-review t))
+          (with-current-buffer review (bndos/task-review-ai-review-with-instructions))
           (with-current-buffer (get-buffer "*task-draft: AI review instructions*")
             (should (string-match-p "Use the review skill\\." (bndos-task-draft--text)))
             (let ((inhibit-read-only t))

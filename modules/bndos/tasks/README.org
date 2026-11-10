@@ -119,7 +119,7 @@ section groups all threads by state (resolved folded).
 | =g t= / =C-c C-e=      | toggle the following file tree                                    |
 | =C-c C-a=              | approve (records it; doesn't publish)                             |
 | =C-c C-h=              | AI review by a new agent session, or resume a paused one (below)  |
-| =C-u C-c C-h=          | AI review with instructions edited for this one                   |
+| =C-c C-w=              | AI review with instructions edited for this one                   |
 | =C-c C-k=              | cancel a running or paused AI review                              |
 
 You keep your place: refreshes and agent updates leave point, column and
@@ -152,8 +152,9 @@ output format (which a skill with its own format doesn't override):
   sent, given as the change's goal rather than as instructions
   (=bndos-task-review-ai-include-brief=).
 
-=C-u C-c C-h= opens the instructions in a draft first, to change them for
-this review only (an empty draft sends none).
+=C-c C-w= (or =C-c C-h= with a prefix, =SPC u= under evil) opens the
+instructions in a draft first, to change them for this review only (an
+empty draft sends none).
 
 Interrupting the reviewer (=C-c C-c= in its agent-shell), or a reply
 without the findings block, pauses the review instead of failing it: the

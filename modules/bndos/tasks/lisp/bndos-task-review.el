@@ -152,6 +152,7 @@
   "C-c C-e" #'bndos/task-review-toggle-tree
   "C-c C-a" #'bndos/task-review-approve
   "C-c C-h" #'bndos/task-review-ai-review
+  "C-c C-w" #'bndos/task-review-ai-review-with-instructions
   "C-c C-j" #'bndos/task-review-jump-to-thread
   "C-c C-k" #'bndos/task-review-ai-cancel
   "C-c C-p" #'bndos/task-review-apply-suggestion
@@ -1746,7 +1747,8 @@ that shell resumes it, and so does this command.
 
 The prompt includes `bndos-task-review-ai-instructions', the project's
 `bndos-task-review-ai-instructions-file' and the task's brief.  With a
-prefix argument, edit the instructions for this review first."
+prefix argument (or \\[bndos/task-review-ai-review-with-instructions]),
+edit the instructions for this review first."
   (interactive "P")
   (bndos-task-review--ensure)
   (require 'agent-shell)
@@ -1768,6 +1770,11 @@ prefix argument, edit the instructions for this review first."
                               (lambda (text)
                                 (with-current-buffer review (bndos-task-review--ai-start text)))
                               instructions t)))))))
+
+(defun bndos/task-review-ai-review-with-instructions ()
+  "Like `bndos/task-review-ai-review', editing its instructions first."
+  (interactive)
+  (bndos/task-review-ai-review t))
 
 (defun bndos-task-review--ai-start (&optional instructions)
   (when (member (plist-get bndos-task-review--ai :status) '("running" "paused"))
