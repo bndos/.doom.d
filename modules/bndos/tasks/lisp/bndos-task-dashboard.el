@@ -132,11 +132,40 @@ MESSAGE)."
            (funcall callback (list :key key :worktree worktree))
            (bndos-task--refresh-dashboard-buffer)))))))
 
+(defun bndos-task--agent-options (agent directory)
+  "AGENT's models and modes from `bndos-task models' (it asks the agent once)."
+  (message "Getting %s's models…" agent)
+  (let ((out (bndos-task-cli-call (list "models" "--agent" agent) directory)))
+    (message nil)
+    (if (equal (plist-get out :status) "failed")
+        (progn (message "Couldn't list %s's models: %s" agent (plist-get out :error)) nil)
+      out)))
+
+(defun bndos-task--read-option (prompt options default)
+  "Read an id from OPTIONS (plists with :id :name :description).
+Empty input returns nil, which leaves the choice to DEFAULT (a description).
+Any other id may be typed as well."
+  (let* ((table (mapcar (lambda (o) (cons (plist-get o :id) o)) options))
+         (annotate (lambda (id)
+                     (when-let* ((o (cdr (assoc id table))))
+                       (propertize (concat "  " (string-join (delq nil (list (plist-get o :name)
+                                                                              (plist-get o :description)))
+                                                             " · "))
+                                   'face 'completions-annotations))))
+         (choice (completing-read (format-prompt prompt default)
+                                  (lambda (string pred action)
+                                    (if (eq action 'metadata)
+                                        `(metadata (annotation-function . ,annotate)
+                                                   (display-sort-function . identity))
+                                      (complete-with-action action (mapcar #'car table) string pred))))))
+    (unless (string-empty-p choice) choice)))
+
 ;;;###autoload
-(defun bndos/task-start (repo branch base ticket config mode)
+(defun bndos/task-start (repo branch base ticket config mode &optional model)
   "Start a task: a new worktree for BRANCH from BASE in REPO, with its agent.
 You write the prompt in a draft buffer.  The agent runs as a Hydra session,
-in its auto mode unless MODE says otherwise; open it from the dashboard."
+in its auto mode unless MODE says otherwise, with MODEL or its default;
+both are picked from what the agent offers.  Open it from the dashboard."
   (interactive
    (let* ((repo (or (bndos-task--current-repo) (read-directory-name "Repository: ")))
           (default-directory repo)
@@ -146,15 +175,20 @@ in its auto mode unless MODE says otherwise; open it from the dashboard."
                                  (unless (string-empty-p current) current)))
           (ticket (read-string "Ticket id (optional): "))
           (config (progn (require 'agent-shell) (agent-shell-select-config :prompt "Agent: ")))
-          (mode (read-string (format-prompt "Session mode" "auto for Claude and Codex"))))
-     (list repo branch base (unless (string-empty-p ticket) ticket) config
-           (unless (string-empty-p (or mode "")) mode))))
+          (options (bndos-task--agent-options (format "%s" (map-elt config :identifier)) repo))
+          (mode (bndos-task--read-option "Session mode" (plist-get options :modes)
+                                         (or (plist-get options :default_mode) "the agent's default")))
+          (model (bndos-task--read-option "Model" (plist-get options :models)
+                                          (format "the agent's default%s"
+                                                  (if-let* ((m (plist-get options :current_model)))
+                                                      (format ", %s" m) "")))))
+     (list repo branch base (unless (string-empty-p ticket) ticket) config mode model)))
   (when (string-empty-p branch) (user-error "A branch name is required"))
   (bndos-task-draft
    (format "task prompt for %s" branch) nil
    (lambda (prompt)
      (message "Creating %s…" branch)
-     (bndos-task-start repo branch base :prompt prompt :ticket ticket :mode mode
+     (bndos-task-start repo branch base :prompt prompt :ticket ticket :mode mode :model model
                        :agent (and config (map-elt config :identifier))
                        :callback (lambda (result)
                                    (if (plist-get result :error)

@@ -160,6 +160,126 @@
   (bndos-task-ensure-record (bndos-test-git wt "rev-parse" "--path-format=absolute" "--git-common-dir")
                             wt (bndos-test-git wt "branch" "--show-current")))
 
+(defun bndos-test-ai-review (status &optional pick-model resume)
+  "Run (or with RESUME, resume) the AI review here with the stub; wait for STATUS.
+PICK-MODEL is the model to choose in the reviewer's picker; nil quits it.
+The mocks stay in place while waiting: the picker opens once the session is up."
+  (let (offered)
+    (cl-letf (((symbol-function 'agent-shell-select-config)
+               (cl-function (lambda (&rest _) (bndos-task-agent--hydra-config "bndos-stub"))))
+              ((symbol-function 'y-or-n-p) (lambda (&rest _) resume))
+              ((symbol-function 'completing-read)
+               (lambda (prompt choices &rest _)
+                 (push (cons prompt choices) offered)
+                 (or (and pick-model (seq-find (lambda (c) (string-match-p pick-model c)) choices))
+                     (signal 'quit nil)))))
+      (bndos/task-review-ai-review)
+      (bndos-proc-wait (lambda () (equal (plist-get bndos-task-review--ai :status) status)) 30))
+    (should (equal (plist-get bndos-task-review--ai :status) status))
+    offered))
+
+(defun bndos-test-review-task (repo branch &rest keys)
+  "Start BRANCH (KEYS as for `bndos-task-start') with a commit to review.
+Return (KEY WORKTREE REVIEW-BUFFER)."
+  (let* ((result (apply #'bndos-test-start repo branch keys))
+         (key (plist-get result :key))
+         (wt (plist-get result :worktree)))
+    (bndos-test-commit wt "work" "w.txt" "w\n")
+    (let ((bndos-task-review-show-tree nil))
+      (bndos-task-review-open key))
+    (let ((review (bndos-task-review-buffer key)))
+      (bndos-proc-wait (lambda () (with-current-buffer review (plist-get bndos-task-review--data :files))) 20)
+      (list key wt review))))
+
+(defun bndos-test-stub-methods ()
+  "Methods of every message the stub agents received, in order."
+  (let ((log (getenv "BNDOS_TEST_STUB_LOG")))
+    (mapcar (lambda (line) (cons (plist-get (json-parse-string line :object-type 'plist) :method) line))
+            (split-string (with-temp-buffer (insert-file-contents log) (buffer-string)) "\n" t))))
+
+(ert-deftest bndos-integration-ai-review-model-comes-from-the-reviewers-session ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      (pcase-let ((`(,_key ,_wt ,review) (bndos-test-review-task repo "pick")))
+        (with-current-buffer review
+          (let* ((before (length (bndos-test-stub-methods)))  ; the log is shared by all tests
+                 (offered (bndos-test-ai-review "done" "large"))
+                 (choices (cdr (seq-find (lambda (o) (string-match-p "model" (car o))) offered)))
+                 (methods (nthcdr before (bndos-test-stub-methods)))
+                 (set-model (seq-position methods "large"
+                                          (lambda (m model) (and (equal (car m) "session/set_model")
+                                                                 (string-match-p model (cdr m))))))
+                 (review-prompt (seq-position methods "hutch-review"
+                                              (lambda (m text) (and (equal (car m) "session/prompt")
+                                                                    (string-match-p text (cdr m)))))))
+            ;; The session's own models, as agent-shell lists them.
+            (should (seq-some (lambda (c) (string-match-p "small" c)) choices))
+            (should (seq-some (lambda (c) (string-match-p "large" c)) choices))
+            ;; Chosen before the review prompt went out.
+            (should set-model)
+            (should (< set-model review-prompt))
+            (bndos-test-kill-shell (plist-get bndos-task-review--ai :buffer))))))))
+
+(ert-deftest bndos-integration-ai-review-gets-instructions-and-the-tasks-brief ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      (pcase-let ((`(,_key ,_wt ,review) (bndos-test-review-task repo "brief" :prompt "Build the slug helper.")))
+        (with-current-buffer review
+          (let* ((bndos-task-review-ai-instructions "Use the review skill.")
+                 (before (length (bndos-test-stub-methods))))
+            (bndos-test-ai-review "done")
+            (let ((prompt (cdr (seq-find (lambda (m) (and (equal (car m) "session/prompt")
+                                                          (string-match-p "hutch-review" (cdr m))))
+                                         (nthcdr before (bndos-test-stub-methods))))))
+              (should (string-match-p "Use the review skill" prompt))
+              (should (string-match-p "> Build the slug helper" prompt)))
+            (bndos-test-kill-shell (plist-get bndos-task-review--ai :buffer))))))))
+
+(ert-deftest bndos-integration-interrupted-ai-review-pauses-and-resumes ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      (pcase-let ((`(,key ,_wt ,review) (bndos-test-review-task repo "pause")))
+        (with-current-buffer review
+          ;; The reviewer's first turn ends interrupted (as C-c C-c in its shell does).
+          (with-temp-file (getenv "BNDOS_TEST_STUB_CANCEL_ONCE"))
+          (bndos-test-ai-review "paused")
+          (should (string-match-p "cancelled" (plist-get bndos-task-review--ai :message)))
+          (should (buffer-live-p (plist-get bndos-task-review--ai :buffer)))
+          (should-not (plist-get (bndos-task-store-load key) :threads))
+          (let ((reviewer (plist-get bndos-task-review--ai :buffer)))
+            ;; C-c C-h resumes the same reviewer instead of starting another.
+            (bndos-test-ai-review "done" nil t)
+            (should (eq (plist-get bndos-task-review--ai :buffer) reviewer))
+            (should (= (length (plist-get (bndos-task-store-load key) :threads)) 1))
+            (bndos-test-kill-shell reviewer)))))))
+
+(ert-deftest bndos-integration-models-are-saved-and-listed ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      (bndos-test-start repo "mdl")
+      (let ((saved (cdr (bndos-test-cli repo "models" "--agent" "bndos-stub"))))
+        (should (equal (plist-get saved :source) "saved"))
+        (should (equal (mapcar (lambda (m) (plist-get m :id)) (plist-get saved :models)) '("small" "large")))
+        (should (equal (plist-get saved :current_model) "small"))
+        (should (member "auto" (mapcar (lambda (m) (plist-get m :id)) (plist-get saved :modes)))))
+      ;; Asked again, straight from the agent's adapter.
+      (let ((fresh (cdr (bndos-test-cli repo "models" "--agent" "bndos-stub" "--refresh"))))
+        (should (equal (plist-get fresh :source) "agent"))
+        (should (equal (length (plist-get fresh :models)) 2))))))
+
+(ert-deftest bndos-integration-models-from-config-options-are-listed-and-set ()
+  ;; Claude reports its models as a (grouped) "model" config option.
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      (let ((options (cdr (bndos-test-cli repo "models" "--agent" "bndos-stub-options"))))
+        (should (equal (mapcar (lambda (m) (plist-get m :id)) (plist-get options :models)) '("small" "large")))
+        (should (equal (plist-get options :current_model) "small")))
+      (let ((before (length (bndos-test-stub-methods))))
+        (bndos-test-start repo "cfg" :agent "bndos-stub-options" :model "large")
+        (should (seq-some (lambda (m) (and (equal (car m) "session/set_config_option")
+                                           (string-match-p "\"large\"" (cdr m))))
+                          (nthcdr before (bndos-test-stub-methods))))))))
+
 (ert-deftest bndos-integration-ai-findings-become-threads-the-worker-can-answer ()
   (bndos-test-with-hydra
     (bndos-test-with-repo repo
@@ -173,12 +293,7 @@
         (let ((review (bndos-task-review-buffer key)))
           (bndos-proc-wait (lambda () (with-current-buffer review (plist-get bndos-task-review--data :files))) 20)
           (with-current-buffer review
-            (cl-letf (((symbol-function 'agent-shell-select-config)
-                       (cl-function (lambda (&rest _) (bndos-task-agent--hydra-config "bndos-stub"))))
-                      ((symbol-function 'read-string) (lambda (&rest _) "")))
-              (bndos/task-review-ai-review))
-            (bndos-proc-wait (lambda () (equal (plist-get bndos-task-review--ai :status) "done")) 30)
-            (should (equal (plist-get bndos-task-review--ai :status) "done")))
+            (bndos-test-ai-review "done"))
           (let* ((threads (plist-get (bndos-task-store-load key) :threads))
                  (finding (car threads)))
             ;; One thread per finding (the lgtm file adds none), by ai:AGENT, on the file.

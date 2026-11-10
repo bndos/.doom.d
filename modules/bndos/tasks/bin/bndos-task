@@ -12,6 +12,7 @@ agents and this command are all clients of the same session.
   bndos-task status [TARGET] [--repo DIR] [--wait STATES|done] [--timeout SECONDS]
   bndos-task sessions TARGET [--agent ID] [--repo DIR]
   bndos-task adopt TARGET --session ID [--agent ID] [--base REF] [--replace] [--repo DIR]
+  bndos-task models [--agent ID] [--repo DIR] [--refresh]
 
 TARGET is a branch, a worktree directory or a session id.  --agent is a
 Hydra agent id, the same as the agent-shell config identifier (claude-code,
@@ -22,6 +23,11 @@ sessions lists the agent's own earlier conversations in a worktree (one
 made before it was a task); adopt makes the one you name the task's
 session, through Hydra, so Emacs and leaders can attach to it.  The agent's
 command comes from Hydra's config.json.
+
+models lists the models and modes an agent offers (what --model / --mode
+accept).  Agents only report them in a session, so start saves them; when
+nothing is saved yet, or with --refresh, models asks the agent's adapter
+for a session without prompting it.
 
 After sending a prompt, start and send leave a small background process
 attached to the session until that turn ends, so a permission request the
@@ -331,6 +337,7 @@ def cmd_start(args):
                       log=acp.stderr_tail())
     session_id = session["sessionId"]
     set_task_config(worktree, args.branch, session=session_id)
+    save_agent_options(agent, session)
     result["session_id"] = session_id
     current_mode = (session.get("modes") or {}).get("currentModeId")
     if mode and mode != current_mode:
@@ -339,10 +346,16 @@ def cmd_start(args):
             current_mode = mode
         except AcpError as err:
             result["warnings"].append(f"mode {mode} refused ({err}); the agent is in {current_mode}")
-    current_model = (session.get("models") or {}).get("currentModelId")
+    model_option = config_option(session, "model")
+    current_model = (model_option.get("currentValue") if model_option
+                     else (session.get("models") or {}).get("currentModelId"))
     if args.model and args.model != current_model:
         try:
-            acp.call("session/set_model", {"sessionId": session_id, "modelId": args.model})
+            if model_option:
+                acp.call("session/set_config_option", {"sessionId": session_id, "configId": model_option["id"],
+                                                       "value": args.model})
+            else:
+                acp.call("session/set_model", {"sessionId": session_id, "modelId": args.model})
             current_model = args.model
         except AcpError as err:
             result["warnings"].append(f"model {args.model} refused ({err}); using {current_model}")
@@ -351,8 +364,17 @@ def cmd_start(args):
         acp.close()
         emit(result)
         return
+    save_brief(worktree, prompt)
     set_task_config(worktree, args.branch, prompted=now_ms())
     prompt_and_follow(acp, session_id, prompt, args.wait, result)
+
+
+def save_brief(worktree, prompt):
+    """Keep the task's first prompt, which AI reviews get as the change's goal."""
+    path = os.path.join(state_dir(), "briefs", task_key(common_dir(worktree), worktree) + ".md")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(prompt)
 
 
 def cmd_send(args):
@@ -389,6 +411,81 @@ def agent_command(agent):
         raise Failure(f"agent {agent} isn't defined in {path}, so its conversations can't be listed")
     return ([entry.get("command") or agent, *(entry.get("args") or [])],
             dict(os.environ, **(entry.get("env") or {})))
+
+
+def agent_options_path(agent):
+    return os.path.join(state_dir(), "agents", f"{agent}.json")
+
+
+def config_option(session, category):
+    """SESSION's config option of CATEGORY, preferring the one whose id is CATEGORY.
+
+Agents now report model and mode as config options; agent-shell prefers
+them too, as some agents tag several options with the same category."""
+    matches = [o for o in session.get("configOptions") or [] if o.get("category") == category]
+    return next((o for o in matches if o.get("id") == category), matches[0] if matches else None)
+
+
+def option_values(option):
+    """A select option's values, flattening groups."""
+    values = []
+    for value in option.get("options") or []:
+        if "value" not in value and "options" in value:
+            values += option_values(value)
+        else:
+            values.append({"id": value.get("value"), "name": value.get("name"),
+                           "description": value.get("description")})
+    return values
+
+
+def session_choices(session, category, legacy_key, list_key, current_key, id_key):
+    option = config_option(session, category)
+    if option:
+        return option_values(option), option.get("currentValue")
+    legacy = session.get(legacy_key) or {}
+    return ([{"id": m.get(id_key), "name": m.get("name"), "description": m.get("description")}
+             for m in legacy.get(list_key) or []],
+            legacy.get(current_key))
+
+
+def save_agent_options(agent, session):
+    """Remember the models and modes AGENT reported in SESSION (a session/new result)."""
+    models, current_model = session_choices(session, "model", "models", "availableModels",
+                                            "currentModelId", "modelId")
+    modes, current_mode = session_choices(session, "mode", "modes", "availableModes", "currentModeId", "id")
+    options = {"agent": agent, "updated_at": iso(now_ms()), "models": models,
+               "current_model": current_model, "modes": modes, "current_mode": current_mode}
+    path = agent_options_path(agent)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(options, f, indent=1)
+    os.replace(tmp, path)
+    return options
+
+
+def cmd_models(args):
+    agent = args.agent or DEFAULT_AGENT
+    options = None
+    if not args.refresh:
+        try:
+            with open(agent_options_path(agent)) as f:
+                options, source = json.load(f), "saved"
+        except (OSError, ValueError):
+            pass
+    if options is None:
+        argv, env = agent_command(agent)
+        cwd = os.path.realpath(args.repo)
+        acp = Acp(argv, cwd, os.path.join(state_dir(), "logs", f"models-{agent}.log"), env=env)
+        try:
+            initialize(acp)
+            session = acp.call("session/new", {"cwd": cwd, "mcpServers": []})
+        except (AcpError, EOFError) as err:
+            raise Failure(f"{agent} couldn't report its models: {err}", log=acp.stderr_tail())
+        finally:
+            acp.close()
+        options, source = save_agent_options(agent, session), "agent"
+    emit({"protocol": "bndos-task/1", **options, "default_mode": DEFAULT_MODES.get(agent), "source": source})
 
 
 def task_log(task):
@@ -567,6 +664,12 @@ def main():
     adopt.add_argument("--base", help="also record the parent branch")
     adopt.add_argument("--replace", action="store_true", help="replace a session already recorded")
     adopt.set_defaults(fn=cmd_adopt)
+
+    models = sub.add_parser("models", help="list the models and modes an agent offers")
+    models.add_argument("--agent")
+    models.add_argument("--repo", default=os.getcwd(), help="directory to ask the agent from")
+    models.add_argument("--refresh", action="store_true", help="ask the agent even if they're saved")
+    models.set_defaults(fn=cmd_models)
 
     args = parser.parse_args()
     try:

@@ -18,12 +18,16 @@ trap cleanup EXIT
 if hydra=$(command -v "${HYDRA:-hydra-acp}"); then
   export BNDOS_TEST_HYDRA=$hydra HYDRA_ACP_HOME=$(mktemp -d)   # never touch the real daemon
   export BNDOS_TEST_STUB_LOG=$HYDRA_ACP_HOME/stub.log
+  export BNDOS_TEST_STUB_CANCEL_ONCE=$HYDRA_ACP_HOME/cancel-once
   port=$(python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
   cat >"$HYDRA_ACP_HOME/config.json" <<JSON
 {"daemon": {"port": $port},
  "agents": {"bndos-stub": {"command": "python3", "args": ["-I", "$here/stub-acp-agent.py"],
                            "env": {"STUB_LOG": "$BNDOS_TEST_STUB_LOG",
-                                   "STUB_PAST_SESSIONS": "past-1|earlier work,past-2|older work"}}}}
+                                   "STUB_CANCEL_ONCE": "$BNDOS_TEST_STUB_CANCEL_ONCE",
+                                   "STUB_PAST_SESSIONS": "past-1|earlier work,past-2|older work"}},
+            "bndos-stub-options": {"command": "python3", "args": ["-I", "$here/stub-acp-agent.py"],
+                                   "env": {"STUB_LOG": "$BNDOS_TEST_STUB_LOG", "STUB_MODELS_AS_CONFIG": "1"}}}}
 JSON
 else
   echo "hydra-acp not found: skipping the Hydra integration tests" >&2

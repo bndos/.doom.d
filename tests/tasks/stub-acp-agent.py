@@ -3,13 +3,19 @@
 
 * Sessions offer modes "default" and "auto" (like Claude) and models "small"
   and "large"; set_mode / set_model accept those and refuse anything else.
-  Loading a session (Hydra reviving it) always succeeds.
+  Loading a session (Hydra reviving it) always succeeds.  With
+  $STUB_MODELS_AS_CONFIG set, models are a grouped "model" config option
+  instead (as Claude reports them), set with session/set_config_option.
 * session/prompt answers a [bndos-review request ...] prompt with a valid
   ```bndos-review``` block covering every "### c-..." item: "addressed" in
   IMPLEMENT mode, "answered" otherwise.  A prompt containing PERMIT first asks
   the client for permission and reports the outcome.  A Hutch review prompt
   (asking for a ```hutch-review``` block) gets one comment on the first
-  changed file and an lgtm for the rest.  Other prompts get "ok mode=M model=M".
+  changed file and an lgtm for the rest.  While the file $STUB_CANCEL_ONCE
+  exists, a review prompt is answered as an interrupted turn (stop reason
+  "cancelled", no block) and the file is removed; a later prompt asking for
+  the hutch-review block (a resume) gets the review of the session's last
+  review prompt.  Other prompts get "ok mode=M model=M".
 * session/list reports the conversations in $STUB_PAST_SESSIONS
   ("id|title,id|title"), as made in the requested directory.
 * Every message received is logged to $STUB_LOG (JSON lines) when set.
@@ -38,11 +44,18 @@ def log(obj):
 
 def session_state(sid):
     s = SESSIONS.setdefault(sid, {"mode": "default", "model": "small"})
-    return {"sessionId": sid,
-            "modes": {"currentModeId": s["mode"],
-                      "availableModes": [{"id": m, "name": m.title()} for m in MODES]},
-            "models": {"currentModelId": s["model"],
-                       "availableModels": [{"modelId": m, "name": m.title()} for m in MODELS]}}
+    state = {"sessionId": sid,
+             "modes": {"currentModeId": s["mode"],
+                       "availableModes": [{"id": m, "name": m.title()} for m in MODES]}}
+    if os.environ.get("STUB_MODELS_AS_CONFIG"):
+        state["configOptions"] = [{"id": "model", "name": "Model", "category": "model", "type": "select",
+                                   "currentValue": s["model"],
+                                   "options": [{"group": "all", "name": "All",
+                                                "options": [{"value": m, "name": m.title()} for m in MODELS]}]}]
+    else:
+        state["models"] = {"currentModelId": s["model"],
+                           "availableModels": [{"modelId": m, "name": m.title()} for m in MODELS]}
+    return state
 
 
 def say(sid, text):
@@ -130,6 +143,13 @@ for line in sys.stdin:
         session_state(params["sessionId"])
         SESSIONS[params["sessionId"]]["model"] = params["modelId"]
         ok({})
+    elif method == "session/set_config_option":
+        if params.get("configId") != "model" or params.get("value") not in MODELS:
+            refuse("Unknown option value")
+            continue
+        session_state(params["sessionId"])
+        SESSIONS[params["sessionId"]]["model"] = params["value"]
+        ok({"configOptions": session_state(params["sessionId"]).get("configOptions", [])})
     elif method == "session/prompt":
         sid = params.get("sessionId")
         s = SESSIONS.setdefault(sid, {"mode": "default", "model": "small"})
@@ -143,7 +163,17 @@ for line in sys.stdin:
             answer = wait_for_response("perm")
             outcome = (answer.get("result") or {}).get("outcome") or {}
             say(sid, f"permission {outcome.get('optionId') or 'refused'}")
+        elif "```hutch-review" in text and os.path.exists(os.environ.get("STUB_CANCEL_ONCE") or "\0"):
+            os.remove(os.environ["STUB_CANCEL_ONCE"])
+            s["review"] = text
+            say(sid, "Looking at the diff")
+            ok({"stopReason": "cancelled"})
+            continue
+        elif "hutch-review" in text and "```hutch-review" not in text and s.get("review"):
+            say(sid, review_for(s["review"]))
         else:
+            if "```hutch-review" in text:
+                s["review"] = text
             say(sid, reply_for(text, s))
         ok({"stopReason": "end_turn"})
     else:

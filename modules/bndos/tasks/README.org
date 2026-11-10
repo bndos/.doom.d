@@ -118,17 +118,19 @@ section groups all threads by state (resolved folded).
 | =C-c C-b=              | change the recorded parent                                        |
 | =g t= / =C-c C-e=      | toggle the following file tree                                    |
 | =C-c C-a=              | approve (records it; doesn't publish)                             |
-| =C-c C-h=              | AI review by a new agent session (see below)                      |
-| =C-c C-k=              | cancel a running AI review                                        |
+| =C-c C-h=              | AI review by a new agent session, or resume a paused one (below)  |
+| =C-u C-c C-h=          | AI review with instructions edited for this one                   |
+| =C-c C-k=              | cancel a running or paused AI review                              |
 
 You keep your place: refreshes and agent updates leave point, column and
 scroll where they were, picking a file in the tree returns to where you last
 were in it, and those jumps (and =]t= / =[t=) are recorded, so =C-o= goes back.
 
 =C-c C-h= has an agent review the whole task: it asks for the agent (any
-agent-shell config, so a different harness from the worker's is fine) and
-optionally a model, then starts a new conversation in a read-only mode
-(Claude =plan=, Codex =read-only=), with no memory of the worker's.  Each
+agent-shell config, so a different harness from the worker's is fine), then
+starts a new conversation in a read-only mode (Claude =plan=, Codex
+=read-only=), with no memory of the worker's, and offers that session's
+models in agent-shell's picker (=C-g= keeps the agent's default).  Each
 finding becomes a thread by =ai:<agent>= (kind =finding=), exactly like your
 comments: shown inline, reached with =]t= / =C-c C-j=, sent to the worker with
 =C-c C-s= (with its suggested edit), replied to, resolved.  =C-c C-p= applies a
@@ -136,6 +138,28 @@ suggested edit yourself (it must still match the file exactly once; Hutch's
 gates already turn a suggestion that doesn't match into a plain comment).
 The header shows the review's progress; the reviewer's agent-shell stays
 open to ask it about a finding.
+
+The reviewer's prompt can carry your own context, ahead of the required
+output format (which a skill with its own format doesn't override):
+
+- =bndos-task-review-ai-instructions=: text for every review, e.g. "Use the
+  review skill."  The reviewer is a normal agent session in the worktree, so
+  Claude loads your user and project skills and =CLAUDE.md= as usual; name a
+  skill and it uses it.  Codex has its own (=AGENTS.md=, plugins).
+- the project's =.bndos/review.md= (=bndos-task-review-ai-instructions-file=),
+  from the task's worktree or else the main checkout, added after it.
+- the task's brief: its ticket and the first prompt =bndos-task start=
+  sent, given as the change's goal rather than as instructions
+  (=bndos-task-review-ai-include-brief=).
+
+=C-u C-c C-h= opens the instructions in a draft first, to change them for
+this review only (an empty draft sends none).
+
+Interrupting the reviewer (=C-c C-c= in its agent-shell), or a reply
+without the findings block, pauses the review instead of failing it: the
+header says why.  Your next message in the reviewer's shell resumes it, and
+so does =C-c C-h=, which asks it to finish; the first reply with the block
+completes the review.
 
 Drafts open in a small buffer: =C-c C-c= submits, =C-c C-k= discards.
 
@@ -200,7 +224,11 @@ denial: don't kill those processes mid-turn.
 Workers are separate sessions, not subagents: they don't inherit a mode from
 the leader.  =bndos-task start= sets the mode before the first prompt:
 =claude-code= -> =auto=, =codex= -> =agent= (auto review) unless =--mode=
-(or the =SPC g w n= prompt) says otherwise, and =--model= if given.  Mode
+(or the =SPC g w n= prompt) says otherwise, and =--model= if given.
+=SPC g w n= offers the agent's modes and models as lists:
+=bndos-task models --agent ID= reports them, from what =start= saved or,
+the first time, by asking the agent's adapter for a session it never
+prompts (=--refresh= asks again).  Mode
 ids are the agent's own: Claude has =default=, =acceptEdits=, =plan=, =auto=,
 =bypassPermissions=; Codex has =read-only=, =workspace-write=, =agent=,
 =agent-full-access=.  An id the agent refuses leaves it in its default with
@@ -224,7 +252,8 @@ $bin/bndos-task send my-branch --prompt "also handle the empty case"
 $bin/bndos-task status                     # every worktree of the repo (JSON)
 #+end_src
 
-=start= also takes =--agent=, =--mode=, =--model=; =start= and =send= take
+=start= also takes =--agent=, =--mode=, =--model= (=bndos-task models --agent
+ID= lists what they accept); =start= and =send= take
 =--wait= to stay until the turn ends.  Worktrunk hooks are never
 auto-approved: a repository with unapproved hooks fails with worktrunk's
 message until you run =wt config approvals add= there.
@@ -303,6 +332,8 @@ discussion-only request that changes the worktree gets flagged.
 | What                         | Where                                                         |
 |------------------------------+---------------------------------------------------------------|
 | task records (JSON, no Lisp) | =$XDG_STATE_HOME/bndos-tasks/tasks/<key>.json= (=~/.local/state/…=) |
+| task briefs (first prompt)   | =…/briefs/<key>.md=                                           |
+| agents' models and modes     | =…/agents/<agent>.json=                                       |
 | Hydra shim logs              | =…/logs/<worktree>.log=                                       |
 | known projects               | =…/projects.json=                                             |
 | parent, agent, session, ticket | =git config branch.<branch>.bndos-{base,agent,session,ticket}= |

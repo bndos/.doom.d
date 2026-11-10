@@ -37,9 +37,15 @@ diff against the commit above.
   read or write).  =hutch--agent-cancel= also accepts a function.
 - =hutch-agent-shell.el= (new file) :: the =agent-shell= transport: one new
   read-only agent-shell session per scope (=hutch-agent-shell-config=, any
-  ACP agent, optional =hutch-agent-shell-model=), which ends its reply with a
-  =hutch-review= JSON block in =submit_review='s shape; findings then go
-  through upstream's normalisation and gates unchanged.
+  ACP agent; =hutch-agent-shell-model= a model id or =ask= for the session's
+  own picker), which ends its reply with a =hutch-review= JSON block in
+  =submit_review='s shape; findings then go through upstream's
+  normalisation and gates unchanged.  A turn without the block (interrupted,
+  or the agent forgot it) pauses the review rather than failing it;
+  =hutch-agent-shell-resume= asks the reviewer to finish, and
+  =hutch-agent-shell-on-state= reports started / paused / resumed, and
+  =hutch-agent-shell-context= adds the caller's text to the prompt, before
+  the required output format.
 
 Everything else (gptel transport, prompts, tools, gates, cache, notes,
 suggestion states) is upstream as-is.

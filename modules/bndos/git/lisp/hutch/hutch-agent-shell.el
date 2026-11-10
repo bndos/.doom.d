@@ -26,6 +26,11 @@
 ;; gptel's: a suggestion whose old_lines don't match the file exactly once
 ;; becomes a comment.  The reviewer's agent-shell stays open afterwards
 ;; (`hutch-agent-shell-keep-buffers') so you can ask it about a finding.
+;;
+;; A turn that ends without the block (interrupted with C-c C-c, or the
+;; agent forgot it) pauses the review instead of failing it: the next turn
+;; that has the block completes it, whether you prompt the reviewer
+;; yourself or call `hutch-agent-shell-resume'.
 
 ;;; Code:
 
@@ -42,6 +47,7 @@
 (declare-function agent-shell-subscribe-to "ext:agent-shell")
 (declare-function agent-shell-unsubscribe "ext:agent-shell")
 (declare-function agent-shell-interrupt "ext:agent-shell")
+(declare-function agent-shell-set-session-model "ext:agent-shell")
 (defvar agent-shell-session-strategy)
 (defvar agent-shell-cwd-function)
 
@@ -51,7 +57,27 @@ Let-bind it around `hutch-review-run' with `hutch-review-transport' set to
 `agent-shell'.")
 
 (defvar hutch-agent-shell-model nil
-  "Model id for the reviewer session, or nil for the agent's default.")
+  "Model id for the reviewer session, nil for the agent's default, or `ask'
+to pick from the session's own models (agent-shell's picker) once it starts.")
+
+(defvar hutch-agent-shell-on-state nil
+  "Function called as (SCOPE STATE BUFFER) as a review goes along.
+STATE is `started', `paused' (a turn ended without findings; DETAIL in
+`hutch-agent-shell-pause-reason') or `resumed'.  Let-bind it like
+`hutch-agent-shell-config'.")
+
+(defvar hutch-agent-shell-context nil
+  "Text added to the review prompt before its required output format, or nil.
+For the caller's instructions and the change's purpose; let-bind it like
+`hutch-agent-shell-config'.")
+
+(defvar-local hutch-agent-shell-pause-reason nil
+  "Why this reviewer's review is paused, or nil when it isn't.")
+
+(defvar hutch-agent-shell-resume-prompt
+  "Your review was interrupted before you finished.  Complete it, then end \
+your reply with the full hutch-review block in the format given above."
+  "Prompt `hutch-agent-shell-resume' sends a paused reviewer.")
 
 (defcustom hutch-agent-shell-read-only-modes '((claude-code . "plan") (codex . "read-only"))
   "Session mode a reviewer starts in, by agent-shell config identifier.
@@ -82,7 +108,7 @@ problems: bugs, logic errors, edge cases, error handling, security, races, \
 broken contracts, missing tests.  Look through at least three angles.  Aim \
 for 2-5 findings on a substantive change; on trivial changes (docs, \
 formatting, renames) mark files lgtm rather than manufacturing findings.
-
+%s
 End your reply with exactly one fenced block of valid JSON, nothing after it:
 
 ```hutch-review
@@ -105,7 +131,8 @@ off-by-one).
 - lines: the anchor of a comment-only finding (\"42\", \"42-50\" or \
 \"42, 90\"); omit it when old_lines is set
 - lgtm: true for a file with no issues (no other fields)"
-  "Prompt for an agent-shell reviewer: %s the diff command, %s the manifest.")
+  "Prompt for an agent-shell reviewer: %s the diff command, %s the manifest,
+%s the context section (empty without `hutch-agent-shell-context').")
 
 (defun hutch-agent-shell--config ()
   "A copy of `hutch-agent-shell-config' set up for one read-only review."
@@ -114,17 +141,20 @@ off-by-one).
          (mode (alist-get (map-elt config :identifier) hutch-agent-shell-read-only-modes))
          (model hutch-agent-shell-model))
     (when mode (setf (alist-get :default-session-mode-id config) (lambda () mode)))
-    (when model (setf (alist-get :default-model-id config) (lambda () model)))
+    (when (stringp model) (setf (alist-get :default-model-id config) (lambda () model)))
     config))
 
-(defun hutch-agent-shell--prompt (scope)
+(defun hutch-agent-shell--prompt (scope &optional context)
   (format hutch-agent-shell-prompt-template
           (string-join (cons "git diff"
                              (hutch--scope-diff-args (plist-get scope :scope)
                                                      (plist-get scope :head)
                                                      (plist-get scope :base)))
                        " ")
-          (plist-get scope :manifest)))
+          (plist-get scope :manifest)
+          (if (and context (not (string-blank-p context)))
+              (concat "\n" (string-trim context) "\n")
+            "")))
 
 (defun hutch-agent-shell-extract (text)
   "Raw findings from the last hutch-review block in TEXT.
@@ -155,27 +185,59 @@ Return (:ok FINDINGS), (:error REASON), or nil when there is no block."
       (`(:error ,reason) (hutch--make-error-result scope 'invalid-response reason))
       (_ (hutch--make-error-result scope 'no-submit "the reviewer's reply had no hutch-review block")))))
 
+(defun hutch-agent-shell--choose-model-then (buffer then)
+  "Offer BUFFER's session models (agent-shell's picker), then call THEN once.
+Quitting the picker, or an agent without models, keeps its default.  The
+picker reports a refused model only as a message, so THEN also runs after a
+while without an answer."
+  (condition-case nil
+      (with-current-buffer buffer
+        (agent-shell-set-session-model (lambda (&rest _) (funcall then)))
+        (run-at-time 15 nil then))
+    ((quit error) (funcall then))))
+
+(defun hutch-agent-shell-resume (buffer)
+  "Ask the paused reviewer in BUFFER to finish its review."
+  (unless (buffer-local-value 'hutch-agent-shell-pause-reason buffer)
+    (user-error "That review isn't paused"))
+  (agent-shell-insert :text hutch-agent-shell-resume-prompt
+                      :submit t :no-focus t :shell-buffer buffer))
+
 (defun hutch-agent-shell--review-scope (scope on-done _on-progress cancel-box)
   "Review SCOPE in a new agent-shell session; call ON-DONE with the result.
 CANCEL-BOX receives a function that interrupts the reviewer."
   (require 'agent-shell)
   (let* ((directory default-directory)
          (config (hutch-agent-shell--config))
+         (ask-model (eq hutch-agent-shell-model 'ask))
+         (context hutch-agent-shell-context)
+         (on-state (or hutch-agent-shell-on-state #'ignore))
          (agent-shell-session-strategy 'new)
          (agent-shell-cwd-function (lambda () directory))
          (buffer (save-window-excursion (agent-shell-start :config config)))
          (chunks nil)
          (tokens nil)
+         (sent nil)
          (done nil))
     (cl-labels ((finish (result)
                   (unless done
                     (setq done t)
                     (dolist (token tokens) (ignore-errors (agent-shell-unsubscribe :subscription token)))
+                    (when (buffer-live-p buffer)
+                      (with-current-buffer buffer (setq hutch-agent-shell-pause-reason nil)))
                     (unless hutch-agent-shell-keep-buffers
                       (when (buffer-live-p buffer)
                         (let ((kill-buffer-query-functions nil)) (kill-buffer buffer))))
                     (let ((default-directory directory))
                       (funcall on-done (if (functionp result) (funcall result) result)))))
+                (pause (reason)
+                  (with-current-buffer buffer (setq hutch-agent-shell-pause-reason reason))
+                  (funcall on-state scope 'paused buffer))
+                (send-prompt ()
+                  (unless (or done sent)
+                    (setq sent t)
+                    (agent-shell-insert :text (hutch-agent-shell--prompt scope context)
+                                        :submit t :no-focus t :shell-buffer buffer)))
                 (on (event fn)
                   (push (agent-shell-subscribe-to
                          :shell-buffer buffer :event event
@@ -192,18 +254,33 @@ CANCEL-BOX receives a function that interrupts the reviewer."
                                  (when (buffer-live-p buffer)
                                    (ignore-errors (with-current-buffer buffer (agent-shell-interrupt t)))))))
       (on 'init-finished
-          (lambda (_) (agent-shell-insert :text (hutch-agent-shell--prompt scope)
-                                          :submit t :no-focus t :shell-buffer buffer)))
+          (lambda (_)
+            ;; Out of the process filter, so the model picker can use the minibuffer.
+            (run-at-time 0 nil (lambda ()
+                                 (if ask-model
+                                     (hutch-agent-shell--choose-model-then buffer #'send-prompt)
+                                   (send-prompt))))))
       (on 'agent-message-chunk
-          (lambda (data) (when-let* ((chunk (map-elt data :text-chunk))) (push chunk chunks))))
+          (lambda (data)
+            (when-let* ((chunk (map-elt data :text-chunk)))
+              (unless chunks
+                (when (buffer-local-value 'hutch-agent-shell-pause-reason buffer)
+                  (funcall on-state scope 'resumed buffer)))
+              (push chunk chunks))))
       (on 'turn-complete
           (lambda (data)
-            (let ((text (apply #'concat (reverse chunks))))
-              (finish (lambda () (hutch-agent-shell--result scope text (map-elt data :stop-reason)))))))
+            ;; Each turn is judged on its own reply.
+            (let* ((text (apply #'concat (reverse chunks)))
+                   (result (hutch-agent-shell--result scope text (map-elt data :stop-reason))))
+              (setq chunks nil)
+              (if (eq (plist-get result :status) :ok)
+                  (finish result)
+                (pause (plist-get result :emsg))))))
       (on 'error
           (lambda (data) (finish (hutch--make-error-result scope 'agent-error (format "%s" (map-elt data :message))))))
       (on 'clean-up
           (lambda (_) (finish (hutch--make-error-result scope 'agent-closed "the reviewer's agent-shell was closed")))))
+    (funcall on-state scope 'started buffer)
     buffer))
 
 (provide 'hutch-agent-shell)

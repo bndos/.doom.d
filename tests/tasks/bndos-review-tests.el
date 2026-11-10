@@ -637,6 +637,99 @@
         (should (equal (plist-get record :ticket) "gt-9"))))))
 
 
+(ert-deftest bndos-start-options-pick-from-the-agents-list ()
+  (require 'bndos-task-dashboard)
+  (let ((options '((:id "small" :name "Small" :description "fast") (:id "large" :name "Large")))
+        seen)
+    (cl-flet ((pick (answer)
+                (cl-letf (((symbol-function 'completing-read)
+                           (lambda (prompt table &rest _)
+                             (setq seen (list prompt (all-completions "" table)
+                                              (funcall (alist-get 'annotation-function
+                                                                  (cdr (funcall table "" nil 'metadata)))
+                                                       "small")))
+                             answer)))
+                  (bndos-task--read-option "Model" options "the agent's default"))))
+      ;; Empty leaves it to the agent; a listed id or any typed id is taken.
+      (should-not (pick ""))
+      (should (equal (pick "large") "large"))
+      (should (equal (pick "custom-id") "custom-id"))
+      (pcase-let ((`(,prompt ,candidates ,annotation) seen))
+        (should (string-match-p "the agent's default" prompt))
+        (should (equal candidates '("small" "large")))
+        (should (string-match-p "Small · fast" annotation))))))
+
+(ert-deftest bndos-review-ai-context-joins-instructions-project-file-and-brief ()
+  (require 'hutch-agent-shell)
+  (bndos-test-with-store
+    (let* ((worktree (file-name-as-directory (make-temp-file "bndos-wt-" t)))
+           (main (file-name-as-directory (make-temp-file "bndos-main-" t)))
+           (record (list :key "k1" :ticket "GT-1"
+                         :worktree (list :path worktree) :repo (list :main-path main)))
+           (scope (list :scope 'worktree :base "b0" :head "h0" :manifest "a.txt +1 -0"))
+           (bndos-task-review-ai-instructions "Focus on error handling."))
+      (unwind-protect
+          (progn
+            ;; The project file is found in the main checkout when the worktree has none.
+            (bndos-test-write main ".bndos/review.md" "Use the review skill.\n")
+            (bndos-test-write bndos-task-store-directory "briefs/k1.md" "Add a slugify helper.\nCommit when done.\n")
+            (let* ((instructions (bndos-task-review--ai-instructions record))
+                   (context (bndos-task-review--ai-context record instructions))
+                   (prompt (hutch-agent-shell--prompt scope context)))
+              (should (equal instructions "Focus on error handling.\n\nUse the review skill."))
+              (should (string-match-p (concat "Instructions for this review:\n\nFocus on error handling\\.\n\n"
+                                              "Use the review skill\\.")
+                                      context))
+              (should (string-match-p "> Ticket: GT-1\n> Add a slugify helper\\.\n> Commit when done\\." context))
+              ;; Before the required output format, which stays last.
+              (should (< (string-search "Use the review skill" prompt) (string-search "End your reply" prompt)))
+              (should (string-match-p "lgtm: true for a file with no issues (no other fields)\\'" prompt)))
+            ;; The worktree's own file wins over the main checkout's.
+            (bndos-test-write worktree ".bndos/review.md" "Use the task's conventions.")
+            (should (string-match-p "task's conventions" (bndos-task-review--ai-instructions record)))
+            ;; Without any of it the prompt is the plain one.
+            (let ((bndos-task-review-ai-instructions nil)
+                  (bndos-task-review-ai-instructions-file nil)
+                  (bndos-task-review-ai-include-brief nil))
+              (should (equal (bndos-task-review--ai-context record (bndos-task-review--ai-instructions record)) ""))
+              (should (string-match-p "manufacturing findings\\.\n\nEnd your reply"
+                                      (hutch-agent-shell--prompt scope "")))))
+        (delete-directory worktree t)
+        (delete-directory main t)))))
+
+(ert-deftest bndos-review-empty-draft-is-empty-not-its-context ()
+  (let ((draft (bndos-task-draft "comment" "the line commented on" #'ignore)))
+    (unwind-protect
+        (with-current-buffer draft
+          (should (equal (bndos-task-draft--text) ""))
+          (should-error (bndos-task-draft-submit) :type 'user-error)
+          (goto-char (point-max))
+          (insert "a real comment")
+          (should (equal (bndos-task-draft--text) "a real comment")))
+      (kill-buffer draft))))
+
+(ert-deftest bndos-review-ai-instructions-can-be-edited-for-one-review ()
+  (bndos-test-with-open-review (review _wt)
+    (let ((bndos-task-review-ai-instructions "Use the review skill.")
+          started)
+      (cl-letf (((symbol-function 'bndos-task-review--ai-start)
+                 (lambda (&optional instructions) (push instructions started))))
+        ;; Without a prefix the defaults go straight in.
+        (bndos/task-review-ai-review)
+        (should (equal (car started) "Use the review skill."))
+        ;; With one, a draft starts from them; what's submitted is used, even nothing.
+        (dolist (text '("Focus on the locking." ""))
+          (with-current-buffer review (bndos/task-review-ai-review t))
+          (with-current-buffer (get-buffer "*task-draft: AI review instructions*")
+            (should (string-match-p "Use the review skill\\." (bndos-task-draft--text)))
+            (let ((inhibit-read-only t))
+              (delete-region (next-single-property-change (point-min) 'bndos-draft-context nil (point-max))
+                             (point-max)))
+            (goto-char (point-max))
+            (insert text)
+            (bndos-task-draft-submit))
+          (should (equal (car started) text)))))))
+
 ;;; bin/bndos-task without sessions (no Hydra involved)
 
 (defun bndos-test-cli (directory &rest args)
