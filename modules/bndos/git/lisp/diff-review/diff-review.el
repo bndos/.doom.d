@@ -1078,6 +1078,8 @@ in a section of its own."
     ;; bndos: sections drawn folded fold only once their root is shown.
     (magit-section-show magit-root-section)
     (set-buffer-modified-p nil)
+    (when diff-review-overview-diffs   ; bndos
+      (run-with-idle-timer 0.5 nil #'diff-review--warm-modes (current-buffer)))
     (diff-review--goto-current)))
 
 (defun diff-review--render-all ()
@@ -3822,12 +3824,14 @@ They are taken exactly: lines of the file, removed lines, or both."
       (cons (diff-review--lang (gethash "path" comment))
             (string-join (seq-subseq all (min (1- (car lines)) (length all)) (min (cdr lines) (length all))) "\n")))))
 
-(defun diff-review--overview-thread (comment)
-  "COMMENT in full for the overview: what it is on, then each message.
+(defun diff-review--overview-thread (comment &optional bare)
+  "COMMENT in full for the overview: what it is on, then each message;
+BARE, only the messages, under the lines they are on.
 The review buffer must be current."
-  (let* ((quote (or (and diff-review-thread-quote-function
+  (let* ((quote (unless bare
+                  (or (and diff-review-thread-quote-function
                          (ignore-errors (funcall diff-review-thread-quote-function comment)))
-                    (diff-review--quote-from-blob comment)))
+                      (diff-review--quote-from-blob comment))))
          (text (concat
                 (when-let* ((source (diff-review--external-p comment)))
                   (propertize (concat "From " source ", read only"
@@ -3839,9 +3843,87 @@ The review buffer must be current."
                 (diff-review--panel-message comment comment)
                 (mapconcat (lambda (reply) (concat "\n" (diff-review--panel-message reply comment)))
                            (or (gethash "replies" comment) []) ""))))
-    (propertize (concat (mapconcat (lambda (line) (concat "      " line)) (split-string (string-trim-right text) "\n") "\n")
+    (propertize (concat (mapconcat (lambda (line)
+                                     (let ((wrap (get-text-property 0 'wrap-prefix line)))
+                                       (concat "      " (if wrap (propertize line 'wrap-prefix (concat "      " wrap)) line))))
+                                   (split-string (string-trim-right text) "\n") "\n")
                         "\n\n")
                 'diff-review-comment (gethash "id" comment))))
+
+(defvar-local diff-review--inline-open nil
+  "bndos: in a review, the threads shown in full in the overview's diffs.")
+
+(defvar-keymap diff-review-inline-thread-map
+  :doc "bndos: keys on a thread drawn in the overview's diffs."
+  "TAB" #'diff-review-toggle-inline-thread
+  "<tab>" #'diff-review-toggle-inline-thread
+  "RET" #'diff-review-visit-inline-thread
+  "<return>" #'diff-review-visit-inline-thread)
+
+(defun diff-review--inline-thread (comment first last stale indent)
+  "COMMENT drawn in the overview's diff under lines FIRST to LAST, after
+INDENT: a line, and the whole thread when it is open there."
+  (let* ((id (gethash "id" comment))
+         (text (concat indent (diff-review--thread-string comment first last stale nil)
+                       (when (member id diff-review--inline-open)
+                         (condition-case err (diff-review--overview-thread comment t)
+                           (error (propertize (format "      (can't show this thread: %s)\n"
+                                                      (error-message-string err))
+                                              'face 'warning)))))))
+    (add-text-properties 0 (length text)
+                         (list 'diff-review-inline (list comment first last stale indent)
+                               'keymap diff-review-inline-thread-map
+                               'help-echo "TAB: the whole thread, RET: it in its file")
+                         text)
+    text))
+
+(defun diff-review--inline-thread-bounds ()
+  "The start and end of the overview diff's thread at point."
+  (let ((args (or (get-text-property (point) 'diff-review-inline) (user-error "No thread here"))))
+    (cons (if (eq (get-text-property (max (point-min) (1- (point))) 'diff-review-inline) args)
+              (previous-single-property-change (point) 'diff-review-inline nil (point-min))
+            (point))
+          (next-single-property-change (point) 'diff-review-inline nil (point-max)))))
+
+(defun diff-review-toggle-inline-thread ()
+  "bndos: show the overview diff's thread at point in full, or as a line again."
+  (interactive)
+  (pcase-let* ((`(,beg . ,end) (diff-review--inline-thread-bounds))
+               (args (get-text-property beg 'diff-review-inline))
+               (id (gethash "id" (car args)))
+               (section (get-text-property beg 'magit-section))
+               (inhibit-read-only t))
+    (setq diff-review--inline-open (if (member id diff-review--inline-open)
+                                       (remove id diff-review--inline-open)
+                                     (cons id diff-review--inline-open)))
+    ;; In before the old text goes, so the sections' markers after it stay after.
+    (goto-char beg)
+    (insert (propertize (apply #'diff-review--inline-thread args) 'magit-section section))
+    (delete-region (point) (+ (point) (- end beg)))
+    (goto-char beg)
+    (set-buffer-modified-p nil)))
+
+(defun diff-review-visit-inline-thread ()
+  "bndos: go to the overview diff's thread at point in its file."
+  (interactive)
+  (diff-review--goto-comment (gethash "id" (car (get-text-property (point) 'diff-review-inline)))))
+
+(defvar diff-review--warmed nil "bndos: the major modes already started once for drawing.")
+
+(defun diff-review--warm-modes (review)
+  "bndos: start, once, a major mode of REVIEW's files not started yet, and
+come back for the next: the first start of one loads it, too slow to wait
+for when a file unfolds."
+  (when (and (buffer-live-p review) (not (input-pending-p)))
+    (with-current-buffer review
+      (when-let* ((mode (seq-find (lambda (m) (and m (not (memq m diff-review--warmed))))
+                                  (mapcar (lambda (f)
+                                            (let ((m (assoc-default (plist-get f :path) auto-mode-alist #'string-match)))
+                                              (and (functionp m) m)))
+                                          diff-review--files))))
+        (push mode diff-review--warmed)
+        (diff-review--fontify (list "") mode)
+        (run-with-idle-timer 0.2 nil #'diff-review--warm-modes review)))))
 
 (defvar-local diff-review--diff-cache nil
   "bndos: in a review, the overview's file diffs as drawn, by what they show.")
@@ -3852,6 +3934,7 @@ The review buffer must be current."
          (key (list i (plist-get file :path) (plist-get file :hash) (diff-review--range) indent
                     diff-review-refine (window-width (get-buffer-window (current-buffer)))
                     diff-review-tint-added diff-review-tint-removed diff-review-overview-diff-max-lines
+                    diff-review--inline-open
                     custom-enabled-themes
                     (let ((comments (diff-review--file-comments (plist-get file :path))))
                       (prin1-to-string
@@ -3924,11 +4007,11 @@ are on.  A line knows its file line, so RET there shows the file at it."
           ('old (when removed (add-face-text-property beg (point) removed t))
                 (dolist (c old-threads)
                   (when (eql (cdr (diff-review--comment-lines c)) o)
-                    (insert indent (diff-review--thread-string c (car (diff-review--comment-lines c)) o nil nil)))))
+                    (insert (diff-review--inline-thread c (car (diff-review--comment-lines c)) o nil indent)))))
           (_ (when (and (eq kind 'new) added) (add-face-text-property beg (point) added t))
              (dolist (spot spots)
                (when (eql (nth 2 spot) n)
-                 (insert indent (diff-review--thread-string (car spot) (nth 1 spot) n (nth 3 spot) nil))))))))
+                 (insert (diff-review--inline-thread (car spot) (nth 1 spot) n (nth 3 spot) indent))))))))
     (when (= start (point)) (insert indent (propertize "No diff to show.\n" 'face 'shadow)))
     (diff-review--refine-text start (point))))
 
@@ -4054,7 +4137,8 @@ author's colour."
                                (funcall diff-review-message-lines-function message)))))
     (add-face-text-property 0 (length header) 'diff-review-message-header t header)
     (concat header
-            (mapconcat (lambda (line) (concat rule line))
+            ;; Wrapped, a line goes on beside the rule.
+            (mapconcat (lambda (line) (propertize (concat rule line) 'wrap-prefix rule))
                        (append (split-string (diff-review--markdown (gethash "body" message)) "\n")
                                details)
                        "\n")

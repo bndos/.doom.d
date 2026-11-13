@@ -719,6 +719,49 @@ task's one / TWO / four, shown in FILE's window."
             (should (string-match-p "\\[marked\\]"
                                     (buffer-substring-no-properties (oref section content) (oref section end))))))))))
 
+(ert-deftest bndos-review-threads-unfold-in-the-overview-diff ()
+  (skip-unless (require 'markdown-mode nil t))
+  (let ((diff-review-overview-diffs t))
+    (bndos-test-with-review (key wt review)
+        (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+      (let ((th (bndos-task-make-thread :kind "comment" :author "me" :body "louder, it should shout"
+                                        :anchor (bndos-task-review--line-anchor wt "src/a.txt" 2 2))))
+        (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r th))))
+      (with-current-buffer review
+        (switch-to-buffer review)
+        (revert-buffer t t t)
+        (let ((section (bndos-test-section-at "M a\\.txt")))
+          (magit-section-show section)
+          (goto-char (oref section content))
+          (re-search-forward "louder")
+          (let ((end (marker-position (oref section end)))
+                (text (lambda () (buffer-substring-no-properties (oref section content) (oref section end)))))
+            (should (eq (key-binding (kbd "TAB")) #'diff-review-toggle-inline-thread))
+            (should-not (string-match-p "│ louder" (funcall text)))
+            (diff-review-toggle-inline-thread)
+            (should (string-match-p "│ louder, it should shout" (funcall text)))
+            (should (> (oref section end) end))   ; the file's section grows with it
+            (should (eq (magit-current-section) section))
+            (diff-review--render)                 ; and it stays open
+            (setq section (bndos-test-section-at "M a\\.txt"))
+            (magit-section-show section)
+            (should (string-match-p "│ louder" (funcall text)))
+            (goto-char (oref section content))
+            (re-search-forward "louder")
+            (diff-review-toggle-inline-thread)
+            (should-not (string-match-p "│ louder" (funcall text)))
+            (should (= (oref section end) end))))))))
+
+(ert-deftest bndos-review-overview-warms-the-files-modes ()
+  (let ((diff-review--warmed nil) started)
+    (bndos-test-with-review (key wt review)
+        (lambda (wt) (bndos-test-commit wt "change" "src/a.el" "(one)\n"))
+      (with-current-buffer review
+        (cl-letf (((symbol-function 'diff-review--fontify) (lambda (_lines mode) (push mode started))))
+          (diff-review--warm-modes review)
+          (diff-review--warm-modes review))
+        (should (equal started '(emacs-lisp-mode)))))))
+
 (ert-deftest bndos-review-message-cards-show-the-agents-status ()
   (skip-unless (require 'markdown-mode nil t))
   (bndos-test-with-diff-view (key wt review file)
