@@ -581,6 +581,169 @@ task's one / TWO / four, shown in FILE's window."
             (should (string-suffix-p "/src/a.txt" buffer-file-name))
             (should (= (line-number-at-pos) 2))))))))
 
+(ert-deftest bndos-review-a-thread-that-fails-to-draw-leaves-the-overview-whole ()
+  (let ((diff-review-overview-threads 'full))
+    (bndos-test-with-review (key wt review)
+        (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+      (dolist (body '("first" "second"))
+        (let ((th (bndos-task-make-thread :kind "comment" :author "me" :body body
+                                          :anchor (bndos-task-review--line-anchor wt "src/a.txt" 2 nil))))
+          (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r th)))))
+      (with-current-buffer review
+        (cl-letf (((symbol-function 'diff-review--overview-thread)
+                   (lambda (_) (error "Boom"))))
+          (revert-buffer t t t))
+        (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+          (should (string-match-p "can't show this thread: Boom" text))
+          ;; Both threads listed, and the sections after them drawn and folded.
+          (should (string-match-p "first" text))
+          (should (string-match-p "second" text)))
+        (should (oref (bndos-test-section-at "^Activity") hidden))))))
+
+(ert-deftest bndos-review-refine-by-words-without-a-process ()
+  (let ((show (lambda (o n) (let ((r (diff-review--refine-lcs o n)))
+                              (list (mapcar (lambda (s) (substring o (car s) (cdr s))) (car r))
+                                    (mapcar (lambda (s) (substring n (car s) (cdr s))) (cdr r)))))))
+    (should (equal (funcall show "return render(request)\n" "return redirect(request)\n")
+                   '(("render") ("redirect"))))
+    (should (equal (funcall show "a = f(x, y)\nb = 2\n" "a = f(x, z)\nb = 2\nc = 3\n")
+                   '(("y") ("z" "c = 3\n"))))
+    ;; Too long to compare here: smerge's turn.
+    (should-not (diff-review--refine-lcs (mapconcat #'identity (make-list 300 "a b") " ")
+                                         (mapconcat #'identity (make-list 300 "c d") " ")))))
+
+(ert-deftest bndos-review-line-positions-stay-right-across-edits ()
+  (with-temp-buffer
+    (insert "one\ntwo\nthree\nfour\n")
+    (should (= (diff-review--line-pos 3) 9))
+    (should (= (diff-review--line-pos 4) 15))   ; counted on from line 3
+    (goto-char (point-min))
+    (insert "zero\n")                            ; the text changed: counted afresh
+    (should (= (diff-review--line-pos 4) 14))
+    (should (= (diff-review--line-pos 2) 6))))
+
+(ert-deftest bndos-review-refining-later-changes-waits-for-idle ()
+  (let ((diff-review-refine t)
+        (diff-review-refine-eager 1))
+    (bndos-test-with-review (key wt review)
+        (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "ONE\ntwo\nTHREE\n"
+                                        "src/b.txt" "x\n"))
+      (with-current-buffer (bndos-test-open-file review "src/a.txt")
+        (let ((refined (lambda () (seq-count (lambda (o) (eq (overlay-get o 'face) 'diff-review-refine-added))
+                                             diff-review--overlays))))
+          (when (> (length diff-review--hunks) 1)
+            (should diff-review--refine-jobs)
+            (let ((before (funcall refined)))
+              (while diff-review--refine-jobs (funcall (pop diff-review--refine-jobs)))
+              (should (> (funcall refined) before)))))))))
+
+(ert-deftest bndos-review-the-diff-view-is-colored-as-it-shows ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/c.el" "(defun f () 1)\n(defun g () 2)\n"))
+    (let ((file (bndos-test-open-file review "src/c.el")))
+      (switch-to-buffer file)
+      (with-current-buffer (with-current-buffer file (diff-review-toggle-view))
+        (diff-review--view-fontify (point-min) (point-max))
+        (goto-char (point-min))
+        (search-forward "defun")
+        (should (memq 'font-lock-keyword-face (ensure-list (get-text-property (match-beginning 0) 'face))))))))
+
+(ert-deftest bndos-review-overview-diffs-are-capped-and-reused ()
+  (let ((diff-review-overview-diffs t)
+        (diff-review-overview-diff-max-lines 3)
+        (drawn 0))
+    (bndos-test-with-review (key wt review)
+        (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "ONE\nTWO\nTHREE\nfour\nfive\n"))
+      (with-current-buffer review
+        (switch-to-buffer review)
+        (let ((section (bndos-test-section-at "M a\\.txt")))
+          (magit-section-show section)
+          (should (string-match-p "more lines: RET opens the file"
+                                  (buffer-substring-no-properties (oref section content) (oref section end)))))
+        ;; Drawn again only when what it shows changed.
+        (advice-add 'diff-review--draw-file-diff :before (lambda (&rest _) (cl-incf drawn)) '((name . count)))
+        (unwind-protect
+            (progn (diff-review--render)
+                   (magit-section-show (bndos-test-section-at "M a\\.txt"))
+                   (should (= drawn 0)))
+          (advice-remove 'diff-review--draw-file-diff 'count))))))
+
+(ert-deftest bndos-review-jumps-land-where-the-thread-hangs ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\nfour\nfive\n"))
+    (let ((th (bndos-task-make-thread :kind "comment" :author "me" :body "the range"
+                                      :anchor (bndos-task-review--line-anchor wt "src/a.txt" 1 4))))
+      (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r th))))
+    (with-current-buffer review (revert-buffer t t t))
+    (let ((file (bndos-test-open-file review "src/a.txt")))
+      (switch-to-buffer file)
+      (with-current-buffer review (diff-review--goto-comment (plist-get (car (plist-get (bndos-task-store-load key) :threads)) :id)))
+      (with-current-buffer (window-buffer)
+        (should (= (line-number-at-pos) 4))))))
+
+;; Threads on lines 1-4, 2 and 5: each step lands on the next, from the
+;; last line of a range as from inside a nested one.
+(ert-deftest bndos-review-walking-steps-thread-by-thread ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\nfour\nfive\n"))
+    (pcase-dolist (`(,body ,from ,to) '(("outer" 1 4) ("inner" 2 2) ("after" 5 5)))
+      (let ((th (bndos-task-make-thread :kind "comment" :author "me" :body body
+                                        :anchor (bndos-task-review--line-anchor wt "src/a.txt" from to))))
+        (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r th)))))
+    (with-current-buffer review (revert-buffer t t t))
+    (let ((file (bndos-test-open-file review "src/a.txt")))
+      (switch-to-buffer file)
+      (goto-char (point-min))
+      (let (lines)
+        (dolist (command '(diff-review-next-comment diff-review-next-comment diff-review-previous-comment
+                           diff-review-previous-comment diff-review-next-comment))
+          (with-current-buffer (window-buffer) (funcall command))
+          (push (with-current-buffer (window-buffer) (line-number-at-pos)) lines))
+        (should (equal (nreverse lines) '(2 5 2 4 2)))))))
+
+(ert-deftest bndos-review-marking-a-thread-shows-in-the-overview-diff ()
+  (let ((diff-review-overview-diffs t))
+    (bndos-test-with-review (key wt review)
+        (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+      (let ((th (bndos-task-make-thread :kind "comment" :author "me" :body "louder"
+                                        :anchor (bndos-task-review--line-anchor wt "src/a.txt" 2 2))))
+        (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r th)))
+        (with-current-buffer review
+          (switch-to-buffer review)
+          (revert-buffer t t t)
+          (magit-section-show (bndos-test-section-at "M a\\.txt"))
+          (setq bndos-task-review--marked (list (plist-get th :id)))
+          (diff-review--render)
+          (let ((section (bndos-test-section-at "M a\\.txt")))
+            (magit-section-show section)
+            (should (string-match-p "\\[marked\\]"
+                                    (buffer-substring-no-properties (oref section content) (oref section end))))))))))
+
+(ert-deftest bndos-review-message-cards-show-the-agents-status ()
+  (skip-unless (require 'markdown-mode nil t))
+  (bndos-test-with-diff-view (key wt review file)
+    (cl-letf (((symbol-function 'read-string-from-buffer) (bndos-test-say "why?")))
+      (goto-char (diff-review--line-pos 2)) (diff-review-comment))
+    (bndos-task-store-update
+     key (lambda (r) (bndos-task-update-thread
+                      r (plist-get (car (plist-get r :threads)) :id)
+                      (lambda (th) (bndos-task-thread-add-reply
+                                    th (bndos-task-make-reply :author "agent:x" :kind "agent-response"
+                                                              :status "addressed" :body "fixed"
+                                                              :files '("src/a.txt")))))))
+    (with-current-buffer review (revert-buffer t t t))
+    (with-current-buffer file
+      (goto-char (diff-review--line-pos 2))
+      (diff-review-thread-panel))
+    (let ((panel (get-buffer "*review thread*")))
+      (unwind-protect
+          (with-current-buffer panel
+            (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+              (should (string-match-p "◆ agent:x +addressed" text))   ; the status as a chip in its header
+              (should (string-match-p "│ files: src/a.txt" text))))
+        (when (get-buffer-window panel) (delete-window (get-buffer-window panel)))
+        (kill-buffer panel)))))
+
 (ert-deftest bndos-review-the-overview-has-the-brief-and-activity ()
   (bndos-test-with-review (key wt review)
       (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))

@@ -503,7 +503,8 @@ SELECT, show it in the selected window."
                                          (concat (replace-regexp-in-string "^" "-" (plist-get suggestion :old)) "\n"
                                                  (replace-regexp-in-string "^" "+" (plist-get suggestion :new)))))
                                     "\n")))))
-       (when-let* ((status (and (not (equal (plist-get extras :kind) "state")) (plist-get extras :status))))
+       (when-let* ((status (and (not diff-review--in-full)   ; the header's badge then
+                                (not (equal (plist-get extras :kind) "state")) (plist-get extras :status))))
          (list (propertize (format "· %s" status) 'face (bndos-task-review--state-face status))))
        (when-let* ((files (plist-get extras :files)))
          (list (propertize (format "files: %s" (string-join files ", ")) 'face 'shadow)))
@@ -511,6 +512,21 @@ SELECT, show it in the selected window."
          (list (propertize (format "tests: %s" (string-join tests ", ")) 'face 'shadow)))))))
 
 (setq diff-review-message-lines-function #'bndos-task-review--message-lines)
+
+(defun bndos-task-review--message-badge (message)
+  "A reply's status as a chip (`diff-review-message-badge-function')."
+  (when (bndos-task-review--review)
+    (let ((extras (bndos-task--from-table (gethash "bndos" message))))
+      (when-let* ((status (and (not (equal (plist-get extras :kind) "state")) (plist-get extras :status))))
+        (propertize (format " %s " status)
+                    'face (list :inherit (pcase status
+                                           ("addressed" 'success)
+                                           ("answered" 'font-lock-function-name-face)
+                                           ((or "needs-info" "not-addressed") 'warning)
+                                           (_ 'shadow))
+                                :inverse-video t :weight 'bold))))))
+
+(setq diff-review-message-badge-function #'bndos-task-review--message-badge)
 
 (defconst bndos-task-review--thread-groups
   '(("open" . "Open") ("sent" . "Waiting on the agent") ("addressed" . "To verify") ("resolved" . "Resolved"))

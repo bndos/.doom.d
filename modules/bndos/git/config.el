@@ -68,6 +68,10 @@
     ;; Threads across the review's files from the overview and the sidebar too.
     (dolist (map (list diff-review-mode-map diff-review-sidebar-mode-map))
       (evil-define-key* 'normal map
+        ;; Evil takes TAB (C-i) for jumps; sections fold in a terminal too.
+        (kbd "TAB") #'magit-section-toggle
+        (kbd "<tab>") #'magit-section-toggle)
+      (evil-define-key* 'normal map
         "]t" #'diff-review-next-comment
         "[t" #'diff-review-previous-comment
         "gL" #'diff-review-list-comments))))
