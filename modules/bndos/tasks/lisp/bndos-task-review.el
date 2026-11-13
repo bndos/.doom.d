@@ -373,6 +373,85 @@ SELECT, show it in the selected window."
 
 (add-hook 'diff-review-overview-functions #'bndos-task-review--insert-header)
 
+;;; The task's brief and activity, unfolding in the overview
+
+(defun bndos-task-review--when (time)
+  (if time (format-time-string "%b %d %H:%M" (date-to-time time)) "?"))
+
+(defun bndos-task-review--activity (record)
+  "RECORD's events, oldest first: (TIME TEXT FACE)."
+  (let (events)
+    (dolist (it (plist-get record :iterations))
+      (push (list (plist-get it :at) (format "iteration %d: %s" (plist-get it :n) (plist-get it :reason)) 'shadow)
+            events))
+    (dolist (q (plist-get record :requests))
+      (push (list (plist-get q :created)
+                  (format "%s %d thread%s to the agent (%s)"
+                          (if (equal (plist-get q :mode) "implement") "sent" "asked about")
+                          (length (plist-get q :comments)) (if (= 1 (length (plist-get q :comments))) "" "s")
+                          (plist-get q :id))
+                  'default)
+            events)
+      (when-let* ((done (plist-get q :completed)))
+        (push (list done (format "the agent answered %s: %s" (plist-get q :id) (plist-get q :status))
+                    (if (member (plist-get q :status) '("answered")) 'success 'warning))
+              events)))
+    (dolist (th (plist-get record :threads))
+      (push (list (plist-get th :created)
+                  (format "%s opened “%s”" (plist-get th :author)
+                          (truncate-string-to-width (car (split-string (or (plist-get th :body) "") "\n")) 50 nil nil "…"))
+                  'default)
+            events)
+      (dolist (reply (plist-get th :replies))
+        (when (member (plist-get reply :kind) '("agent-response" "state"))
+          (push (list (plist-get reply :created)
+                      (if (equal (plist-get reply :kind) "state")
+                          (format "%s marked a thread %s" (plist-get reply :author) (plist-get reply :status))
+                        (format "%s replied: %s" (plist-get reply :author) (plist-get reply :status)))
+                      (bndos-task-review--state-face (or (plist-get reply :status) "open")))
+                events))))
+    (when (equal (bndos-task-get record :review :state) "approved")
+      (push (list (bndos-task-get record :review :at) "approved" 'success) events))
+    (sort (seq-filter #'car events) (lambda (a b) (string< (car a) (car b))))))
+
+(defun bndos-task-review--insert-brief-and-activity ()
+  "The task's brief and activity, folded (`diff-review-overview-functions')."
+  (when-let* ((key bndos-task-review-key)
+              (record (bndos-task-store-load key)))
+    (when-let* ((brief (bndos-task-review--brief record)))
+      (magit-insert-section (bndos-task-brief nil t)
+        (magit-insert-heading
+          (bndos-task-review--label "Brief")
+          (truncate-string-to-width (car (split-string (string-trim brief) "\n")) 70 nil nil "…"))
+        ;; The rest: the heading has the first line.
+        (insert (mapconcat (lambda (line) (concat "          " line))
+                           (cdr (split-string (string-trim-right (diff-review--markdown (string-trim brief))) "\n"))
+                           "\n")
+                "\n")))
+    (when-let* ((events (bndos-task-review--activity record)))
+      (magit-insert-section (bndos-task-activity nil t)
+        (magit-insert-heading
+          (bndos-task-review--label "Activity")
+          (format "%d event%s" (length events) (if (= 1 (length events)) "" "s"))
+          (propertize (format " · last: %s" (nth 1 (car (last events)))) 'face 'shadow))
+        (dolist (e events)
+          (insert "          " (propertize (bndos-task-review--when (car e)) 'face 'shadow) "  "
+                  (propertize (nth 1 e) 'face (nth 2 e)) "\n"))))
+    (insert "\n")))
+
+(add-hook 'diff-review-overview-functions #'bndos-task-review--insert-brief-and-activity t)
+
+(defun bndos-task-review--quote (comment)
+  "What a task thread is on, as the agent is shown it: a diff
+\(`diff-review-thread-quote-function')."
+  (when (bndos-task-review--review)
+    (let* ((root (bndos-task-review--in-review diff-review--root))
+           (thread (bndos-task-thread-with-selection (bndos-task-thread-from-comment comment) root))
+           (selection (bndos-task-get thread :anchor :selection)))
+      (and selection (not (string-empty-p selection)) (cons "diff" selection)))))
+
+(setq diff-review-thread-quote-function #'bndos-task-review--quote)
+
 (defun bndos-task-review--thread-counts (threads)
   (let ((counts (mapcar (lambda (state) (cons state (seq-count (lambda (th) (equal (plist-get th :state) state))
                                                                threads)))
@@ -462,7 +541,11 @@ SELECT, show it in the selected window."
       (and (eq (oref section type) 'diff-review-comment) (oref section value))))))
 
 (defun bndos-task-review--require-thread ()
-  (or (bndos-task-review--thread-at-point) (user-error "No discussion thread at point")))
+  (let ((id (or (bndos-task-review--thread-at-point) (user-error "No discussion thread at point"))))
+    ;; A pull request's threads are shown, not the task's: read only.
+    (when-let* ((comment (bndos-task-review--in-review (diff-review--comment id))))
+      (diff-review--refuse-external comment))
+    id))
 
 (defun bndos-task-review--anchor-at-point ()
   "An anchor on the region or line at point in a file under review or its

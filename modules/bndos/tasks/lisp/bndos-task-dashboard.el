@@ -211,6 +211,50 @@ both are picked from what the agent offers.  Open it from the dashboard."
            (with-current-buffer (if (buffer-live-p buffer) buffer (current-buffer))
              (bndos-task-review-open key))))))))
 
+(declare-function pr-review-tree-toggle "pr-review-tree")
+
+(defun bndos-task--show-tree ()
+  "Show this buffer's review's file tree, turning it on for the review."
+  (diff-review--in-review (setq diff-review--sidebar-enabled t))
+  (diff-review--follow))
+
+(defun bndos-task--claim-here ()
+  "Put this file under its open review; non-nil when it is under one now."
+  (when buffer-file-name
+    (let ((diff-review-claim-visits t)) (diff-review--claim (current-buffer))))
+  (bound-and-true-p diff-review-file-mode))
+
+;;;###autoload
+(defun bndos/task-review-tree ()
+  "Show the review's file tree beside this buffer, wherever it went.
+In a review or one of its files, the tree comes back.  A file of an open
+review joins it first.  Elsewhere in a task's worktree, the task's review
+opens unseen for it.  In a pr-review buffer, its own tree."
+  (interactive)
+  (require 'diff-review)
+  (cond
+   ((derived-mode-p 'pr-review-mode) (pr-review-tree-toggle))
+   ((or (derived-mode-p 'diff-review-mode 'diff-review-view-mode 'diff-review-sidebar-mode)
+        (bound-and-true-p diff-review-file-mode)
+        (bndos-task--claim-here))
+    (bndos-task--show-tree))
+   (t
+    (let ((buffer (current-buffer)))
+      (bndos-task-git-identity
+       default-directory
+       (lambda (identity)
+         (if-let* ((err (plist-get identity :error)))
+             (message "Not in a git worktree: %s" err)
+           (bndos-task-review-open (bndos-task-ensure-record (plist-get identity :common-dir)
+                                                             (plist-get identity :toplevel)
+                                                             (plist-get identity :branch))
+                                   :select nil)
+           (with-current-buffer buffer
+             (if (bndos-task--claim-here)
+                 (bndos-task--show-tree)
+               (message "%s isn't one of the review's files; %s shows the review"
+                        (buffer-name) (substitute-command-keys "\\[bndos/task-review-here]")))))))))))
+
 ;;;###autoload
 (defun bndos/task-agent-here ()
   "Open the agent-shell of the task whose worktree contains `default-directory'.

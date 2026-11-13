@@ -12,6 +12,7 @@
 
 (use-package! bndos-task-dashboard
   :commands (bndos/task-dashboard bndos/task-select bndos/task-start bndos/task-review-here
+             bndos/task-review-tree
              bndos/task-agent-here bndos/task-adopt bndos/task-set-parent bndos/task-add-project))
 
 (map! :leader
@@ -20,6 +21,7 @@
        :desc "Select task"      "s" #'bndos/task-select
        :desc "Start task"       "n" #'bndos/task-start
        :desc "Review this tree" "r" #'bndos/task-review-here
+       :desc "Review's file tree" "t" #'bndos/task-review-tree
        :desc "Agent of this tree" "a" #'bndos/task-agent-here
        :desc "Adopt a conversation" "i" #'bndos/task-adopt
        :desc "Set parent branch"  "b" #'bndos/task-set-parent

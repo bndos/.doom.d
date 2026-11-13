@@ -375,6 +375,339 @@ task's one / TWO / four, shown in FILE's window."
         (when (get-buffer-window panel) (delete-window (get-buffer-window panel)))
         (kill-buffer panel)))))
 
+(defmacro bndos-test-with-two-files (spec &rest body)
+  "SPEC is (KEY WT REVIEW): a task that changed src/a.txt and added b.txt."
+  (declare (indent 1))
+  `(bndos-test-with-review (,(nth 0 spec) ,(nth 1 spec) ,(nth 2 spec))
+       (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nfour\n" "b.txt" "b\n"))
+     (switch-to-buffer ,(nth 2 spec))
+     (delete-other-windows)
+     ,@body))
+
+(ert-deftest bndos-review-a-file-entered-later-has-its-own-hunks ()
+  (bndos-test-with-two-files (key wt review)
+    (bndos-test-open-file review "src/a.txt")   ; the review's current file
+    (let ((b (find-file-noselect (expand-file-name "b.txt" wt))))
+      (with-current-buffer review (diff-review--enter b "b.txt"))
+      (with-current-buffer b
+        (should (equal (mapcar (lambda (h) (list (plist-get h :line) (plist-get h :count))) diff-review--hunks)
+                       '((1 1))))))))
+
+(ert-deftest bndos-review-a-file-visited-any-way-joins-its-review ()
+  (bndos-test-with-two-files (key wt review)
+    (let ((file (expand-file-name "b.txt" wt)))
+      (let ((diff-review-claim-visits nil))
+        (find-file file)
+        (diff-review--follow)
+        (should-not diff-review-file-mode))
+      (kill-buffer (current-buffer))
+      (let ((diff-review-claim-visits t))
+        (find-file file)
+        (diff-review--follow)
+        (should diff-review-file-mode)
+        (should (eq diff-review--review review))
+        (should (equal diff-review--file-path "b.txt"))
+        (should (diff-review--sidebar-window (selected-window)))))))
+
+(ert-deftest bndos-review-adopt-takes-open-files-over ()
+  (bndos-test-with-two-files (key wt review)
+    (let ((b (find-file-noselect (expand-file-name "b.txt" wt)))
+          (a (find-file-noselect (expand-file-name "src/a.txt" wt))))
+      (should-not (buffer-local-value 'diff-review-file-mode b))
+      (with-current-buffer review (diff-review-adopt))
+      (should (buffer-local-value 'diff-review-file-mode a))
+      (should (eq (buffer-local-value 'diff-review--review b) review)))))
+
+(ert-deftest bndos-review-the-tree-comes-back-from-anywhere-in-the-worktree ()
+  (bndos-test-with-two-files (key wt review)
+    ;; With the review open but its tree off.
+    (with-current-buffer review (setq diff-review--sidebar-enabled nil))
+    (find-file (expand-file-name "b.txt" wt))
+    (diff-review--follow)
+    (should-not (diff-review--sidebar-window (selected-window)))
+    (bndos/task-review-tree)
+    (should diff-review-file-mode)
+    (should (diff-review--sidebar-window (selected-window)))
+    ;; With no review open: the task's opens unseen.
+    (kill-buffer review)
+    (let ((file (find-file (expand-file-name "src/a.txt" wt))))
+      (should-not diff-review-file-mode)
+      (bndos/task-review-tree)
+      (bndos-proc-wait (lambda () (buffer-local-value 'diff-review-file-mode file)) 10)
+      (should (buffer-local-value 'diff-review-file-mode file))
+      (should (eq (window-buffer) file))
+      (should (diff-review--sidebar-window (selected-window))))))
+
+(ert-deftest bndos-review-refine-finds-the-changed-words ()
+  (pcase-let ((`(,old . ,new) (diff-review--refine "title: Page 3\n" "title: Page three\n")))
+    (should (equal (mapcar (lambda (s) (substring "title: Page 3\n" (car s) (cdr s))) old) '("3")))
+    (should (equal (mapcar (lambda (s) (substring "title: Page three\n" (car s) (cdr s))) new) '("three")))))
+
+(ert-deftest bndos-review-refined-words-in-both-views ()
+  (let ((diff-review-refine t))
+    (bndos-test-with-review (key wt review)
+        (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\ntwo words\nthree\n"))
+      ;; main has one / two / three: line 2 gained a word.
+      (let ((file (bndos-test-open-file review "src/a.txt")))
+        (with-current-buffer file
+          (let ((added (seq-find (lambda (o) (eq (overlay-get o 'face) 'diff-review-refine-added))
+                                 diff-review--overlays)))
+            (should added)
+            (should (string-match-p "words" (buffer-substring (overlay-start added) (overlay-end added))))))
+        (switch-to-buffer file)
+        (with-current-buffer (with-current-buffer file (diff-review-toggle-view))
+          (should (seq-find (lambda (o) (eq (overlay-get o 'face) 'diff-review-refine-added))
+                            diff-review--view-overlays)))))
+    ;; Off: nothing refined.
+    (let ((diff-review-refine nil))
+      (bndos-test-with-review (key wt review)
+          (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\ntwo words\nthree\n"))
+        (with-current-buffer (bndos-test-open-file review "src/a.txt")
+          (should-not (seq-find (lambda (o) (eq (overlay-get o 'face) 'diff-review-refine-added))
+                                diff-review--overlays)))))))
+
+(defun bndos-test-gh-stub (dir pr threads)
+  "A gh in DIR answering `pr view' with PR and `api graphql' with THREADS (plists)."
+  (let ((script (expand-file-name "gh" dir))
+        (pr-file (expand-file-name "pr.json" dir))
+        (gql-file (expand-file-name "gql.json" dir)))
+    (with-temp-file pr-file (insert (json-serialize pr)))
+    (with-temp-file gql-file
+      (insert (json-serialize
+               (list :data (list :repository
+                                 (list :pullRequest
+                                       (list :reviewThreads
+                                             (list :pageInfo (list :hasNextPage :false :endCursor :null)
+                                                   :nodes (vconcat threads)))))))))
+    (with-temp-file script
+      (insert (format "#!/bin/sh\ncase \"$1\" in pr) cat '%s';; api) cat '%s';; esac\n" pr-file gql-file)))
+    (set-file-modes script #o755)
+    script))
+
+(defun bndos-test-gh-thread (id side line commit body &rest keys)
+  (list :id id :isResolved (if (plist-get keys :resolved) t :false) :path "src/a.txt" :diffSide side
+        :originalLine line :originalStartLine :null
+        :comments (list :nodes (vconcat (mapcar (lambda (b)
+                                                   (list :url (concat "https://github.com/me/repo/pull/7#" id)
+                                                         :body b :createdAt "2026-11-12T10:00:00Z"
+                                                         :author (list :login "octo") :originalCommit (list :oid commit)))
+                                                 (cons body (plist-get keys :replies)))))))
+
+(ert-deftest bndos-review-github-threads-show-read-only ()
+  (require 'bndos-review-github)
+  (bndos-test-with-two-files (key wt review)
+    (let* ((stubs (make-temp-file "bndos-gh-" t))
+           (head (bndos-test-git wt "rev-parse" "HEAD"))
+           (bndos-review-github-program
+            (bndos-test-gh-stub stubs (list :number 7 :url "https://github.com/me/repo/pull/7" :state "OPEN"
+                                            :baseRefName "main" :baseRefOid (bndos-test-git wt "rev-parse" "main"))
+                                (list (bndos-test-gh-thread "T1" "RIGHT" 2 head "Why uppercase?")
+                                      (bndos-test-gh-thread "T2" "LEFT" 2 head "Keep two?")
+                                      (bndos-test-gh-thread "T3" "RIGHT" 3 head "Fine." :resolved t
+                                                            :replies '("Thanks"))))))
+      (unwind-protect
+          (progn
+            (bndos-review-github-refresh review)
+            (bndos-proc-wait (lambda () (plist-get (buffer-local-value 'bndos-review-github--state review) :number)) 10)
+            (with-current-buffer review
+              (should (= (length diff-review-external-comments) 3))
+              (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+                (should (string-match-p "GitHub +PR #7 · 3 threads (1 resolved)" text))
+                (should (string-match-p "GitHub (3)" text))))
+            (let ((file (bndos-test-open-file review "src/a.txt")))
+              (with-current-buffer file
+                ;; On its line, from the commit it was written on.
+                (let ((t1 (seq-find (lambda (o) (equal (gethash "id" (overlay-get o 'diff-review-comment)) "github:T1"))
+                                    (diff-review--thread-overlays))))
+                  (should t1)
+                  (should (equal (diff-review--thread-span t1) '(2 . 2))))
+                ;; On GitHub's left side: among the removed lines.
+                (should (seq-find (lambda (th) (equal (gethash "id" (car th)) "github:T2")) (diff-review--old-threads)))
+                ;; Read only.
+                (goto-char (diff-review--line-pos 2))
+                ;; Two threads here, both GitHub's: whichever is picked refuses.
+                (cl-letf (((symbol-function 'completing-read)
+                           (lambda (_prompt collection &rest _) (car (all-completions "" collection)))))
+                  (should (string-match-p "GitHub thread"
+                                          (cadr (should-error (diff-review-reply) :type 'user-error)))))
+                (should-error (bndos/task-review-resolve) :type 'user-error)))
+            ;; Hidden, and back.
+            (with-current-buffer review
+              (bndos-review-github-toggle)
+              (should-not diff-review-external-comments)
+              (bndos-review-github-toggle)
+              (should (= (length diff-review-external-comments) 3))))
+        (delete-directory stubs t)))))
+
+(defun bndos-test-section-at (regexp)
+  "The overview section whose heading matches REGEXP; point there."
+  (goto-char (point-min))
+  (re-search-forward regexp)
+  (magit-current-section))
+
+(ert-deftest bndos-review-the-overview-unfolds-threads-and-diffs ()
+  (let ((diff-review-overview-threads 'full)
+        (diff-review-overview-diffs t))
+    (bndos-test-with-review (key wt review)
+        (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+      (let ((th (bndos-task-thread-add-reply
+                 (bndos-task-make-thread :kind "comment" :author "me" :body "why upper?"
+                                         :anchor (bndos-task-review--line-anchor wt "src/a.txt" 2 nil))
+                 (bndos-task-make-reply :author "agent:x" :kind "agent-response" :status "answered"
+                                        :body "For **emphasis**."))))
+        (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r th))))
+      (with-current-buffer review
+        (revert-buffer t t t)
+        (switch-to-buffer review)
+        ;; A thread: folded, its whole conversation inside.
+        (let ((section (bndos-test-section-at "src/a.txt:2  me")))
+          (should (oref section hidden))
+          (magit-section-show section)
+          (let ((body (buffer-substring-no-properties (oref section content) (oref section end))))
+            (should (string-match-p "why upper\\?" body))
+            (should (string-match-p "For emphasis\\." body))))   ; markdown rendered
+        ;; A file: folded, its diff inside with the thread under its line.
+        (let ((section (bndos-test-section-at "M a\\.txt")))
+          (should (oref section hidden))
+          (magit-section-show section)
+          (let ((body (buffer-substring-no-properties (oref section content) (oref section end))))
+            (should (string-match-p "^ *-two$" body))
+            (should (string-match-p "^ *\\+TWO$" body))
+            (should (string-match-p "why upper\\?" body)))
+          ;; RET on a diff line shows the file at that line.
+          (goto-char (oref section content))
+          (re-search-forward "^ *\\+TWO$")
+          (with-current-buffer (progn (diff-review-open-at-point) (window-buffer))
+            (should (string-suffix-p "/src/a.txt" buffer-file-name))
+            (should (= (line-number-at-pos) 2))))))))
+
+(ert-deftest bndos-review-the-overview-has-the-brief-and-activity ()
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+    (bndos-test-write bndos-task-store-directory (concat "briefs/" key ".md") "Make it shout.\n\nAll of it.\n")
+    (bndos-test-add-thread key "louder")
+    (with-current-buffer review
+      (revert-buffer t t t)
+      (let ((brief (bndos-test-section-at "^Brief +Make it shout\\.")))
+        (should (oref brief hidden))
+        (should (string-match-p "All of it\\."
+                                (buffer-substring-no-properties (oref brief content) (oref brief end)))))
+      (let ((activity (bndos-test-section-at "^Activity +[0-9]+ events?")))
+        (should (oref activity hidden))
+        (should (string-match-p "opened “louder”"
+                                (buffer-substring-no-properties (oref activity content) (oref activity end))))))))
+
+(defmacro bndos-test-with-github (spec pr threads &rest body)
+  "SPEC is (KEY WT REVIEW HEAD): a task review whose gh answers PR and THREADS,
+functions of HEAD (the worktree's HEAD), fetched before BODY."
+  (declare (indent 3))
+  `(progn
+     (require 'bndos-review-github)
+     (bndos-test-with-two-files (,(nth 0 spec) ,(nth 1 spec) ,(nth 2 spec))
+       (let* ((stubs (make-temp-file "bndos-gh-" t))
+              (,(nth 3 spec) (bndos-test-git ,(nth 1 spec) "rev-parse" "HEAD"))
+              (bndos-review-github-program (bndos-test-gh-stub stubs ,pr ,threads)))
+         (unwind-protect
+             (progn
+               (bndos-review-github-refresh ,(nth 2 spec))
+               (bndos-proc-wait (lambda () (plist-get (buffer-local-value 'bndos-review-github--state ,(nth 2 spec))
+                                                      :number))
+                                15)
+               ,@body)
+           (delete-directory stubs t))))))
+
+(ert-deftest bndos-review-github-asks-for-the-reviews-own-branch ()
+  (require 'bndos-review-github)
+  (bndos-test-with-two-files (key wt review)
+    (with-current-buffer review
+      (let ((default-directory diff-review--root))
+        ;; The worktree: gh's own lookup of its checked-out branch.
+        (should (equal (bndos-review-github--lookup) (list "pr" "view" "--json" bndos-review-github--fields)))
+        ;; A branch: by name.
+        (let ((diff-review--tip "abc") (diff-review--head-name "rv"))
+          (should (member "rv" (bndos-review-github--lookup))))
+        ;; Commits: none.
+        (let ((diff-review--tip "abc") (diff-review--head-name "abc..def"))
+          (should-not (bndos-review-github--lookup)))))))
+
+(ert-deftest bndos-review-github-a-merged-pull-request-waits-to-be-asked ()
+  (bndos-test-with-github (key wt review head)
+      (list :number 9 :url "https://github.com/me/repo/pull/9" :state "MERGED" :baseRefName "main"
+            :baseRefOid (bndos-test-git wt "rev-parse" "main"))
+      (list (bndos-test-gh-thread "M1" "RIGHT" 2 head "old news"))
+    (with-current-buffer review
+      (should-not diff-review-external-comments)
+      (should (string-match-p "^GitHub +PR #9 merged · 1 thread.*hidden" (buffer-string)))
+      (bndos-review-github-toggle)
+      (should (= (length diff-review-external-comments) 1)))))
+
+(ert-deftest bndos-review-github-threads-on-unknown-commits-are-outdated ()
+  (bndos-test-with-github (key wt review head)
+      (list :number 3 :url "https://github.com/me/repo/pull/3" :state "OPEN" :baseRefName "main"
+            :baseRefOid (bndos-test-git wt "rev-parse" "main"))
+      (list (bndos-test-gh-thread "U1" "RIGHT" 2 "0123456789abcdef0123456789abcdef01234567" "force-pushed away")
+            (bndos-test-gh-thread "K1" "RIGHT" 2 head "still here"))
+    (with-current-buffer review
+      (let ((by-id (lambda (id) (seq-find (lambda (c) (equal (gethash "id" c) id)) diff-review-external-comments))))
+        (should (gethash "outdated" (funcall by-id "github:U1")))
+        (should-not (gethash "outdated" (funcall by-id "github:K1")))
+        (should (string-match-p "(0 resolved, 1 outdated)" (buffer-string)))))
+    (with-current-buffer (bndos-test-open-file review "src/a.txt")
+      (let ((u1 (seq-find (lambda (o) (equal (gethash "id" (overlay-get o 'diff-review-comment)) "github:U1"))
+                          (diff-review--thread-overlays))))
+        (should u1)
+        (should (overlay-get u1 'diff-review-stale))))))
+
+(ert-deftest bndos-review-github-removed-line-threads-use-the-prs-base ()
+  ;; The pull request's base is the task's HEAD here, not the task's parent:
+  ;; a left-side thread's lines are counted in that base's blob.
+  (bndos-test-with-github (key wt review head)
+      (list :number 4 :url "https://github.com/me/repo/pull/4" :state "OPEN" :baseRefName "rv"
+            :baseRefOid (bndos-test-git wt "rev-parse" "HEAD"))
+      (list (bndos-test-gh-thread "L1" "LEFT" 2 head "on the base"))
+    (with-current-buffer review
+      (let ((c (car diff-review-external-comments)))
+        (should (equal (gethash "side" c) "old"))
+        (should (equal (gethash "blob" c) (bndos-test-git wt "rev-parse" "HEAD:src/a.txt")))))))
+
+(ert-deftest bndos-review-github-says-nothing-without-a-pull-request-unless-asked ()
+  (require 'bndos-review-github)
+  (bndos-test-with-review (key wt review)
+      (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+    (with-current-buffer review
+      (setq bndos-review-github--state '(:error "no pull request for this branch"))
+      (diff-review--render-all)
+      (should-not (string-match-p "^GitHub" (buffer-string)))
+      (setq bndos-review-github--state '(:error "no pull request for this branch" :manual t))
+      (diff-review--render-all)
+      (should (string-match-p "^GitHub +no pull request" (buffer-string))))))
+
+(defvar bndos-test-fence-hook-ran nil)
+(define-minor-mode bndos-test-fence-minor-mode "A minor mode a comment must not turn on." :global t)
+(define-derived-mode bndos-test-fence-lang-mode prog-mode "Fence"
+  "A major mode whose hook a comment must not run.")
+(add-hook 'bndos-test-fence-lang-mode-hook (lambda () (setq bndos-test-fence-hook-ran t)))
+
+(ert-deftest bndos-review-a-comments-code-fence-only-picks-major-modes-without-hooks ()
+  (skip-unless (require 'markdown-mode nil t))
+  (unwind-protect
+      (progn
+        ;; A fence naming a minor mode (as ```server would name server-mode).
+        (diff-review--markdown "```bndos-test-fence-minor\nanything\n```")
+        (should-not bndos-test-fence-minor-mode)
+        ;; A major mode fontifies, without running its hooks.
+        (setq bndos-test-fence-hook-ran nil)
+        (diff-review--markdown "```bndos-test-fence-lang\nx\n```")
+        (should-not bndos-test-fence-hook-ran)
+        ;; Code in a known language is still highlighted.
+        (let ((text (diff-review--markdown "```elisp\n(defun f () 1)\n```")))
+          (should (string-match "defun" text))
+          (should (memq 'font-lock-keyword-face
+                        (ensure-list (get-text-property (match-beginning 0) 'face text))))))
+    (bndos-test-fence-minor-mode -1)
+    (dolist (b (buffer-list))
+      (when (string-prefix-p " *markdown-code-fontification:bndos-test" (buffer-name b)) (kill-buffer b)))))
+
 (ert-deftest bndos-review-commenting-in-a-file-goes-to-the-diff-view ()
   (bndos-test-with-diff-view (key wt review file)
     ;; Line 2 selected in the file: its removed lines come along.
@@ -593,7 +926,7 @@ task's one / TWO / four, shown in FILE's window."
       (bndos-task-store-update key (lambda (r) (bndos-task-add-thread r thread)))
       (with-current-buffer review
         (goto-char (point-min))
-        (re-search-forward "ai:codex")
+        (re-search-forward "src/a.txt:2  ai:codex")   ; the thread's line, not the activity
         (beginning-of-line)
         (bndos/task-review-apply-suggestion)
         ;; A save from the overview leaves it an overview, unmodified.

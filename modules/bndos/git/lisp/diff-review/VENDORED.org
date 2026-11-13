@@ -6,8 +6,10 @@
 
 Local changes are marked =bndos:= in =diff-review.el=; =bndos-local.patch=
 is the diff against the commit above.  They add review ranges, comments on
-removed lines, changes and whole files, a per-file diff view, a sidebar for
-other buffers (pr-review), and hooks for the tasks module.
+removed lines, changes and whole files, a per-file diff view, a thread
+panel, word-level refining, files joining their review however visited,
+read-only external comments, a sidebar for other buffers (pr-review), and
+hooks for the tasks module.
 
 To update: copy the new upstream files, apply the patch, regenerate it and
 run =tests/tasks/run-tests.sh=.

@@ -13,7 +13,11 @@
   (add-hook! '(diff-review-mode-hook diff-review-sidebar-mode-hook) #'hl-line-mode)
   ;; The fringe is the vc gutter's: no hunk bars there, threads marked in
   ;; the margin, the diff's colours left as they are.
-  (setq diff-review-fringe nil
+  (setq diff-review-claim-visits t
+        diff-review-overview-threads 'full
+        diff-review-overview-diffs t
+        diff-review-refine t
+        diff-review-fringe nil
         diff-review-thread-marker "▐"
         diff-review-tint-open-thread nil)
   ;; diff-review's suggested keys, without gc / zf / zd, which Doom uses.
@@ -70,6 +74,13 @@
 
 (use-package! diff-review-magit
   :commands diff-review-magit-commits)
+
+;; A branch's pull request threads in its reviews, read only.
+(use-package! bndos-review-github
+  :after diff-review
+  :config
+  (setq bndos-review-github-threads t)
+  (define-key diff-review-mode-map (kbd "C-c C-g") #'bndos-review-github-toggle))
 
 (map! :after magit
       :map magit-status-mode-map

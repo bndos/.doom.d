@@ -136,6 +136,8 @@
   ;; Neutral review threads: this theme's `highlight' reads as a removal.
   '(diff-review-comment :foreground "#b4b4c8" :background "#141420" :extend t)
   '(diff-review-comment-bar :foreground "#e0af68")
+  '(diff-review-external-bar :foreground "#58a6ff")
+  '(diff-review-external :foreground "#58a6ff" :weight bold)
 
   ;; Emacs 31/Doom theme workaround: the default doom-themes Gnus face chain can
   ;; form an inheritance cycle when child frames are created by Corfu/Flycheck.

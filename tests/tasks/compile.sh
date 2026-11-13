@@ -8,6 +8,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 files=(
   "$doom"/modules/bndos/git/lisp/pr-review-tree.el
+  "$doom"/modules/bndos/git/lisp/bndos-review-github.el
   "$doom"/modules/bndos/git/lisp/diff-review/*.el
   "$doom"/modules/bndos/tasks/lisp/*.el
 )
