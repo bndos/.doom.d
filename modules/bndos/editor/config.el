@@ -28,6 +28,23 @@
 
 (setq consult-fontify-max-size 1024)
 
+;; Embark's preview runs the candidate's default action with the prompt open.
+;; For a candidate of no viewable kind that action is the prompt's own command
+;; (switching workspace, an M-x command), done for real; leaving the prompt
+;; then puts back the windows from before it.  Only kinds that just show something.
+(defvar bndos-embark-preview-categories '(file buffer bookmark library symbol variable function face)
+  "Completion categories whose candidates `+vertico/embark-preview' may preview.")
+
+(defadvice! bndos-embark-preview-viewable-a (fn)
+  :around #'+vertico/embark-preview
+  (if (memq (completion-metadata-get
+             (completion-metadata (buffer-substring (minibuffer-prompt-end) (point))
+                                  minibuffer-completion-table minibuffer-completion-predicate)
+             'category)
+            bndos-embark-preview-categories)
+      (funcall fn)
+    (message "No preview for these")))
+
 (defadvice! bndos-consult-xref-sort-a (candidates)
   "Sort Consult Xref CANDIDATES by file, then line number."
   :filter-return #'consult-xref--candidates
