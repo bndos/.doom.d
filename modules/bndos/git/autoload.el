@@ -112,15 +112,15 @@ most recent buffer in the current workspace that has one."
 
 ;;; diff-review
 
+(defvar bndos-diff-review-base-function)
 (declare-function diff-review-find-file "diff-review")
 (declare-function diff-review-magit-commits "diff-review-magit")
 
 ;;;###autoload
 (defun bndos/diff-review-dwim ()
   "Review in diff-review: the commits selected or at point, else the worktree.
-The worktree is reviewed, uncommitted changes included, against its task's
-recorded parent (git config branch.BRANCH.bndos-base) when it has one, else
-`diff-review-default-base'."
+The worktree is reviewed, uncommitted changes included, against what
+`bndos-diff-review-base-function' gives, else `diff-review-default-base'."
   (interactive)
   (require 'magit)
   (if (or (magit-region-values '(commit) t) (magit-section-value-if 'commit))
@@ -129,7 +129,8 @@ recorded parent (git config branch.BRANCH.bndos-base) when it has one, else
     (require 'diff-review)
     (let* ((root (or (magit-toplevel) (user-error "Not in a git repository")))
            (branch (magit-get-current-branch))
-           (parent (and branch (magit-get "branch" branch "bndos-base")))
+           (parent (and branch bndos-diff-review-base-function
+                        (funcall bndos-diff-review-base-function root branch)))
            (common (magit-git-string "rev-parse" "--path-format=absolute" "--git-common-dir")))
       ;; Beside diff-review's own branch reviews (review/BRANCH.json), which
       ;; cover commits only.

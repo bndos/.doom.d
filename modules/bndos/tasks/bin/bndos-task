@@ -5,9 +5,9 @@ A task is a git worktree (created by worktrunk) whose agent is a session in
 the Hydra ACP daemon, so it runs whether or not Emacs is open; Emacs, leader
 agents and this command are all clients of the same session.
 
-  bndos-task start --base REF [--repo DIR] [--agent ID] [--mode MODE]
+  bndos-task start [--base REF] [--repo DIR] [--agent ID] [--mode MODE]
                    [--model MODEL] [--ticket ID] [--prompt TEXT | --prompt-file FILE]
-                   [--wait] BRANCH
+                   [--wait] BRANCH-OR-WORKTREE
   bndos-task send TARGET (--prompt TEXT | --prompt-file FILE) [--repo DIR] [--wait]
   bndos-task status [TARGET] [--repo DIR] [--wait STATES|done] [--timeout SECONDS]
   bndos-task sessions TARGET [--agent ID] [--repo DIR]
@@ -18,6 +18,10 @@ TARGET is a branch, a worktree directory or a session id.  --agent is a
 Hydra agent id, the same as the agent-shell config identifier (claude-code,
 codex, ...).  --mode / --model default per agent (Claude: auto; Codex: agent,
 i.e. auto review).
+
+start on a task without an agent (none recorded, or missing from Hydra)
+starts one there, from its recorded parent; --base is needed only for a
+new branch.
 
 sessions lists the agent's own earlier conversations in a worktree (one
 made before it was a task); adopt makes the one you name the task's
@@ -110,12 +114,15 @@ def task_configs(directory):
 
 
 def worktrees(repo):
-    """REPO's worktrees as dicts with path and branch, the main one first."""
+    """REPO's worktrees as dicts with path and branch, the main one first;
+    not diff-review's own, under the git directory's review/worktrees."""
     out = git(repo, "worktree", "list", "--porcelain")
+    own = os.path.join(os.path.realpath(git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")),
+                       "review", "worktrees", "")
     trees, current = [], {}
     for line in out.splitlines() + [""]:
         if not line:
-            if current:
+            if current and not os.path.realpath(current["path"]).startswith(own):
                 trees.append(current)
             current = {}
         elif line.startswith("worktree "):
@@ -321,33 +328,56 @@ def read_prompt(args):
     return args.prompt or ""
 
 
+def existing_task(target, repo):
+    """The worktree TARGET (a branch or a directory) names, or None when it names none."""
+    path = os.path.realpath(target) if os.path.isdir(target) else None
+    main, *trees = worktrees(git(path or repo, "rev-parse", "--show-toplevel"))
+    tree = next((t for t in trees if t.get("branch") == target or os.path.realpath(t["path"]) == path), None)
+    if tree is None:
+        return None
+    if tree.get("branch") not in task_configs(main["path"]):
+        raise Failure(f"{target} is a worktree but not a task")
+    task = resolve(tree["path"], repo)
+    if task["state"] not in ("none", "missing"):
+        raise Failure(f"{task['branch']} already has an agent ({task['session_id']}): use send")
+    return task
+
+
 def cmd_start(args):
-    repo = git(args.repo, "rev-parse", "--show-toplevel")
+    task = existing_task(args.branch, args.repo)
+    if task is None and not args.base:
+        raise Failure(f"--base is needed for a new branch ({args.branch})")
     prompt = read_prompt(args)
-    agent = args.agent or DEFAULT_AGENT
+    agent = args.agent or (task and task["agent"]) or DEFAULT_AGENT
     mode = args.mode if args.mode is not None else DEFAULT_MODES.get(agent)
-    proc = subprocess.run(["wt", "switch", "--create", args.branch, "--base", args.base,
-                           "--no-cd", "--format", "json"], cwd=repo, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise Failure(f"wt switch --create: {(proc.stderr or proc.stdout).strip()}")
-    worktree = os.path.realpath(json.loads(proc.stdout)["path"])
-    set_task_config(worktree, args.branch, base=args.base, agent=agent, ticket=args.ticket)
-    result = {"protocol": "bndos-task/1", "status": "started", "branch": args.branch,
-              "worktree": worktree, "parent": args.base, "agent": agent, "ticket": args.ticket,
-              "warnings": []}
+    if task:
+        repo, branch, worktree = task["repo"], task["branch"], task["worktree"]
+        base, ticket = args.base or task["parent"], args.ticket or task["ticket"]
+    else:
+        repo = git(args.repo, "rev-parse", "--show-toplevel")
+        branch, base, ticket = args.branch, args.base, args.ticket
+        proc = subprocess.run(["wt", "switch", "--create", branch, "--base", base,
+                               "--no-cd", "--format", "json"], cwd=repo, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise Failure(f"wt switch --create: {(proc.stderr or proc.stdout).strip()}")
+        worktree = os.path.realpath(json.loads(proc.stdout)["path"])
+    set_task_config(worktree, branch, base=base, agent=agent, ticket=ticket)
+    result = {"protocol": "bndos-task/1", "status": "started", "branch": branch,
+              "worktree": worktree, "parent": base, "agent": agent, "ticket": ticket,
+              "existing": task is not None, "warnings": []}
     log = os.path.join(state_dir(), "logs", f"{os.path.basename(worktree)}.log")
     acp = Acp([HYDRA, "launch", agent], worktree, log)
     try:
         initialize(acp)
         project = os.path.basename(repo)
         session = acp.call("session/new", {"cwd": worktree, "mcpServers": [],
-                                           "_meta": {"hydra-acp": {"title": f"{project}/{args.branch}"}}})
+                                           "_meta": {"hydra-acp": {"title": f"{project}/{branch}"}}})
     except (AcpError, EOFError) as err:
         acp.close()
         raise Failure(f"couldn't start a {agent} session: {err}", worktree=worktree,
                       log=acp.stderr_tail())
     session_id = session["sessionId"]
-    set_task_config(worktree, args.branch, session=session_id)
+    set_task_config(worktree, branch, session=session_id)
     save_agent_options(agent, session)
     result["session_id"] = session_id
     current_mode = (session.get("modes") or {}).get("currentModeId")
@@ -376,7 +406,7 @@ def cmd_start(args):
         emit(result)
         return
     save_brief(worktree, prompt)
-    set_task_config(worktree, args.branch, prompted=now_ms())
+    set_task_config(worktree, branch, prompted=now_ms())
     prompt_and_follow(acp, session_id, prompt, args.wait, result)
 
 
@@ -530,6 +560,8 @@ def cmd_sessions(args):
 
 
 def cmd_adopt(args):
+    if args.session.startswith("hydra_session_"):
+        raise Failure(f"{args.session} is a Hydra session, not the agent's conversation id")
     task = resolve(args.target, args.repo)
     if task["session_id"] and not args.replace:
         raise Failure(f"{task['branch']} already has session {task['session_id']} (--replace to change it)")
@@ -637,10 +669,10 @@ def main():
         group.add_argument("--prompt-file")
         p.add_argument("--wait", action="store_true", help="stay until the turn ends")
 
-    start = sub.add_parser("start", help="create a worktree and start its agent")
-    start.add_argument("branch")
+    start = sub.add_parser("start", help="create a worktree (or take a task's) and start its agent")
+    start.add_argument("branch", metavar="BRANCH-OR-WORKTREE")
     start.add_argument("--repo", default=os.getcwd())
-    start.add_argument("--base", required=True)
+    start.add_argument("--base", help="the new branch's parent (default for a task: its recorded one)")
     start.add_argument("--agent")
     start.add_argument("--mode")
     start.add_argument("--model")

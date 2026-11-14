@@ -17,6 +17,7 @@
 ;;   tasks/<key>.json      task identity, agent session, threads, requests
 ;;                         (bin/bndos-task status reads the review state)
 ;;   logs/<worktree>.log   Hydra shim output from bin/bndos-task
+;;   removed/<key>.json    records of gone tasks forgotten from the dashboard
 ;;   projects.json         repositories shown in the dashboard
 
 ;;; Code:
@@ -485,6 +486,15 @@ FN receives nil when no record exists yet."
             (push record records))
         (error (message "bndos-task: %s" (error-message-string err)))))
     (nreverse records)))
+
+(defun bndos-task-store-forget (key)
+  "Move KEY's record to removed/<KEY>.json, out of every listing."
+  (let ((file (bndos-task-store-file key))
+        (removed (bndos-task-store--path "removed" (concat key ".json"))))
+    (make-directory (file-name-directory removed) t)
+    (rename-file file removed t)
+    (remhash key bndos-task-store--cache)
+    removed))
 
 (cl-defun bndos-task-store-ensure (&key key repo worktree branch project handle)
   "Return the record for KEY, creating a minimal one with the given identity."

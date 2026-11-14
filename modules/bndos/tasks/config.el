@@ -10,10 +10,19 @@
 ;; A task's review file opened any way gets its scopes and agent commands.
 (after! diff-review (require 'bndos-task-review))
 
+;; A worktree reviewed from magit, against its task's parent.
+(autoload 'bndos-task-git-saved-base-sync "bndos-task-git")
+(setq bndos-diff-review-base-function #'bndos-task-git-saved-base-sync)
+
 (use-package! bndos-task-dashboard
   :commands (bndos/task-dashboard bndos/task-select bndos/task-start bndos/task-review-here
              bndos/task-review-tree
              bndos/task-agent-here bndos/task-adopt bndos/task-set-parent bndos/task-add-project))
+
+;; Tells of an agent waiting for a permission when no shell here shows it.
+(use-package! bndos-task-watch
+  :commands bndos-task-watch-mode
+  :init (run-with-idle-timer 5 nil #'bndos-task-watch-mode 1))
 
 (map! :leader
       (:prefix ("g w" . "worktree tasks")
@@ -43,4 +52,6 @@
       :n "v"     #'bndos/task-dashboard-agent
       :n "o"     #'bndos/task-dashboard-workspace
       :n "i"     #'bndos/task-dashboard-instruct
-      :n "+"     #'bndos/task-start)
+      :n "+"     #'bndos/task-start
+      :n "x"     #'bndos/task-dashboard-forget
+      :n "w"     #'bndos/task-dashboard-restore)

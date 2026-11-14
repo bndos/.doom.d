@@ -7,18 +7,23 @@
 
 ;;; diff-review: the worktree or some commits, file by file
 
+(defvar bndos-diff-review-base-function nil
+  "Function of (ROOT BRANCH) giving the base `bndos/diff-review-dwim' reviews a
+worktree against, or nil for `diff-review-default-base'.")
+
 (use-package! diff-review
   :commands (diff-review-branch diff-review-find-file)
   :config
   (add-hook! '(diff-review-mode-hook diff-review-sidebar-mode-hook) #'hl-line-mode)
-  ;; The fringe is the vc gutter's: no hunk bars there, threads marked in
-  ;; the margin, the diff's colours left as they are.
+  ;; The fringe is the vc gutter's: no hunk bars there, signs and threads
+  ;; in the margin, the diff's colours left as they are.
   (setq diff-review-claim-visits t
         diff-review-overview-threads 'full
         diff-review-overview-diffs t
         diff-review-refine t
         diff-review-fringe nil
         diff-review-thread-marker "▐"
+        diff-review-margin-signs t
         diff-review-tint-open-thread nil)
   ;; diff-review's suggested keys, without gc / zf / zd, which Doom uses.
   ;; Line comments are made in the diff view (g=); gC in a file opens it.

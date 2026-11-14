@@ -33,5 +33,6 @@ else
   echo "hydra-acp not found: skipping the Hydra integration tests" >&2
 fi
 "$emacs" -Q --batch -l "$here/load-path.el" -L "$here" \
-  -l bndos-core-tests -l bndos-review-tests -l bndos-agent-integration-tests \
+  -l bndos-core-tests -l bndos-review-tests -l bndos-diff-review-tests -l bndos-cli-tests \
+  -l bndos-dashboard-tests -l bndos-agent-integration-tests \
   --eval '(ert-run-tests-batch-and-exit (or (getenv "SELECTOR") t))'

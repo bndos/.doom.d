@@ -91,6 +91,13 @@ Identity is (:common-dir DIR :toplevel DIR :branch NAME-or-nil :head SHA-or-nil)
                       (funcall callback (and (bndos-proc-ok-p result)
                                              (car (bndos-task-git--lines result))))))))
 
+(defun bndos-task-git-saved-base-sync (directory branch)
+  "BRANCH's recorded parent ref, read in DIRECTORY, or nil."
+  (and branch
+       (car (ignore-errors
+              (let ((default-directory (file-name-as-directory directory)))
+                (process-lines "git" "config" "--get" (bndos-task-git-base-key branch)))))))
+
 (defun bndos-task-git-set-base (directory branch ref callback)
   "Record REF as BRANCH's parent; CALLBACK gets nil or an error message."
   (bndos-task-git directory (list "config" (bndos-task-git-base-key branch) ref)

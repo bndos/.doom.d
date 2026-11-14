@@ -4,7 +4,8 @@
 
 ;; Worktrees for tasks come from worktrunk's machine-readable commands:
 ;; `wt list --format json' for the inventory and
-;; `wt switch --create BRANCH --base BASE --no-cd --format json' to create one.
+;; `wt switch --create BRANCH --base BASE --no-cd --format json' to create one
+;; (without --create, to bring back a gone task's worktree for its branch).
 ;; `--yes' is never passed, so a repository's hooks still need the user's
 ;; approval (`wt config approvals add'); unapproved hooks make creation fail
 ;; with worktrunk's explanation instead of running.
@@ -132,10 +133,9 @@ Each is a plist (:branch :path :main :changes (:staged :modified :untracked
                                           :head (plist-get item :head))))
                                 (plist-get out :items)))))))))
 
-(defun bndos-task-wt-create (repo branch base callback)
-  "Create BRANCH from BASE in a new worktree of REPO.
-CALLBACK gets (:path DIR :branch B :base_branch BASE ...) or an error plist."
-  (bndos-task-wt--call (list "switch" "--create" branch "--base" base "--no-cd" "--format" "json")
+(defun bndos-task-wt--switch (repo args callback)
+  "Run wt switch ARGS in REPO; CALLBACK gets its JSON with :path, or an error plist."
+  (bndos-task-wt--call (append '("switch") args '("--no-cd" "--format" "json"))
                        :directory repo :json t
                        :callback
                        (lambda (out)
@@ -147,6 +147,16 @@ CALLBACK gets (:path DIR :branch B :base_branch BASE ...) or an error plist."
                                    (t
                                     (list :error 'unexpected-output
                                           :message (format "wt switch printed %S" out))))))))
+
+(defun bndos-task-wt-create (repo branch base callback)
+  "Create BRANCH from BASE in a new worktree of REPO.
+CALLBACK gets (:path DIR :branch B :base_branch BASE ...) or an error plist."
+  (bndos-task-wt--switch repo (list "--create" branch "--base" base) callback))
+
+(defun bndos-task-wt-restore (repo branch callback)
+  "Make a worktree of REPO for existing BRANCH again.
+CALLBACK gets (:path DIR :branch B ...) or an error plist."
+  (bndos-task-wt--switch repo (list branch) callback))
 
 (provide 'bndos-task-wt)
 ;;; bndos-task-wt.el ends here

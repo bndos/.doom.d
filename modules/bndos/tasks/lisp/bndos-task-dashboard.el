@@ -68,6 +68,11 @@
       (when (zerop (process-file "git" nil t nil "rev-parse" "--path-format=absolute" "--git-common-dir"))
         (file-truename (string-trim (buffer-string)))))))
 
+(defun bndos-task--review-worktree-p (common-dir path)
+  "Whether PATH is one of diff-review's own worktrees under COMMON-DIR, not a task's."
+  (and common-dir path
+       (file-in-directory-p (file-truename path) (expand-file-name "review/worktrees/" common-dir))))
+
 (defun bndos-task--main-path (common-dir)
   (file-name-as-directory (file-name-directory (directory-file-name common-dir))))
 
@@ -258,7 +263,8 @@ opens unseen for it.  In a pr-review buffer, its own tree."
 ;;;###autoload
 (defun bndos/task-agent-here ()
   "Open the agent-shell of the task whose worktree contains `default-directory'.
-Attaches to the session recorded for its branch (see `bndos-task status')."
+Attaches to the session recorded for its branch (see `bndos-task status');
+with none recorded, offers to start one as `v' on the dashboard does."
   (interactive)
   (bndos-task-git-identity
    default-directory
@@ -277,7 +283,8 @@ Attaches to the session recorded for its branch (see `bndos-task status')."
                ((equal (plist-get status :status) "failed")
                 (message "No task here: %s" (plist-get status :error)))
                ((not (plist-get status :session_id))
-                (message "No agent session is recorded for %s" (or branch toplevel)))
+                (when (y-or-n-p (format "No agent on %s: start one?" (or branch toplevel)))
+                  (bndos-task-agent-open key)))
                (t (bndos-task-agent-update-from-status key status)
                   (bndos-task-agent-open key))))
             :directory toplevel)))))))
@@ -393,9 +400,11 @@ Each project's worktrees come from worktrunk (for their state) and
          (problems nil))
     (cl-flet ((done ()
                 (when (zerop (cl-decf pending))
-                  (funcall callback (bndos-task--rows entries statuses) problems))))
+                  (let ((rows (bndos-task--rows entries statuses)))
+                    (bndos-task--check-gone-branches rows (lambda () (funcall callback rows problems)))))))
       (if (null projects)
-          (run-at-time 0 nil callback (bndos-task--rows nil statuses) nil)
+          (let ((rows (bndos-task--rows nil statuses)))
+            (bndos-task--check-gone-branches rows (lambda () (funcall callback rows nil))))
         (dolist (project projects)
           (let ((common (bndos-task--common-dir-sync project)))
             (bndos-task-wt-list
@@ -404,7 +413,7 @@ Each project's worktrees come from worktrunk (for their state) and
                (if (bndos-task-wt-error-p out)
                    (push (format "%s: %s" (abbreviate-file-name project) (plist-get out :message)) problems)
                  (dolist (wt out)
-                   (unless (plist-get wt :main)
+                   (unless (or (plist-get wt :main) (bndos-task--review-worktree-p common (plist-get wt :path)))
                      (push (list :common-dir common :worktree wt) entries))))
                (done)))
             (bndos-task-cli-run
@@ -438,6 +447,25 @@ Each project's worktrees come from worktrunk (for their state) and
           (push (list :key (plist-get record :key) :record record :missing t) rows))))
     (nreverse rows)))
 
+(defun bndos-task--check-gone-branches (rows callback)
+  "Set :branch-state of ROWS' gone tasks to \"kept\" or \"deleted\", then call CALLBACK."
+  (let* ((gone (seq-filter (lambda (row) (plist-get row :missing)) rows))
+         (pending (1+ (length gone))))
+    (cl-flet ((done () (when (zerop (cl-decf pending)) (funcall callback))))
+      (dolist (row gone)
+        (let* ((record (plist-get row :record))
+               (branch (plist-get record :branch))
+               (repo (seq-find (lambda (dir) (and dir (file-directory-p dir)))
+                               (list (bndos-task-get record :repo :main-path)
+                                     (bndos-task-get record :repo :common-dir)))))
+          (if (not (and branch repo))
+              (progn (plist-put row :branch-state "deleted") (done))
+            (bndos-task-git repo (list "show-ref" "--verify" "--quiet" (concat "refs/heads/" branch))
+                            (lambda (result)
+                              (plist-put row :branch-state (if (bndos-proc-ok-p result) "kept" "deleted"))
+                              (done))))))
+      (run-at-time 0 nil #'done))))
+
 
 ;;; Dashboard
 
@@ -456,6 +484,8 @@ Each project's worktrees come from worktrunk (for their state) and
   "v"       #'bndos/task-dashboard-agent
   "i"       #'bndos/task-dashboard-instruct
   "+"       #'bndos/task-start
+  "x"       #'bndos/task-dashboard-forget
+  "w"       #'bndos/task-dashboard-restore
   "g"       #'bndos/task-dashboard-refresh
   "C-c C-o" #'bndos/task-dashboard-agent
   "C-c C-i" #'bndos/task-dashboard-instruct
@@ -474,7 +504,10 @@ Each project's worktrees come from worktrunk (for their state) and
 
 (defun bndos-task--tree-label (row)
   (if (plist-get row :missing)
-      "gone"
+      (pcase (plist-get row :branch-state)
+        ("kept" "branch kept")
+        ("deleted" "branch deleted")
+        (_ "gone"))
     (let ((changes (bndos-task-get (plist-get row :worktree) :changes)))
       (let ((flags (concat (if (plist-get changes :staged) "S" "")
                            (if (or (plist-get changes :modified) (plist-get changes :deleted)
@@ -515,8 +548,7 @@ Each project's worktrees come from worktrunk (for their state) and
          (request (bndos-task-in-flight-request record)))
     (string-join
      (delq nil
-           (list (and (plist-get row :missing) (propertize "worktree gone" 'font-lock-face 'error))
-                 (and (equal (bndos-task-get record :agent :resume) "new-conversation")
+           (list (and (equal (bndos-task-get record :agent :resume) "new-conversation")
                       (propertize "NEW conversation" 'font-lock-face 'warning))
                  (and request (propertize (format "request %s" (plist-get request :status)) 'font-lock-face 'warning))
                  (and (> (nth 1 counts) 0) (propertize (format "%d to verify" (nth 1 counts)) 'font-lock-face 'success))
@@ -535,7 +567,7 @@ Each project's worktrees come from worktrunk (for their state) and
      #'cdr
      (list (cons "parent" (or (bndos-task--row-parent row) "none recorded"))
            (cons "worktree" (abbreviate-file-name (or (bndos-task-get record :worktree :path) "?")))
-           (cons "changes" (bndos-task--tree-label row))
+           (cons "changes" (unless (plist-get row :missing) (bndos-task--tree-label row)))
            (cons "agent" (let ((agent (plist-get record :agent)))
                            (and (plist-get agent :session-id)
                                 (string-join (delq nil (list (plist-get agent :provider)
@@ -562,7 +594,10 @@ Each project's worktrees come from worktrunk (for their state) and
     (magit-insert-section (bndos-task key t)
       (magit-insert-heading
         (propertize (concat lead (make-string (max 2 (- width (string-width lead))) ?\s)
-                            (bndos-task--state-label (plist-get row :record))
+                            (if (plist-get row :missing)
+                                (propertize (bndos-task--tree-label row) 'font-lock-face
+                                            (if (equal (plist-get row :branch-state) "kept") 'warning 'shadow))
+                              (bndos-task--state-label (plist-get row :record)))
                             (if (string-empty-p attention) "" (concat "  " attention)))
                     'bndos-task-key key))
       (pcase-dolist (`(,label . ,value) (bndos-task--details row))
@@ -570,10 +605,22 @@ Each project's worktrees come from worktrunk (for their state) and
                 (propertize (format "   %-10s" label) 'font-lock-face 'font-lock-comment-face)
                 value "\n")))))
 
-(defun bndos-task--insert-project (rows)
-  "Insert the project section for ROWS (all from one repository)."
-  (let* ((record (plist-get (car rows) :record))
+(defun bndos-task--shown-gone (rows)
+  "ROWS' gone tasks worth showing: those with threads or a session."
+  (seq-filter (lambda (row)
+                (and (plist-get row :missing)
+                     (or (bndos-task-get row :record :threads)
+                         (bndos-task-get row :record :agent :session-id))))
+              rows))
+
+(defun bndos-task--insert-project (all)
+  "Insert the project section for rows ALL (all from one repository).
+Live tasks make the tree; gone ones go in a folded section after it."
+  (let* ((rows (seq-remove (lambda (r) (plist-get r :missing)) all))
+         (gone (bndos-task--shown-gone all))
+         (record (plist-get (car (or rows gone)) :record))
          (by-branch (mapcar (lambda (r) (cons (bndos-task--row-branch r) r)) rows))
+         (gone-branches (mapcar #'bndos-task--row-branch gone))
          (width 0)
          (seen nil))
     (cl-labels
@@ -593,49 +640,66 @@ Each project's worktrees come from worktrunk (for their state) and
                  (push row seen)
                  (bndos-task--insert-task row (concat indent (if last "└─ " "├─ ")) continuation width)
                  (insert-children (bndos-task--row-branch row) continuation))))))
-      ;; One state column for the whole project: after the widest branch.
-      (setq width (min 48 (+ 2 (apply #'max (mapcar (lambda (r) (+ 2 (* 3 (1+ (depth r nil)))
-                                                                    (string-width (bndos-task--row-branch r))))
-                                                    rows)))))
-      (magit-insert-section (bndos-project (bndos-task-get record :repo :main-path))
-        (magit-insert-heading
-          (propertize (or (bndos-task-get record :repo :project) "?") 'font-lock-face 'magit-section-heading)
-          "  " (propertize (abbreviate-file-name (or (bndos-task-get record :repo :main-path) "")) 'font-lock-face 'shadow))
-        ;; Roots: parents that aren't themselves tasks here (main, a remote
-        ;; branch...), then tasks with no recorded parent.
-        (let ((bases (sort (delete-dups
-                            (seq-remove (lambda (p) (assoc p by-branch))
-                                        (delq nil (mapcar #'bndos-task--row-parent rows))))
-                           #'string<)))
-          (dolist (base bases)
-            (insert "  " (propertize base 'font-lock-face 'magit-branch-remote) "\n")
-            (insert-children base "  "))
-          (when (children nil)
-            (insert "  " (propertize "no recorded parent" 'font-lock-face 'shadow) "\n")
-            (insert-children nil "  ")))
-        ;; Anything left is in a parent cycle; show it rather than lose it.
-        (dolist (row rows)
-          (unless (memq row seen)
-            (bndos-task--insert-task row "  ? " "    " width)))
-        (insert "\n")))))
+      (when record
+        ;; One state column for the whole project: after the widest branch.
+        (setq width (min 48 (+ 2 (apply #'max (mapcar (lambda (r) (+ 2 (* 3 (1+ (depth r nil)))
+                                                                      (string-width (bndos-task--row-branch r))))
+                                                      (append rows gone))))))
+        (magit-insert-section (bndos-project (bndos-task-get record :repo :main-path))
+          (magit-insert-heading
+            (propertize (or (bndos-task-get record :repo :project) "?") 'font-lock-face 'magit-section-heading)
+            "  " (propertize (abbreviate-file-name (or (bndos-task-get record :repo :main-path) "")) 'font-lock-face 'shadow))
+          ;; Roots: parents that aren't themselves tasks here (main, a remote
+          ;; branch, a gone task...), then tasks with no recorded parent.
+          (let ((bases (sort (delete-dups
+                              (seq-remove (lambda (p) (assoc p by-branch))
+                                          (delq nil (mapcar #'bndos-task--row-parent rows))))
+                             #'string<)))
+            (dolist (base bases)
+              (insert "  " (propertize base 'font-lock-face 'magit-branch-remote)
+                      (if (member base gone-branches) (propertize " (gone)" 'font-lock-face 'shadow) "")
+                      "\n")
+              (insert-children base "  "))
+            (when (children nil)
+              (insert "  " (propertize "no recorded parent" 'font-lock-face 'shadow) "\n")
+              (insert-children nil "  ")))
+          ;; Anything left is in a parent cycle; show it rather than lose it.
+          (dolist (row rows)
+            (unless (memq row seen)
+              (bndos-task--insert-task row "  ? " "    " width)))
+          (when gone
+            (magit-insert-section (bndos-gone (bndos-task-get record :repo :main-path) t)
+              (magit-insert-heading
+                (propertize (format "  gone (%d)" (length gone)) 'font-lock-face 'shadow))
+              (dolist (row (sort gone (lambda (a b) (string< (bndos-task--row-branch a) (bndos-task--row-branch b)))))
+                (bndos-task--insert-task row "    " "    " width))))
+          (insert "\n"))))))
+
+(defun bndos-task--sections (type)
+  "The dashboard's sections of TYPE."
+  (let (found)
+    (when (bound-and-true-p magit-root-section)
+      (cl-labels ((walk (section)
+                    (when (eq (oref section type) type) (push section found))
+                    (mapc #'walk (oref section children))))
+        (walk magit-root-section)))
+    found))
 
 (defun bndos-task--expanded-keys ()
   "Keys of the task sections currently showing their details."
-  (let (keys)
-    (when (bound-and-true-p magit-root-section)
-      (cl-labels ((walk (section)
-                    (when (and (eq (oref section type) 'bndos-task) (not (oref section hidden)))
-                      (push (oref section value) keys))
-                    (mapc #'walk (oref section children))))
-        (walk magit-root-section)))
-    keys))
+  (mapcar (lambda (s) (oref s value))
+          (seq-remove (lambda (s) (oref s hidden)) (bndos-task--sections 'bndos-task))))
 
 (defun bndos-task--print ()
-  "Render `bndos-task--rows', keeping point and expanded tasks."
-  (let ((inhibit-read-only t)
-        (key (bndos-task--key-at-point-or-nil))
-        (expanded (bndos-task--expanded-keys))
-        (groups (seq-group-by (lambda (row) (or (bndos-task-get row :record :repo :main-path) "")) bndos-task--rows)))
+  "Render `bndos-task--rows', keeping point, expanded tasks and open gone sections."
+  (let* ((inhibit-read-only t)
+         (key (bndos-task--key-at-point-or-nil))
+         (expanded (bndos-task--expanded-keys))
+         (open-gone (mapcar (lambda (s) (oref s value))
+                            (seq-remove (lambda (s) (oref s hidden)) (bndos-task--sections 'bndos-gone))))
+         (live (seq-remove (lambda (row) (plist-get row :missing)) bndos-task--rows))
+         (groups (seq-group-by (lambda (row) (or (bndos-task-get row :record :repo :main-path) ""))
+                               (append live (bndos-task--shown-gone bndos-task--rows)))))
     (erase-buffer)
     (magit-insert-section (bndos-task-root)
       (if (null groups)
@@ -644,18 +708,21 @@ Each project's worktrees come from worktrunk (for their state) and
           (bndos-task--insert-project (cdr group)))))
     ;; Applies each section's hidden state (details start folded).
     (magit-section-show magit-root-section)
+    (dolist (section (bndos-task--sections 'bndos-gone))
+      (when (member (oref section value) open-gone)
+        (magit-section-show section)))
     (dolist (k expanded)
       (when-let* ((section (bndos-task--section-for k)))
         (magit-section-show section)))
     (goto-char (or (and key (bndos-task--heading-position key)) (point-min)))
     (let ((blocked (seq-count (lambda (row) (eq (bndos-task-agent-lifecycle (plist-get row :record)) 'blocked))
-                              bndos-task--rows)))
+                              live)))
       (setq header-line-format
             (if bndos-task--problems
                 (propertize (concat " " (string-join bndos-task--problems "; ")) 'face 'warning)
-              (concat (format " %d tasks" (length bndos-task--rows))
+              (concat (format " %d tasks" (length live))
                       (if (> blocked 0) (propertize (format " · %d need permission" blocked) 'face 'error) "")
-                      " · RET review · TAB details · v agent · i instruct · + start · g r refresh · C-c C-a adopt"))))))
+                      " · RET review · TAB details · v agent · i instruct · + start · g r refresh · C-c C-a adopt · gone: x forget, w restore"))))))
 
 (defun bndos-task--heading-position (key)
   (save-excursion
@@ -776,6 +843,65 @@ Each project's worktrees come from worktrunk (for their state) and
   "Send an instruction to the task's agent (it may edit files)."
   (interactive)
   (bndos-task-instruct (bndos-task--key-at-point)))
+
+(defun bndos-task--gone-record (key)
+  "KEY's record, refusing a task whose worktree exists."
+  (let ((record (or (bndos-task-store-load key) (user-error "No task %s" key))))
+    (when (file-directory-p (or (bndos-task-get record :worktree :path) ""))
+      (user-error "%s's worktree exists" (or (plist-get record :branch) key)))
+    record))
+
+(defun bndos-task-forget (key)
+  "Forget gone task KEY: its record moves to the store's removed/."
+  (bndos-task--gone-record key)
+  (bndos-task-store-forget key))
+
+(defun bndos-task-restore (key callback)
+  "Make gone task KEY's worktree again for its branch, with worktrunk.
+The record follows the new worktree.  CALLBACK gets the new key or (:error MESSAGE)."
+  (let* ((record (bndos-task--gone-record key))
+         (branch (or (plist-get record :branch) (user-error "No branch is recorded for %s" key)))
+         (common (bndos-task-get record :repo :common-dir))
+         (repo (or (bndos-task-get record :repo :main-path) (bndos-task--main-path common))))
+    (bndos-task-wt-restore
+     repo branch
+     (lambda (out)
+       (if (bndos-task-wt-error-p out)
+           (funcall callback (list :error (plist-get out :message)))
+         (let* ((worktree (file-name-as-directory (file-truename (plist-get out :path))))
+                (new (bndos-task-key common worktree)))
+           (unless (equal new key)
+             (bndos-task-store-save
+              (bndos-task-put (plist-put (copy-sequence record) :key new) '(:worktree)
+                              (list :path worktree :handle (file-name-nondirectory (directory-file-name worktree)))))
+             (delete-file (bndos-task-store-file key))
+             (remhash key bndos-task-store--cache))
+           (funcall callback new)
+           (bndos-task--refresh-dashboard-buffer)))))))
+
+(defun bndos/task-dashboard-forget ()
+  "Forget the gone task at point; its record moves to the store's removed/."
+  (interactive)
+  (let* ((key (bndos-task--key-at-point))
+         (branch (or (plist-get (bndos-task--gone-record key) :branch) key)))
+    (when (y-or-n-p (format "Forget %s? " branch))
+      (bndos-task-forget key)
+      (message "Forgot %s" branch)
+      (bndos-task-dashboard-refresh))))
+
+(defun bndos/task-dashboard-restore ()
+  "Bring back the gone task at point: a new worktree for its kept branch."
+  (interactive)
+  (let* ((key (bndos-task--key-at-point))
+         (branch (or (plist-get (bndos-task--gone-record key) :branch) key)))
+    (when (equal (plist-get (seq-find (lambda (r) (equal (plist-get r :key) key)) bndos-task--rows) :branch-state)
+                 "deleted")
+      (user-error "%s's branch was deleted" branch))
+    (message "Restoring %s…" branch)
+    (bndos-task-restore key (lambda (result)
+                              (if (consp result)
+                                  (message "Couldn't restore %s: %s" branch (plist-get result :error))
+                                (message "Restored %s" branch))))))
 
 
 ;;; Quick selector

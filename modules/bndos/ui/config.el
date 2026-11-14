@@ -138,6 +138,11 @@
   '(diff-review-comment-bar :foreground "#e0af68")
   '(diff-review-external-bar :foreground "#58a6ff")
   '(diff-review-external :foreground "#58a6ff" :weight bold)
+  ;; The diff as GitHub dark renders it.
+  '(diff-review-added :background "#12261e" :extend t)
+  '(diff-review-removed :background "#301b1e" :extend t)
+  '(diff-review-sign-added :foreground "#3fb950" :background "#1c4328" :weight bold)
+  '(diff-review-sign-removed :foreground "#f85149" :background "#532426" :weight bold)
 
   ;; Emacs 31/Doom theme workaround: the default doom-themes Gnus face chain can
   ;; form an inheritance cycle when child frames are created by Corfu/Flycheck.
