@@ -527,13 +527,20 @@ Each project's worktrees come from worktrunk (for their state) and
 (defun bndos-task--state-label (record)
   "The agent's state for RECORD, short, with a glyph and face."
   (let ((finished (plist-get (gethash (plist-get record :key) bndos-task-agent--hydra) :done)))
-    (pcase (bndos-task-agent-lifecycle record)
-      ('busy (propertize "● working" 'font-lock-face 'success))
-      ('blocked (propertize "⚠ needs permission" 'font-lock-face 'error))
-      ((or 'idle 'detached 'stopped)
-       (if finished (propertize "✓ done" 'font-lock-face 'success) (propertize "○ idle" 'font-lock-face 'shadow)))
-      ('missing (propertize "✗ session gone" 'font-lock-face 'warning))
-      (_ (propertize "· no agent" 'font-lock-face 'shadow)))))
+    (concat
+     (pcase (bndos-task-agent-lifecycle record)
+       ('busy (propertize "● working" 'font-lock-face 'success))
+       ('blocked (propertize "⚠ needs permission" 'font-lock-face 'error))
+       ('limited (propertize (concat "⏸ limit · " (bndos-task-agent-limit-text (bndos-task-agent-limit record)))
+                             'font-lock-face 'warning))
+       ((or 'idle 'detached 'stopped)
+        (if finished (propertize "✓ done" 'font-lock-face 'success) (propertize "○ idle" 'font-lock-face 'shadow)))
+       ('missing (propertize "✗ session gone" 'font-lock-face 'warning))
+       (_ (propertize "· no agent" 'font-lock-face 'shadow)))
+     ;; Close to a limit: say so beside the state.
+     (when-let* ((limit (bndos-task-agent-limit record))
+                 ((equal (plist-get limit :status) "allowed_warning")))
+       (propertize (concat " · " (bndos-task-agent-limit-text limit)) 'font-lock-face 'warning)))))
 
 (defun bndos-task--thread-counts (record)
   "(OPEN TO-VERIFY SENT RESOLVED) thread counts of RECORD."

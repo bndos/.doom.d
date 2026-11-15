@@ -30,6 +30,7 @@
 
 (require 'cl-lib)
 (require 'subr-x)
+(require 'iso8601)
 (require 'seq)
 (require 'map)
 (require 'bndos-proc)
@@ -253,21 +254,115 @@ is the task's worktree."
   (let ((id (and id (string-remove-prefix "hydra_session_" id))))
     (if (and id (> (length id) 8)) (substring id 0 8) (or id "?"))))
 
+;;; Usage limits
+
+;; Recorded per task in git config (branch.<b>.bndos-limit), as bin/bndos-task
+;; records what its turns report: Claude puts its rate-limit state in the `_meta'
+;; of usage updates while it waits out a limit inside the turn; other agents
+;; only say so.
+
+(defvar bndos-task-agent--watch)   ; below, with the shells
+
+(defconst bndos-task-agent--limit-text
+  (concat "\\(?:usage\\|rate\\) limit\\(?: has been\\)? \\(?:reached\\|exceeded\\)"
+          "\\|\\(?:hit\\|reached\\) \\(?:your\\|the\\) \\(?:usage\\|rate\\) limit"
+          "\\|limit reached[ \t]*[·∙|][ \t]*resets")
+  "What an agent says when a usage limit stops it (bin/bndos-task's LIMIT_TEXT).")
+
+(defun bndos-task-agent-limit (record)
+  "RECORD's usage limit (:status :type :resets_at :utilization :source :message),
+as its shell or the last `bndos-task status' reported it, until it resets."
+  (when-let* ((limit (plist-get (gethash (plist-get record :key) bndos-task-agent--hydra) :limit)))
+    (let ((resets (plist-get limit :resets_at)))
+      (unless (and resets (or (not (stringp resets))
+                              (ignore-errors (time-less-p (encode-time (iso8601-parse resets)) nil))))
+        limit))))
+
+(defun bndos-task-agent-limit-text (limit)
+  "LIMIT in a few words: which limit and when it resets, or what the agent said."
+  (let ((resets (plist-get limit :resets_at)))
+    (if (equal (plist-get limit :source) "message")
+        (truncate-string-to-width (or (plist-get limit :message) "usage limit") 50 nil nil "…")
+      (concat (pcase (plist-get limit :type)
+                ("five_hour" "5-hour") ("seven_day" "weekly") ("seven_day_opus" "weekly Opus")
+                ("seven_day_sonnet" "weekly Sonnet") ("overage" "overage") (_ "usage"))
+              (if (equal (plist-get limit :status) "rejected")
+                  (if-let* ((time (and resets (ignore-errors (encode-time (iso8601-parse resets))))))
+                      (format-time-string (if (time-less-p time (time-add nil 86400))
+                                              " · resets %H:%M" " · resets %a %H:%M")
+                                          time)
+                    "")
+                (if-let* ((used (plist-get limit :utilization))
+                          ((numberp used)))
+                    (format " %d%%" (round (* 100 used)))
+                  " close"))))))
+
+(defun bndos-task-agent--set-limit (key limit)
+  "Record LIMIT (a plist, nil once lifted) for task KEY, in git config and the cached status."
+  (let* ((record (bndos-task-store-load key))
+         (branch (plist-get record :branch))
+         (limit (cl-loop for (k v) on limit by #'cddr when v append (list k v))))
+    (when (and branch (bndos-task-get record :worktree :path))
+      (let ((default-directory (bndos-task-agent--worktree record))
+            (name (format "branch.%s.bndos-limit" branch)))
+        (if limit
+            (process-file "git" nil nil nil "config" name (json-serialize limit))
+          (process-file "git" nil nil nil "config" "--unset" name))))
+    (puthash key (plist-put (copy-sequence (gethash key bndos-task-agent--hydra)) :limit limit)
+             bndos-task-agent--hydra)))
+
+(defun bndos-task-agent--limit-of (info)
+  "A limit from Claude's rate-limit INFO (an alist), or nil once it's lifted."
+  (let ((status (alist-get 'status info))
+        (resets (alist-get 'resetsAt info)))
+    (when (member status '("allowed_warning" "rejected"))
+      (list :status status :type (alist-get 'rateLimitType info)
+            :resets_at (and (numberp resets) (format-time-string "%Y-%m-%dT%H:%M:%S%z" resets))
+            :utilization (alist-get 'utilization info) :source "claude"))))
+
+(defun bndos-task-agent--on-usage (key meta)
+  "Record the usage limit in META, an update's `_meta', for task KEY."
+  (when-let* ((info (or (alist-get '_claude/rateLimit meta)
+                        (alist-get "_claude/rateLimit" meta nil nil #'equal))))
+    (let ((limit (bndos-task-agent--limit-of info)))
+      (setq bndos-task-agent--watch (plist-put bndos-task-agent--watch :limit limit))
+      (bndos-task-agent--set-limit key limit)
+      (bndos-task-agent--notify key))))
+
+(defun bndos-task-agent--limit-at-turn-end (key stop-reason)
+  "Lift a limit task KEY's turn got through, or record one its agent only said."
+  (let* ((watch bndos-task-agent--watch)
+         (limit (plist-get watch :limit))
+         (text (or (plist-get watch :limit-text) "")))
+    (cond
+     ((and limit (equal (plist-get limit :status) "rejected")
+           (equal (format "%s" stop-reason) "end_turn"))
+      (bndos-task-agent--set-limit key nil))
+     ((and (not limit) (let ((case-fold-search t)) (string-match bndos-task-agent--limit-text text)))
+      (let ((line (save-match-data
+                    (seq-find (lambda (l) (let ((case-fold-search t)) (string-match-p bndos-task-agent--limit-text l)))
+                              (split-string text "\n")))))
+        (bndos-task-agent--set-limit key (list :status "rejected" :source "message"
+                                               :message (truncate-string-to-width (string-trim line) 200))))))
+    (setq bndos-task-agent--watch (plist-put (plist-put watch :limit nil) :limit-text nil))))
+
 (defun bndos-task-agent-lifecycle (record)
-  "RECORD's agent: `busy', `blocked', `idle', `detached', `stopped', `missing' or `none'.
-An attached shell answers for itself; otherwise the last `bndos-task
-status' does (refresh the dashboard to update it)."
+  "RECORD's agent: `busy', `blocked', `limited', `idle', `detached', `stopped',
+`missing' or `none'.  An attached shell answers for itself, except for a
+usage limit, which it shows as busy; otherwise the last `bndos-task status'
+does (refresh the dashboard to update it)."
   (let* ((buffer (bndos-task-agent-buffer record))
          (local (and buffer (pcase (agent-shell-status :shell-buffer buffer)
                               ('busy 'busy) ('blocked 'blocked) (_ 'idle))))
          (remote (pcase (plist-get (gethash (plist-get record :key) bndos-task-agent--hydra) :state)
-                   ("working" 'busy) ("waiting" 'blocked) ("idle" 'detached)
+                   ((or "working" "limited") 'busy) ("waiting" 'blocked) ("idle" 'detached)
                    ("stopped" 'stopped) ("missing" 'missing) ("none" 'none))))
     ;; A session the daemon hasn't reported yet (started since the last
     ;; refresh) isn't "no agent".
     (when (and (eq remote 'none) (bndos-task-get record :agent :session-id))
       (setq remote nil))
     (cond
+     ((equal (plist-get (bndos-task-agent-limit record) :status) "rejected") 'limited)
      ;; Another client's turn (a leader's prompt) doesn't make our shell busy.
      ((and (eq local 'idle) (memq remote '(busy blocked))) remote)
      (local)
@@ -282,6 +377,8 @@ status' does (refresh the dashboard to update it)."
      (pcase (bndos-task-agent-lifecycle record)
        ('busy (propertize "working" 'face 'warning))
        ('blocked (propertize "waiting for permission" 'face 'error))
+       ('limited (propertize (format "limited (%s)" (bndos-task-agent-limit-text (bndos-task-agent-limit record)))
+                             'face 'warning))
        ('idle (propertize "idle" 'face 'success))
        ('detached (concat (propertize "idle" 'face 'success) (propertize " (not attached)" 'face 'shadow)))
        ('stopped (propertize "stopped (resumes on open)" 'face 'shadow))
@@ -336,14 +433,25 @@ with BUFFER."
           (condition-case err
               (pcase (map-elt event :event)
                 ('init-finished (bndos-task-agent--on-init key buffer))
-                ('input-submitted (bndos-task-agent--on-input key (map-elt data :prompt)))
+                ('input-submitted
+                 ;; A new prompt: whatever limit held the last one is past.
+                 (bndos-task-agent--set-limit key nil)
+                 (setq bndos-task-agent--watch (plist-put (plist-put bndos-task-agent--watch :limit nil)
+                                                          :limit-text nil))
+                 (bndos-task-agent--on-input key (map-elt data :prompt)))
+                ('usage-update (bndos-task-agent--on-usage key (map-elt data :meta)))
                 ((or 'permission-request 'permission-response) (bndos-task-agent--notify key))
                 ('agent-message-chunk
+                 (when-let* ((chunk (map-elt data :text-chunk)))
+                   (let ((text (concat (plist-get watch :limit-text) chunk)))
+                     (setq watch (plist-put watch :limit-text (substring text (max 0 (- (length text) 600)))))
+                     (setq bndos-task-agent--watch watch)))
                  (when (plist-get watch :request)
                    (when-let* ((chunk (map-elt data :text-chunk)))
                      (setq bndos-task-agent--watch
                            (plist-put watch :chunks (cons chunk (plist-get watch :chunks)))))))
                 ('turn-complete (bndos-task-agent--on-turn-complete key (map-elt data :stop-reason))
+                                (bndos-task-agent--limit-at-turn-end key (map-elt data :stop-reason))
                                 (bndos-task-agent--notify key))
                 ('error (when (plist-get watch :request)
                           (bndos-task-agent--finish-request

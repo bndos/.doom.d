@@ -15,7 +15,11 @@
   exists, a review prompt is answered as an interrupted turn (stop reason
   "cancelled", no block) and the file is removed; a later prompt asking for
   the review-findings block (a resume) gets the review of the session's last
-  review prompt.  Other prompts get "ok mode=M model=M".
+  review prompt.  RATELIMIT reports Claude's rejected 5-hour limit (a
+  usage_update with _meta "_claude/rateLimit") and keeps the turn open until
+  session/cancel; RATEWARN reports a warning at 91% and ends the turn;
+  USAGETEXT says it hit its usage limit, as agents without the _meta do.
+  Other prompts get "ok mode=M model=M".
 * session/list reports the conversations in $STUB_PAST_SESSIONS
   ("id|title,id|title"), as made in the requested directory.
 * Every message received is logged to $STUB_LOG (JSON lines) when set.
@@ -24,6 +28,7 @@ import json
 import os
 import re
 import sys
+import time
 import uuid
 
 LOG = os.environ.get("STUB_LOG")
@@ -90,6 +95,23 @@ def reply_for(text, s):
     block = {"protocol": "bndos-review/1", "task": task, "request": request,
              "snapshot": snapshot, "responses": responses}
     return "Handled.\n\n```bndos-review\n" + json.dumps(block) + "\n```\n"
+
+
+def rate_limit(sid, info):
+    send({"jsonrpc": "2.0", "method": "session/update", "params": {
+        "sessionId": sid,
+        "update": {"sessionUpdate": "usage_update", "used": 100, "size": 1000,
+                   "_meta": {"_claude/rateLimit": info}}}})
+
+
+def wait_for_cancel():
+    for line in sys.stdin:
+        if line.strip():
+            msg = json.loads(line)
+            log(msg)
+            if msg.get("method") == "session/cancel":
+                return
+    sys.exit(0)
 
 
 def wait_for_response(rid):
@@ -163,6 +185,18 @@ for line in sys.stdin:
             answer = wait_for_response("perm")
             outcome = (answer.get("result") or {}).get("outcome") or {}
             say(sid, f"permission {outcome.get('optionId') or 'refused'}")
+        elif "RATELIMIT" in text:
+            rate_limit(sid, {"status": "rejected", "rateLimitType": "five_hour",
+                             "resetsAt": int(time.time()) + 3600, "utilization": 1.0})
+            wait_for_cancel()
+            ok({"stopReason": "cancelled"})
+            continue
+        elif "RATEWARN" in text:
+            rate_limit(sid, {"status": "allowed_warning", "rateLimitType": "seven_day",
+                             "resetsAt": int(time.time()) + 86400, "utilization": 0.91})
+            say(sid, "ok, close to the limit")
+        elif "USAGETEXT" in text:
+            say(sid, "You've hit your usage limit. Try again at 3:00 PM.")
         elif "```review-findings" in text and os.path.exists(os.environ.get("STUB_CANCEL_ONCE") or "\0"):
             os.remove(os.environ["STUB_CANCEL_ONCE"])
             s["review"] = text

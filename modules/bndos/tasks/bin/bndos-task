@@ -13,6 +13,8 @@ agents and this command are all clients of the same session.
   bndos-task sessions TARGET [--agent ID] [--repo DIR]
   bndos-task adopt TARGET --session ID [--agent ID] [--base REF] [--replace] [--repo DIR]
   bndos-task models [--agent ID] [--repo DIR] [--refresh]
+  bndos-task context [--repo DIR]
+  bndos-task migrate [--repo DIR] [--dry-run]
 
 TARGET is a branch, a worktree directory or a session id.  --agent is a
 Hydra agent id, the same as the agent-shell config identifier (claude-code,
@@ -38,6 +40,17 @@ attached to the session until that turn ends, so a permission request the
 agent makes stays open for you (in Emacs) instead of being refused.  --wait
 stays in the foreground until the turn ends instead.
 
+A repository can live in a project folder: ~/Projects/rame/rame, the main
+checkout, inside ~/Projects/rame, which has a .tasks folder.  Then new
+worktrees go beside the main checkout (~/Projects/rame/BRANCH), briefs are
+kept in .tasks/briefs, and start, send, status and context report .tasks as
+"context", for plans and notes that span tasks.  Otherwise worktrunk's
+worktree-path decides.  migrate moves a repository into a project folder of
+the same name (~/Projects/foo becomes ~/Projects/foo/foo) with its task
+worktrees, records and reviews; it refuses while an agent is working or
+waiting, and tasks get a new agent on their next start.  --dry-run reports
+what it would move and what to redo by hand.
+
 Nothing here commits, pushes, merges or deletes; the worktree is created
 and its parent, session and agent are recorded in git config
 (branch.<branch>.bndos-*).  Output is JSON on stdout.
@@ -47,9 +60,11 @@ Exit codes: 0 ok, 1 failure or unknown target, 2 --wait timed out,
 """
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
+import re
 import secrets
 import select
 import string
@@ -62,7 +77,7 @@ import urllib.request
 HYDRA = os.environ.get("BNDOS_TASK_HYDRA", "hydra-acp")
 DEFAULT_AGENT = os.environ.get("BNDOS_TASK_AGENT", "claude-code")
 DEFAULT_MODES = {"claude-code": "auto", "codex": "agent"}
-STATES = ("working", "waiting", "idle", "stopped", "missing", "none")
+STATES = ("working", "waiting", "limited", "idle", "stopped", "missing", "none")
 
 
 class Failure(Exception):
@@ -84,6 +99,14 @@ def now_ms():
 
 def iso(ms):
     return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(ms / 1000)) if ms else None
+
+
+def passed(stamp):
+    """Whether the time `iso' wrote as STAMP is past; one that isn't a time is."""
+    try:
+        return datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S%z").timestamp() < time.time()
+    except (TypeError, ValueError):
+        return True
 
 
 # ---------------------------------------------------------------- git
@@ -129,6 +152,8 @@ def worktrees(repo):
             current["path"] = line[len("worktree "):]
         elif line.startswith("branch refs/heads/"):
             current["branch"] = line[len("branch refs/heads/"):]
+        elif line == "locked" or line.startswith("locked "):
+            current["locked"] = True
     return trees
 
 
@@ -140,6 +165,29 @@ def task_key(common, worktree):
     """Emacs's task key (bndos-task-key): its review record's file name."""
     text = os.path.realpath(common).rstrip("/") + "\n" + os.path.realpath(worktree).rstrip("/")
     return hashlib.sha1(text.encode()).hexdigest()[:16]
+
+
+TASKS_DIR = ".tasks"
+
+
+def container(directory):
+    """The folder the repository of DIRECTORY lives in as a project, or None:
+    its main checkout's parent, when that holds a .tasks folder."""
+    common = common_dir(directory)
+    if os.path.basename(common) != ".git":
+        return None
+    parent = os.path.dirname(os.path.dirname(common))
+    return parent if os.path.isdir(os.path.join(parent, TASKS_DIR)) else None
+
+
+def context_dir(directory):
+    """The project's .tasks folder (plans, briefs), or None outside a container."""
+    folder = container(directory)
+    return folder and os.path.join(folder, TASKS_DIR)
+
+
+def task_log(worktree):
+    return os.path.join(state_dir(), "logs", task_key(common_dir(worktree), worktree) + ".log")
 
 
 def review_summary(common, worktree, branch):
@@ -243,13 +291,16 @@ class Acp:
         line, self.buffer = self.buffer.split(b"\n", 1)
         return json.loads(line) if line.strip() else {}
 
-    def wait(self, rid, timeout=None):
+    def wait(self, rid, timeout=None, on_notification=None):
         deadline = None if timeout is None else time.time() + timeout
         while True:
             msg = self._message(deadline)
             if msg is None:
                 raise AcpError("timed out waiting for the agent")
-            if "method" in msg and "id" in msg and msg["method"] != "session/request_permission":
+            if "method" in msg and "id" not in msg:
+                if on_notification:
+                    on_notification(msg)
+            elif "method" in msg and msg["method"] != "session/request_permission":
                 # Permission requests are left for an interactive client to
                 # answer; nothing else is expected from the daemon.
                 self.send({"jsonrpc": "2.0", "id": msg["id"],
@@ -282,14 +333,81 @@ def initialize(acp):
                             "clientInfo": {"name": "bndos-task", "version": "1"}})
 
 
+# A usage limit, recorded per task in git config (branch.<b>.bndos-limit) by
+# whichever client sees it: Claude reports it as `_meta' on usage updates while
+# it waits out the limit inside the turn; other agents only say so.  Emacs
+# records it the same way from agent-shell (bndos-task-agent.el).
+LIMIT_TEXT = re.compile(r"(?:usage|rate) limit(?: has been)? (?:reached|exceeded)"
+                        r"|(?:hit|reached) (?:your|the) (?:usage|rate) limit"
+                        r"|limit reached\s*[·∙|]\s*resets", re.I)
+
+
+def set_limit(worktree, branch, limit):
+    if limit is None:
+        git(worktree, "config", "--unset", f"branch.{branch}.bndos-limit", check=False)
+    else:
+        git(worktree, "config", f"branch.{branch}.bndos-limit", json.dumps(limit))
+
+
+def limit_of(info):
+    """A limit record from Claude's rate-limit info, or None once it's lifted."""
+    if info.get("status") not in ("allowed_warning", "rejected"):
+        return None
+    resets = info.get("resetsAt")
+    return {"status": info["status"], "type": info.get("rateLimitType"),
+            "resets_at": iso(resets * 1000) if isinstance(resets, (int, float)) else None,
+            "utilization": info.get("utilization"), "source": "claude"}
+
+
+class LimitTracker:
+    """Records the usage limits a turn reports, as it reports them."""
+
+    def __init__(self, worktree, branch):
+        self.worktree, self.branch, self.limit, self.text = worktree, branch, None, ""
+        set_limit(worktree, branch, None)   # a new prompt: whatever held the last one is past
+
+    def notification(self, msg):
+        update = (msg.get("params") or {}).get("update") or {}
+        if update.get("sessionUpdate") == "usage_update":
+            info = (update.get("_meta") or {}).get("_claude/rateLimit")
+            if isinstance(info, dict):
+                self.limit = limit_of(info)
+                set_limit(self.worktree, self.branch, self.limit)
+        elif update.get("sessionUpdate") == "agent_message_chunk":
+            self.text = (self.text + ((update.get("content") or {}).get("text") or ""))[-600:]
+
+    def turn_ended(self, stop_reason, error=None):
+        if self.limit and self.limit["status"] == "rejected" and stop_reason == "end_turn":
+            self.limit = None   # it got through
+            set_limit(self.worktree, self.branch, None)
+        elif not self.limit and (match := LIMIT_TEXT.search(f"{self.text}\n{error or ''}")):
+            line = next(l for l in f"{self.text}\n{error or ''}".splitlines() if LIMIT_TEXT.search(l))
+            self.limit = {"status": "rejected", "type": None, "resets_at": None, "utilization": None,
+                          "source": "message", "message": line.strip()[:200]}
+            set_limit(self.worktree, self.branch, self.limit)
+
+
 def prompt_and_follow(acp, session_id, text, wait, result):
-    """Send TEXT, print RESULT, then follow the turn (in the foreground with WAIT)."""
+    """Send TEXT, print RESULT, then follow the turn (in the foreground with WAIT),
+    recording a usage limit it hits."""
+    tracker = LimitTracker(result["worktree"], result["branch"])
     rid = acp.request("session/prompt", {"sessionId": session_id,
                                          "prompt": [{"type": "text", "text": text}]})
+
+    def follow():
+        try:
+            stop = acp.wait(rid, on_notification=tracker.notification).get("stopReason")
+        except AcpError as err:
+            tracker.turn_ended(None, str(err))
+            raise
+        tracker.turn_ended(stop)
+        return stop
+
     if wait:
         print("bndos-task: waiting for the turn to end (permission requests are answered in Emacs)",
               file=sys.stderr)
-        result["stop_reason"] = acp.wait(rid).get("stopReason")
+        result["stop_reason"] = follow()
+        result["limit"] = tracker.limit
         emit(result)
         acp.close()
         return
@@ -308,7 +426,7 @@ def prompt_and_follow(acp, session_id, text, wait, result):
     os.write(ready_w, b"x")
     os.close(ready_w)
     try:
-        acp.wait(rid)
+        follow()
     except (EOFError, AcpError, OSError):
         pass
     acp.close()
@@ -356,16 +474,19 @@ def cmd_start(args):
     else:
         repo = git(args.repo, "rev-parse", "--show-toplevel")
         branch, base, ticket = args.branch, args.base, args.ticket
+        env = dict(os.environ)
+        if folder := container(repo):   # worktrees beside the main checkout, in the project's folder
+            env["WORKTRUNK_WORKTREE_PATH"] = os.path.join(folder, "{{ branch | sanitize }}")
         proc = subprocess.run(["wt", "switch", "--create", branch, "--base", base,
-                               "--no-cd", "--format", "json"], cwd=repo, capture_output=True, text=True)
+                               "--no-cd", "--format", "json"], cwd=repo, capture_output=True, text=True, env=env)
         if proc.returncode != 0:
             raise Failure(f"wt switch --create: {(proc.stderr or proc.stdout).strip()}")
         worktree = os.path.realpath(json.loads(proc.stdout)["path"])
     set_task_config(worktree, branch, base=base, agent=agent, ticket=ticket)
     result = {"protocol": "bndos-task/1", "status": "started", "branch": branch,
               "worktree": worktree, "parent": base, "agent": agent, "ticket": ticket,
-              "existing": task is not None, "warnings": []}
-    log = os.path.join(state_dir(), "logs", f"{os.path.basename(worktree)}.log")
+              "existing": task is not None, "context": context_dir(worktree), "warnings": []}
+    log = task_log(worktree)
     acp = Acp([HYDRA, "launch", agent], worktree, log)
     try:
         initialize(acp)
@@ -405,17 +526,21 @@ def cmd_start(args):
         acp.close()
         emit(result)
         return
-    save_brief(worktree, prompt)
+    save_brief(worktree, branch, prompt)
     set_task_config(worktree, branch, prompted=now_ms())
     prompt_and_follow(acp, session_id, prompt, args.wait, result)
 
 
-def save_brief(worktree, prompt):
-    """Keep the task's first prompt, which AI reviews get as the change's goal."""
-    path = os.path.join(state_dir(), "briefs", task_key(common_dir(worktree), worktree) + ".md")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        f.write(prompt)
+def save_brief(worktree, branch, prompt):
+    """Keep the task's first prompt, which AI reviews get as the change's goal;
+    in a project folder, among its briefs too."""
+    paths = [os.path.join(state_dir(), "briefs", task_key(common_dir(worktree), worktree) + ".md")]
+    if context := context_dir(worktree):
+        paths.append(os.path.join(context, "briefs", branch.replace("/", "-") + ".md"))
+    for path in paths:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(prompt)
 
 
 def cmd_send(args):
@@ -425,7 +550,7 @@ def cmd_send(args):
     prompt = read_prompt(args)
     if not prompt.strip():
         raise Failure("nothing to send")
-    log = os.path.join(state_dir(), "logs", f"{os.path.basename(task['worktree'])}.log")
+    log = task_log(task["worktree"])
     acp = Acp([HYDRA, "acp"], task["worktree"], log)
     try:
         initialize(acp)
@@ -435,7 +560,7 @@ def cmd_send(args):
         raise Failure(f"couldn't attach to {task['session_id']}: {err}", log=acp.stderr_tail())
     set_task_config(task["worktree"], task["branch"], prompted=now_ms())
     result = {"protocol": "bndos-task/1", "status": "sent", "branch": task["branch"],
-              "worktree": task["worktree"], "session_id": task["session_id"],
+              "worktree": task["worktree"], "session_id": task["session_id"], "context": task["context"],
               "queued": task["state"] in ("working", "waiting")}
     prompt_and_follow(acp, task["session_id"], prompt, args.wait, result)
 
@@ -529,15 +654,11 @@ def cmd_models(args):
     emit({"protocol": "bndos-task/1", **options, "default_mode": DEFAULT_MODES.get(agent), "source": source})
 
 
-def task_log(task):
-    return os.path.join(state_dir(), "logs", f"{os.path.basename(task['worktree'])}.log")
-
-
 def cmd_sessions(args):
     task = resolve(args.target, args.repo)
     agent = args.agent or task["agent"] or DEFAULT_AGENT
     argv, env = agent_command(agent)
-    acp = Acp(argv, task["worktree"], task_log(task), env=env)
+    acp = Acp(argv, task["worktree"], task_log(task["worktree"]), env=env)
     found, cursor = [], None
     try:
         initialize(acp)
@@ -567,7 +688,7 @@ def cmd_adopt(args):
         raise Failure(f"{task['branch']} already has session {task['session_id']} (--replace to change it)")
     agent = args.agent or task["agent"] or DEFAULT_AGENT
     session_id = "hydra_session_" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
-    acp = Acp([HYDRA, "acp"], task["worktree"], task_log(task))
+    acp = Acp([HYDRA, "acp"], task["worktree"], task_log(task["worktree"]))
     try:
         initialize(acp)
         # Attaching to an id Hydra doesn't know, with resume hints, makes it
@@ -602,12 +723,22 @@ def describe(repo, tree, config, sessions, common):
         state = "idle" if session.get("status") == "warm" else "stopped"
     prompted = int(config.get("prompted") or 0) or None
     ended = session.get("lastTurnEndedAt") if session else None
+    try:
+        limit = json.loads(config["limit"]) if config.get("limit") else None
+    except ValueError:
+        limit = None
+    if not isinstance(limit, dict) or (limit.get("resets_at") and passed(limit["resets_at"])):
+        limit = None
+    limited = bool(limit and limit.get("status") == "rejected" and state in ("working", "idle", "stopped"))
+    if limited:
+        state = "limited"
     review, unresolved = review_summary(common, tree["path"], tree.get("branch"))
     return {"protocol": "bndos-task-status/2", "branch": tree.get("branch"),
             "worktree": os.path.realpath(tree["path"]), "repo": repo,
             "parent": config.get("base"), "ticket": config.get("ticket"),
             "agent": config.get("agent"), "session_id": session_id, "state": state,
             "done": bool(state in ("idle", "stopped") and prompted and ended and ended >= prompted),
+            "limit": limit,
             "model": session.get("currentModel") if session else None,
             "title": session.get("title") if session else None,
             "attached_clients": session.get("attachedClients") if session else 0,
@@ -622,7 +753,9 @@ def all_tasks(repo):
     configs = task_configs(main["path"])
     # Only ask Hydra (possibly starting its daemon) when there's a session.
     sessions = hydra_sessions() if any("session" in c for c in configs.values()) else {}
-    return [describe(main["path"], tree, configs.get(tree.get("branch"), {}), sessions, common)
+    context = context_dir(main["path"])
+    return [dict(describe(main["path"], tree, configs.get(tree.get("branch"), {}), sessions, common),
+                 context=context)
             for tree in trees]
 
 
@@ -656,6 +789,164 @@ def cmd_status(args):
         if time.time() > deadline:
             raise Failure(f"{args.target} is still {task['state']} after {args.timeout}s", code=2, task=task)
         time.sleep(2)
+
+
+def write_json(path, value):
+    """Write VALUE to PATH whole or not at all."""
+    tmp = f"{path}.{secrets.token_hex(4)}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(value, f, indent=1)
+    os.replace(tmp, path)
+
+
+def migrate_plan(repo):
+    """What moving REPO into a project folder of its own would do, or a Failure
+    saying why it can't now."""
+    main, *trees = worktrees(git(repo, "rev-parse", "--show-toplevel"))
+    main_path = os.path.realpath(main["path"])
+    common = common_dir(main_path)
+    if common != os.path.join(main_path, ".git"):
+        raise Failure(f"{main_path} isn't an ordinary checkout (its git directory is {common})")
+    if container(main_path):
+        raise Failure(f"{main_path} is already in a project folder ({container(main_path)})")
+    folder, name = main_path, os.path.basename(main_path)
+    new_main = os.path.join(folder, name)
+    temp = f"{main_path}.bndos-migrate"
+    if os.path.exists(temp):
+        raise Failure(f"{temp} is in the way")
+    configs = task_configs(main_path)
+    sessions = hydra_sessions() if any("session" in c for c in configs.values()) else {}
+    moves, busy, targets = [], [], set()
+    for tree in trees:
+        branch = tree.get("branch")
+        state = describe(main_path, tree, configs.get(branch, {}), sessions, common)["state"]
+        if state in ("working", "waiting"):
+            busy.append(f"{branch} is {state}")
+        target = os.path.join(folder, (branch or os.path.basename(tree["path"])).replace("/", "-"))
+        if os.path.basename(target) in (name, TASKS_DIR) or os.path.exists(target) or target in targets:
+            raise Failure(f"{branch}'s worktree can't go to {target}: the name is taken")
+        targets.add(target)
+        moves.append({"branch": branch, "from": os.path.realpath(tree["path"]), "to": target,
+                      "locked": "locked" in tree})
+    if busy:
+        raise Failure("finish or stop these tasks first: " + "; ".join(busy))
+    locked = [m["branch"] for m in moves if m["locked"]]
+    if locked:
+        raise Failure(f"locked worktrees can't be moved: {', '.join(locked)} (git worktree unlock)")
+    dropped = sorted(b for b, c in configs.items() if c.get("session"))
+    olds = [m["from"] for m in moves] + [main_path]
+    cwds = []
+    out = subprocess.run(["lsof", "-d", "cwd", "-Fpcn"], capture_output=True, text=True).stdout
+    proc = {}
+    for line in out.splitlines():
+        if line[:1] == "p":
+            proc = {"pid": int(line[1:])}
+        elif line[:1] == "c":
+            proc["command"] = line[1:]
+        elif line[:1] == "n" and any(line[1:] == o or line[1:].startswith(o + "/") for o in olds):
+            cwds.append(f"{proc.get('command')} (pid {proc.get('pid')}) in {line[1:]}")
+    follow_up = [f"reopen in Emacs any file open from {main_path} or a task worktree"]
+    for venv in (".venv", "venv", "env"):
+        if os.path.exists(os.path.join(main_path, venv, "pyvenv.cfg")):
+            follow_up.append(f"recreate the virtualenv {os.path.join(new_main, venv)}: its scripts name the old path")
+    if os.path.exists(os.path.join(main_path, ".envrc")):
+        follow_up.append(f"run direnv allow in {new_main}")
+    if cwds:
+        follow_up.append("restart what ran in the old folders: " + "; ".join(cwds))
+    if dropped:
+        follow_up.append("start gives these tasks a new agent (the old conversations stay in Hydra): "
+                         + ", ".join(dropped))
+    return {"folder": folder, "main": new_main, "from": main_path, "temp": temp, "common": common,
+            "worktrees": moves, "sessions_dropped": dropped, "follow_up": follow_up}
+
+
+def cmd_migrate(args):
+    plan = migrate_plan(args.repo)
+    report = {k: v for k, v in plan.items() if k not in ("temp", "common")}
+    if args.dry_run:
+        emit({"protocol": "bndos-task/1", "status": "planned", **report})
+        return
+    folder, new_main, old_main, old_common = plan["folder"], plan["main"], plan["from"], plan["common"]
+    # The repo one level down, in a folder of the same name.
+    os.rename(old_main, plan["temp"])
+    try:
+        os.mkdir(folder)
+        os.rename(plan["temp"], new_main)
+    except OSError:
+        if os.path.isdir(folder) and not os.listdir(folder):
+            os.rmdir(folder)
+        os.rename(plan["temp"], old_main)
+        raise
+    os.makedirs(os.path.join(folder, TASKS_DIR, "briefs"), exist_ok=True)
+    git(new_main, "worktree", "repair")
+    remap = {old_main: new_main}
+
+    def moved(path):
+        path = os.path.realpath(path) if os.path.exists(path) else path.rstrip("/")
+        for old, new in sorted(remap.items(), key=lambda kv: -len(kv[0])):
+            if path == old or path.startswith(old + "/"):
+                return new + path[len(old):]
+        return path
+
+    for move in plan["worktrees"]:
+        git(new_main, "worktree", "move", moved(move["from"]), move["to"])
+        remap[move["from"]] = move["to"]
+    new_common = common_dir(new_main)
+    for branch in plan["sessions_dropped"]:
+        git(new_main, "config", "--unset", f"branch.{branch}.bndos-session")
+    # Emacs's records, briefs and logs, by the new keys; review files' roots.
+    store = state_dir()
+    tasks_dir = os.path.join(store, "tasks")
+    for entry in sorted(os.listdir(tasks_dir)) if os.path.isdir(tasks_dir) else []:
+        path = os.path.join(tasks_dir, entry)
+        try:
+            with open(path) as f:
+                record = json.load(f)
+        except (OSError, ValueError):
+            continue
+        repo_info, tree = record.get("repo") or {}, record.get("worktree") or {}
+        if os.path.realpath(repo_info.get("common-dir") or "/") != old_common:
+            continue
+        old_key, wt = record.get("key"), moved(tree.get("path") or old_main)
+        key = task_key(new_common, wt)
+        record.update(key=key)
+        repo_info.update({"common-dir": new_common, "main-path": new_main + "/"})
+        tree.update({"path": wt + "/", "handle": os.path.basename(wt)})
+        if isinstance(record.get("agent"), dict):
+            record["agent"].pop("session-id", None)
+        write_json(os.path.join(tasks_dir, key + ".json"), record)
+        if key != old_key:
+            os.remove(path)
+        for sub, ext in (("briefs", ".md"), ("logs", ".log")):
+            old = os.path.join(store, sub, f"{old_key}{ext}")
+            if os.path.exists(old):
+                os.replace(old, os.path.join(store, sub, f"{key}{ext}"))
+        brief = os.path.join(store, "briefs", key + ".md")
+        if os.path.exists(brief) and record.get("branch"):
+            with open(brief) as src, open(os.path.join(folder, TASKS_DIR, "briefs",
+                                                       record["branch"].replace("/", "-") + ".md"), "w") as dst:
+                dst.write(src.read())
+    reviews = os.path.join(new_common, "review")
+    for entry in os.listdir(reviews) if os.path.isdir(reviews) else []:
+        path = os.path.join(reviews, entry)
+        if not entry.endswith(".json") or not os.path.isfile(path):
+            continue
+        with open(path) as f:
+            review = json.load(f)
+        if isinstance(review.get("root"), str) and moved(review["root"]) != review["root"].rstrip("/"):
+            review["root"] = moved(review["root"]) + "/"
+            write_json(path, review)
+    projects = os.path.join(store, "projects.json")
+    if os.path.exists(projects):
+        with open(projects) as f:
+            dirs = json.load(f)
+        write_json(projects, [new_main + "/" if os.path.realpath(d) == old_main else d for d in dirs])
+    emit({"protocol": "bndos-task/1", "status": "migrated", "context": os.path.join(folder, TASKS_DIR), **report})
+
+
+def cmd_context(args):
+    folder = container(args.repo)
+    emit({"protocol": "bndos-task/1", "container": folder, "context": folder and os.path.join(folder, TASKS_DIR)})
 
 
 def main():
@@ -707,6 +998,15 @@ def main():
     adopt.add_argument("--base", help="also record the parent branch")
     adopt.add_argument("--replace", action="store_true", help="replace a session already recorded")
     adopt.set_defaults(fn=cmd_adopt)
+
+    migrate = sub.add_parser("migrate", help="move the repository into a project folder of its own")
+    migrate.add_argument("--repo", default=os.getcwd())
+    migrate.add_argument("--dry-run", action="store_true", help="report what would happen, change nothing")
+    migrate.set_defaults(fn=cmd_migrate)
+
+    context = sub.add_parser("context", help="the project folder's .tasks folder, if the repo is in one")
+    context.add_argument("--repo", default=os.getcwd())
+    context.set_defaults(fn=cmd_context)
 
     models = sub.add_parser("models", help="list the models and modes an agent offers")
     models.add_argument("--agent")

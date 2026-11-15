@@ -16,7 +16,7 @@
 ;; Layout:
 ;;   tasks/<key>.json      task identity, agent session, threads, requests
 ;;                         (bin/bndos-task status reads the review state)
-;;   logs/<worktree>.log   Hydra shim output from bin/bndos-task
+;;   logs/<key>.log        Hydra shim output from bin/bndos-task
 ;;   removed/<key>.json    records of gone tasks forgotten from the dashboard
 ;;   projects.json         repositories shown in the dashboard
 

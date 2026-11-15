@@ -98,6 +98,22 @@ Identity is (:common-dir DIR :toplevel DIR :branch NAME-or-nil :head SHA-or-nil)
               (let ((default-directory (file-name-as-directory directory)))
                 (process-lines "git" "config" "--get" (bndos-task-git-base-key branch)))))))
 
+(defconst bndos-task-git-tasks-dir ".tasks"
+  "The folder that makes a repository's parent its project folder.")
+
+(defun bndos-task-git-container (directory)
+  "The project folder DIRECTORY's repository lives in, or nil: its main
+checkout's parent, when that holds a `bndos-task-git-tasks-dir' folder."
+  (when-let* ((common (car (ignore-errors
+                             (let ((default-directory (file-name-as-directory directory)))
+                               (process-lines "git" "rev-parse" "--path-format=absolute"
+                                              "--git-common-dir")))))
+              (common (directory-file-name (file-truename common)))
+              ((equal (file-name-nondirectory common) ".git"))
+              (parent (file-name-directory (directory-file-name (file-name-directory common))))
+              ((file-directory-p (expand-file-name bndos-task-git-tasks-dir parent))))
+    parent))
+
 (defun bndos-task-git-set-base (directory branch ref callback)
   "Record REF as BRANCH's parent; CALLBACK gets nil or an error message."
   (bndos-task-git directory (list "config" (bndos-task-git-base-key branch) ref)

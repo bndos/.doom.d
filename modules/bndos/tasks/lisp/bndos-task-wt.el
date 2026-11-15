@@ -6,6 +6,8 @@
 ;; `wt list --format json' for the inventory and
 ;; `wt switch --create BRANCH --base BASE --no-cd --format json' to create one
 ;; (without --create, to bring back a gone task's worktree for its branch).
+;; In a project folder (`bndos-task-git-container') worktrees go beside the
+;; main checkout; elsewhere worktrunk's worktree-path decides.
 ;; `--yes' is never passed, so a repository's hooks still need the user's
 ;; approval (`wt config approvals add'); unapproved hooks make creation fail
 ;; with worktrunk's explanation instead of running.
@@ -16,6 +18,7 @@
 (require 'subr-x)
 (require 'seq)
 (require 'bndos-proc)
+(require 'bndos-task-git)
 
 (defcustom bndos-task-wt-program "wt"
   "The worktrunk executable."
@@ -42,11 +45,12 @@
         (string-join (mapcar #'string-trim lines) " ")
       (bndos-proc-error-message result))))
 
-(cl-defun bndos-task-wt--call (args &key directory json callback)
-  "Run wt ARGS (with -C DIRECTORY); CALLBACK gets stdout, parsed JSON, or an error."
+(cl-defun bndos-task-wt--call (args &key directory json env callback)
+  "Run wt ARGS (with -C DIRECTORY, ENV); CALLBACK gets stdout, parsed JSON, or an error."
   (bndos-proc-run bndos-task-wt-program
                   (append (and directory (list "-C" (expand-file-name directory))) args)
                   :directory (or directory temporary-file-directory)
+                  :env env
                   :callback
                   (lambda (result)
                     (funcall callback
@@ -137,6 +141,9 @@ Each is a plist (:branch :path :main :changes (:staged :modified :untracked
   "Run wt switch ARGS in REPO; CALLBACK gets its JSON with :path, or an error plist."
   (bndos-task-wt--call (append '("switch") args '("--no-cd" "--format" "json"))
                        :directory repo :json t
+                       ;; In a project folder, beside the main checkout (as bin/bndos-task does).
+                       :env (when-let* ((folder (bndos-task-git-container repo)))
+                              (list (concat "WORKTRUNK_WORKTREE_PATH=" folder "{{ branch | sanitize }}")))
                        :callback
                        (lambda (out)
                          (funcall callback

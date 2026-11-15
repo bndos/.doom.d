@@ -15,6 +15,15 @@
       (add-to-list 'native-comp-driver-options
                    (concat "-L" (file-name-directory lib)) t))))
 
+;; Older emacs-plus builds put CC=gcc-NN in Emacs.app's environment, which
+;; every child process inherits; once Homebrew moves gcc on, builds such as
+;; vterm's module fail.  Native compilation never reads CC, and emacs-plus no
+;; longer sets it (its issue #939): leave builds the system compiler until the
+;; app is rebuilt.
+(when (and (featurep :system 'macos)
+           (string-match-p "/gcc-[0-9]+\\'" (or (getenv "CC") "")))
+  (setenv "CC" nil))
+
 (doom! :completion
        corfu
        vertico

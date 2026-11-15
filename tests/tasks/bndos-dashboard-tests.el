@@ -234,5 +234,56 @@ PROPS are :session (its session id), :threads and the row's own keys."
     (should-not (bndos-task-git-saved-base-sync repo "other"))
     (should-not (bndos-task-git-saved-base-sync repo nil))))
 
+;;; Usage limits seen in agent-shell
+
+(ert-deftest bndos-dash-a-limit-agent-shell-reports-shows-and-lifts ()
+  (bndos-test-with-store
+    (bndos-test-with-repo repo
+      (pcase-let* ((`(,key . ,wt) (bndos-test-task repo "feat" "main"))
+                   (record (bndos-task-store-load key))
+                   (resets (+ (truncate (float-time)) 3600))
+                   (meta `((_claude/rateLimit . ((status . "rejected") (resetsAt . ,resets)
+                                                 (rateLimitType . "five_hour") (utilization . 1.0))))))
+        (clrhash bndos-task-agent--hydra)
+        (with-temp-buffer
+          (setq-local bndos-task-agent--watch (list :key key))
+          (cl-letf (((symbol-function 'bndos-task-agent-buffer) (lambda (_) nil)))
+            (bndos-task-agent--on-usage key meta)
+            ;; Recorded as bin/bndos-task records it, and shown.
+            (let ((stored (json-parse-string (bndos-test-git wt "config" "branch.feat.bndos-limit")
+                                             :object-type 'plist)))
+              (should (equal (plist-get stored :status) "rejected"))
+              (should (equal (plist-get stored :type) "five_hour")))
+            (should (eq (bndos-task-agent-lifecycle record) 'limited))
+            (should (string-match-p "⏸ limit · 5-hour · resets [0-9][0-9]:[0-9][0-9]"
+                                    (substring-no-properties (bndos-task--state-label record))))
+            ;; The turn got through: lifted.
+            (bndos-task-agent--limit-at-turn-end key 'end_turn)
+            (should-not (bndos-task-agent-limit record))
+            (should-not (ignore-errors (bndos-test-git wt "config" "branch.feat.bndos-limit")))
+            ;; Close to a limit: beside the state.
+            (bndos-task-agent--on-usage
+             key `((_claude/rateLimit . ((status . "allowed_warning") (rateLimitType . "seven_day")
+                                         (resetsAt . ,(+ resets 86400)) (utilization . 0.91)))))
+            (should (string-match-p "· weekly 91%" (substring-no-properties (bndos-task--state-label record))))
+            (bndos-task-agent--on-usage key '((_claude/rateLimit . ((status . "allowed")))))
+            (should-not (bndos-task-agent-limit record))
+            ;; An agent that only says so.
+            (setq bndos-task-agent--watch (plist-put bndos-task-agent--watch :limit-text
+                                                     "Working on it.\nYou've hit your usage limit. Try again at 3 PM."))
+            (bndos-task-agent--limit-at-turn-end key 'end_turn)
+            (should (equal (plist-get (bndos-task-agent-limit record) :source) "message"))
+            (should (eq (bndos-task-agent-lifecycle record) 'limited))
+            ;; Talk about rate limits in code isn't a limit.
+            (bndos-task-agent--set-limit key nil)
+            (setq bndos-task-agent--watch (plist-put bndos-task-agent--watch :limit-text
+                                                     "I added a rate limit to the login endpoint."))
+            (bndos-task-agent--limit-at-turn-end key 'end_turn)
+            (should-not (bndos-task-agent-limit record))
+            ;; Odd values from elsewhere don't break the dashboard.
+            (puthash key (list :limit (list :status "allowed_warning" :utilization "lots" :resets_at 42))
+                     bndos-task-agent--hydra)
+            (should (stringp (bndos-task--state-label record)))))))))
+
 (provide 'bndos-dashboard-tests)
 ;;; bndos-dashboard-tests.el ends here
