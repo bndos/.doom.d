@@ -122,7 +122,7 @@
       (with-current-buffer file
         (let* ((carriers (seq-filter (lambda (o) (overlay-get o 'diff-review-anchors)) diff-review--overlays))
                (strings (mapcar (lambda (o) (substring-no-properties (or (overlay-get o 'before-string) ""))) carriers)))
-          (should (seq-some (lambda (s) (string-match-p "about the file.*● open\\|● open.*about the file" s)) strings)))))))
+          (should (seq-some (lambda (s) (string-match-p " Open .*about the file" s)) strings)))))))
 
 (defmacro bndos-test-with-diff-view (spec &rest body)
   "SPEC is (KEY WT REVIEW FILE): main's src/a.txt is one / two / three, the
@@ -466,11 +466,19 @@ task's one / TWO / four, shown in FILE's window."
           (should-not (seq-find (lambda (o) (eq (overlay-get o 'face) 'diff-review-refine-added))
                                 diff-review--overlays)))))))
 
-(defun bndos-test-gh-stub (dir pr threads)
-  "A gh in DIR answering `pr view' with PR and `api graphql' with THREADS (plists)."
+(defun bndos-test-gh-stub (dir pr threads &optional comments reviews)
+  "A gh in DIR answering `pr view' with PR and `api graphql' with THREADS,
+or with COMMENTS and REVIEWS when asked for those (all plists)."
   (let ((script (expand-file-name "gh" dir))
         (pr-file (expand-file-name "pr.json" dir))
-        (gql-file (expand-file-name "gql.json" dir)))
+        (gql-file (expand-file-name "gql.json" dir))
+        (conversation-file (expand-file-name "conversation.json" dir)))
+    (with-temp-file conversation-file
+      (insert (json-serialize
+               (list :data (list :repository
+                                 (list :pullRequest
+                                       (list :comments (list :nodes (vconcat comments))
+                                             :reviews (list :nodes (vconcat reviews)))))))))
     (with-temp-file pr-file (insert (json-serialize pr)))
     (with-temp-file gql-file
       (insert (json-serialize
@@ -480,7 +488,8 @@ task's one / TWO / four, shown in FILE's window."
                                              (list :pageInfo (list :hasNextPage :false :endCursor :null)
                                                    :nodes (vconcat threads)))))))))
     (with-temp-file script
-      (insert (format "#!/bin/sh\ncase \"$1\" in pr) cat '%s';; api) cat '%s';; esac\n" pr-file gql-file)))
+      (insert (format "#!/bin/sh\ncase \"$1\" in pr) cat '%s';; api) case \"$*\" in *reviews*) cat '%s';; *) cat '%s';; esac;; esac\n"
+                      pr-file conversation-file gql-file)))
     (set-file-modes script #o755)
     script))
 
@@ -504,16 +513,28 @@ task's one / TWO / four, shown in FILE's window."
                                 (list (bndos-test-gh-thread "T1" "RIGHT" 2 head "Why uppercase?")
                                       (bndos-test-gh-thread "T2" "LEFT" 2 head "Keep two?")
                                       (bndos-test-gh-thread "T3" "RIGHT" 3 head "Fine." :resolved t
-                                                            :replies '("Thanks"))))))
+                                                            :replies '("Thanks")))
+                                (list (list :id "C1" :url "https://github.com/me/repo/pull/7#c1" :body "Please add docs."
+                                            :createdAt "2026-11-12T09:00:00Z" :author (list :login "octo")))
+                                (list (list :id "R1" :url "https://github.com/me/repo/pull/7#r1" :body "LGTM" :state "APPROVED"
+                                            :submittedAt "2026-11-12T11:00:00Z" :author (list :login "octo"))
+                                      (list :id "R2" :url "https://github.com/me/repo/pull/7#r2" :body "" :state "COMMENTED"
+                                            :submittedAt "2026-11-12T10:30:00Z" :author (list :login "octo"))))))
       (unwind-protect
           (progn
             (bndos-review-github-refresh review)
             (bndos-proc-wait (lambda () (plist-get (buffer-local-value 'bndos-review-github--state review) :number)) 10)
             (with-current-buffer review
-              (should (= (length diff-review-external-comments) 3))
+              (should (= (length diff-review-external-comments) 5))
               (let ((text (buffer-substring-no-properties (point-min) (point-max))))
                 (should (string-match-p "GitHub +PR #7 · 3 threads (1 resolved)" text))
-                (should (string-match-p "GitHub (3)" text))))
+                (should (string-match-p "PR #7 · 3 threads (1 resolved) · 2 comments" text))
+                ;; Comments on no lines are notes: in the timeline, nothing to resolve.
+                (should (string-match-p "2 unresolved · 1 resolved" text))
+                (should (= (how-many "@octo .* GitHub$" (point-min) (point-max)) 5))
+                (should (string-match-p "^ +Comment +conversation +@octo .*Please add docs\\." text))
+                (should (string-match-p "^ +Approved +conversation +@octo .*LGTM" text))
+                (should-not (string-match-p "^ +Review " text))))
             (let ((file (bndos-test-open-file review "src/a.txt")))
               (with-current-buffer file
                 ;; On its line, from the commit it was written on.
@@ -536,7 +557,7 @@ task's one / TWO / four, shown in FILE's window."
               (bndos-review-github-toggle)
               (should-not diff-review-external-comments)
               (bndos-review-github-toggle)
-              (should (= (length diff-review-external-comments) 3))))
+              (should (= (length diff-review-external-comments) 5))))
         (delete-directory stubs t)))))
 
 (defun bndos-test-section-at (regexp)
@@ -559,10 +580,9 @@ task's one / TWO / four, shown in FILE's window."
       (with-current-buffer review
         (revert-buffer t t t)
         (switch-to-buffer review)
-        ;; A thread: folded, its whole conversation inside.
+        ;; An open thread: unfolded, its whole conversation inside.
         (let ((section (bndos-test-section-at "src/a.txt:2  me")))
-          (should (oref section hidden))
-          (magit-section-show section)
+          (should-not (oref section hidden))
           (let ((body (buffer-substring-no-properties (oref section content) (oref section end))))
             (should (string-match-p "why upper\\?" body))
             (should (string-match-p "For emphasis\\." body))))   ; markdown rendered
@@ -580,6 +600,45 @@ task's one / TWO / four, shown in FILE's window."
           (with-current-buffer (progn (diff-review-open-at-point) (window-buffer))
             (should (string-suffix-p "/src/a.txt" buffer-file-name))
             (should (= (line-number-at-pos) 2))))))))
+
+;; Each thread: (BODY LINE CREATED STATE).
+(ert-deftest bndos-review-the-overview-reads-as-a-conversation ()
+  (let ((diff-review-overview-threads 'full))
+    (bndos-test-with-review (key wt review)
+        (lambda (wt) (bndos-test-commit wt "change" "src/a.txt" "one\nTWO\nthree\n"))
+      (pcase-dolist (`(,body ,line ,created ,state)
+                     '(("latest" 1 "2026-11-03T00:00:00+0000" "open")
+                       ("earliest" 3 "2026-11-01T00:00:00+0000" "sent")
+                       ("middle" 2 "2026-11-02T00:00:00+0000" "resolved")))
+        (let ((th (bndos-task-make-thread :kind "comment" :author "me" :body body
+                                          :anchor (bndos-task-review--line-anchor wt "src/a.txt" line nil))))
+          (bndos-task-store-update
+           key (lambda (r) (bndos-task-add-thread r (plist-put (plist-put th :created created) :state state))))))
+      (with-current-buffer review
+        (revert-buffer t t t)
+        (let ((github (make-hash-table :test #'equal)))
+          (puthash "id" "github:1" github) (puthash "path" "src/a.txt" github) (puthash "lines" [2 2] github)
+          (puthash "author" "@octo" github) (puthash "at" "2026-11-02T12:00:00Z" github)
+          (puthash "body" "from github" github) (puthash "external" "GitHub" github)
+          (setq diff-review-external-comments (list github))
+          (diff-review--render-all))
+        ;; Oldest first, GitHub's among the task's; each with its state.
+        (let ((rows (mapcar (lambda (l) (split-string l "  +" t))
+                            (seq-filter (lambda (l) (string-match-p "^ +\\(Open\\|Resolved\\|With agent\\) " l))
+                                        (split-string (buffer-substring-no-properties (point-min) (point-max)) "\n")))))
+          (should (equal (mapcar (lambda (row) (nth 4 row)) rows) '("earliest" "middle" "from github" "latest")))
+          (should (equal (mapcar #'car rows) '("With agent" "Resolved" "Open" "Open"))))
+        (should (string-match-p "Comments  3 unresolved · 1 resolved" (buffer-string)))
+        ;; Resolved folded, the rest open; resolving folds, reopening opens.
+        (should (oref (bndos-test-section-at "Resolved .* middle") hidden))
+        (let ((section (bndos-test-section-at "Open .* latest")))
+          (should-not (oref section hidden))
+          (goto-char (oref section start))
+          (bndos/task-review-resolve)
+          (should (oref (bndos-test-section-at "Resolved .* latest") hidden))
+          (goto-char (oref (bndos-test-section-at "Resolved .* latest") start))
+          (bndos/task-review-reopen)
+          (should-not (oref (bndos-test-section-at "Open .* latest") hidden)))))))
 
 (ert-deftest bndos-review-a-thread-that-fails-to-draw-leaves-the-overview-whole ()
   (let ((diff-review-overview-threads 'full))
@@ -963,9 +1022,9 @@ functions of HEAD (the worktree's HEAD), fetched before BODY."
         (goto-char (diff-review--line-pos 2))
         (diff-review-toggle-resolved)
         (should (equal (plist-get (car (plist-get (bndos-task-store-load key) :threads)) :state) "open")))
-      ;; The overview lists threads by state.
+      ;; Open again in the overview.
       (with-current-buffer review
-        (should (string-match-p "Open (1)" (buffer-string)))))))
+        (should (string-match-p "^ + Open +src/a\\.txt:2 " (buffer-string)))))))
 
 (ert-deftest bndos-review-threads-from-before-move-into-the-review-file ()
   (bndos-test-with-store

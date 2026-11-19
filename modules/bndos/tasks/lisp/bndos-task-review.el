@@ -467,21 +467,29 @@ SELECT, show it in the selected window."
     ("addressed" 'bndos-task-review-thread-addressed)
     (_ 'bndos-task-review-thread-resolved)))
 
-(defconst bndos-task-review--state-glyphs
-  '(("open" . "●") ("sent" . "◐") ("addressed" . "✓") ("resolved" . "○")))
+(defconst bndos-task-review--state-names
+  '(("open" . "Open") ("sent" . "With agent") ("addressed" . "To verify") ("resolved" . "Resolved"))
+  "(STATE . NAME) for a task thread's chip.")
+
+(defun bndos-task-review--thread-state (comment)
+  "A task thread's state for its chip (`diff-review-thread-state-function')."
+  (when (bndos-task-review--review)
+    (let ((state (plist-get (bndos-task-thread-from-comment comment) :state)))
+      (cons (alist-get state bndos-task-review--state-names state nil #'equal)
+            (bndos-task-review--state-face state)))))
+
+(setq diff-review-thread-state-function #'bndos-task-review--thread-state)
 
 (defun bndos-task-review--thread-label (comment)
-  "A task thread's state and kind (`diff-review-thread-label-function')."
+  "A task thread's mark and kind (`diff-review-thread-label-function')."
   (when (bndos-task-review--review)
     (let* ((thread (bndos-task-thread-from-comment comment))
-           (state (plist-get thread :state))
            (kind (plist-get thread :kind)))
-      (concat (propertize (format "%s %s" (alist-get state bndos-task-review--state-glyphs "?" nil #'equal)
-                                  (if (equal state "addressed") "to verify" state))
-                          'face (bndos-task-review--state-face state))
-              (if (member (plist-get thread :id) (bndos-task-review--in-review bndos-task-review--marked))
-                  (propertize " [marked]" 'face 'bold) "")
-              (if (member kind '("comment" nil)) "" (propertize (format " · %s" kind) 'face 'shadow))))))
+      (string-join (delq nil (list (and (member (plist-get thread :id)
+                                                (bndos-task-review--in-review bndos-task-review--marked))
+                                        (propertize "[marked]" 'face 'bold))
+                                   (and (not (member kind '("comment" nil))) (propertize kind 'face 'shadow))))
+                   " "))))
 
 (setq diff-review-thread-label-function #'bndos-task-review--thread-label)
 
@@ -527,21 +535,6 @@ SELECT, show it in the selected window."
                                 :inverse-video t :weight 'bold))))))
 
 (setq diff-review-message-badge-function #'bndos-task-review--message-badge)
-
-(defconst bndos-task-review--thread-groups
-  '(("open" . "Open") ("sent" . "Waiting on the agent") ("addressed" . "To verify") ("resolved" . "Resolved"))
-  "(STATE . HEADING) for the overview's groups of threads.")
-
-(defun bndos-task-review--comment-groups (comments)
-  "A task review's threads by state (`diff-review-comment-groups-function')."
-  (when bndos-task-review-key
-    (mapcar (lambda (group)
-              (cons (cdr group)
-                    (seq-filter (lambda (c) (equal (plist-get (bndos-task-thread-from-comment c) :state) (car group)))
-                                comments)))
-            bndos-task-review--thread-groups)))
-
-(setq diff-review-comment-groups-function #'bndos-task-review--comment-groups)
 
 
 ;;; Threads at point
