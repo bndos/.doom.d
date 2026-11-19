@@ -223,6 +223,11 @@ sections in the overview, after its summary and before its files.")
 (defvar diff-review-message-lines-function nil
   "Function called with a comment or reply, returning lines to show after its body.")
 
+(defvar diff-review-thread-drafts-function nil
+  "bndos: function called with a thread, returning its replies not sent yet:
+messages like the review file's, each with \"draft\" set, drawn after the
+thread's own.")
+
 (defvar diff-review-thread-state-function nil
   "bndos: function called with one of the review's own comments, returning
 its state as (NAME . FACE) for its chip, or nil for Open or Resolved.")
@@ -652,7 +657,13 @@ Returns t, as `write-contents-functions' expects."
 (defun diff-review--label (comment)
   "bndos: COMMENT's label: its source when external, else the caller's."
   (if-let* ((source (diff-review--external-p comment)))
-      (propertize source 'face 'diff-review-external)
+      (concat (propertize source 'face 'diff-review-external)
+              (let ((drafts (and diff-review-thread-drafts-function
+                                 (length (funcall diff-review-thread-drafts-function comment)))))
+                (if (and drafts (> drafts 0))
+                    (propertize (format "  %s %d draft%s" (diff-review--glyph "✎" "~") drafts (if (= drafts 1) "" "s"))
+                                'face 'diff-review-draft)
+                  "")))
     (let ((label (and diff-review-thread-label-function (funcall diff-review-thread-label-function comment))))
       (and label (not (string-empty-p label)) label))))
 
@@ -1143,8 +1154,10 @@ draw, so its whole thread is here in any case."
               "\n\n"
               (format "%d file%s changed, " n (if (= n 1) "" "s"))
               (diff-review--summary) "\n"
-              (propertize (format "%s\nmerge-base %s\n%s\n"
+              (propertize (format "%s\n%s %s\n%s\n"
                                   (abbreviate-file-name diff-review--root)
+                                  ;; bndos: a range given is from its base, not a merge-base.
+                                  (if diff-review--ranged "base" "merge-base")
                                   (substring diff-review--base 0 10)
                                   (abbreviate-file-name buffer-file-name))
                           'face 'shadow)
@@ -2633,7 +2646,7 @@ margin; the keys are hinted where they are bound, in a file."
       (let ((fill (if-let* ((window (get-buffer-window (current-buffer))))
                       (max 20 (min 100 (- (window-body-width window) 8)))
                     width)))
-        (dolist (message (cons comment (append replies nil)))
+        (dolist (message (diff-review--thread-messages comment))
           (push "" lines)
           (dolist (line (split-string (string-trim-right (diff-review--panel-message message comment fill)) "\n"))
             (push (concat "  " line) lines))))
@@ -2881,6 +2894,23 @@ A region ending at the start of a line stops before it."
         (cons first (max first (line-number-at-pos (max (region-beginning) (1- (region-end))) t))))
     (let ((line (line-number-at-pos nil t))) (cons line line))))
 
+(defun diff-review--overview-thread-at-point ()
+  "bndos: in the overview, the thread at point as a list of one, or nil."
+  (when (derived-mode-p 'diff-review-mode)
+    (if-let* ((inline (get-text-property (point) 'diff-review-inline)))
+        (list (car inline))
+      (when-let* ((section (magit-current-section))
+                  (section (seq-find (lambda (s) (eq (oref s type) 'diff-review-comment))
+                                     (let (chain) (while section (push section chain)
+                                                         (setq section (oref section parent)))
+                                          (nreverse chain))))
+                  (comment (diff-review--comment (oref section value))))
+        (list comment)))))
+
+(defvar diff-review-external-reply-function nil
+  "bndos: function called with an external thread to reply to it, or nil
+for external threads to be read only.")
+
 (defun diff-review--read-body (prompt)
   "Read a comment body in a buffer, with PROMPT; empty is refused."
   (let ((body (string-trim-right (read-string-from-buffer prompt ""))))
@@ -2888,9 +2918,11 @@ A region ending at the start of a line stops before it."
     body))
 
 (defun diff-review--thread-here ()
-  "The comment at point, asked for when there are several; else an error."
-  (let ((comments (mapcar (lambda (o) (overlay-get o 'diff-review-comment))
-                          (diff-review--threads-at-point))))
+  "The comment at point, asked for when there are several; else an error.
+bndos: in the overview, the thread of the row or the diff's thread at point."
+  (let ((comments (or (diff-review--overview-thread-at-point)
+                      (mapcar (lambda (o) (overlay-get o 'diff-review-comment))
+                              (diff-review--threads-at-point)))))
     (cond ((null comments) (user-error "No comment on this line"))
           ((null (cdr comments)) (car comments))
           (t (let* ((names (mapcar (lambda (c)   ; the id: two may read the same
@@ -2970,8 +3002,15 @@ The table at point may be stale once someone else's write is taken."
 (defun diff-review-reply ()
   "Reply to the comment thread at point."
   (interactive)
-  (let* ((comment (let ((c (diff-review--thread-here))) (diff-review--refuse-external c) c))
-         (body (diff-review--read-body (format "Reply to %s" (gethash "author" comment)))))
+  (let ((comment (diff-review--thread-here)))
+    (if (and (diff-review--external-p comment) diff-review-external-reply-function)   ; bndos
+        (funcall diff-review-external-reply-function comment)
+      (diff-review--refuse-external comment)
+      (diff-review--reply comment))))
+
+(defun diff-review--reply (comment)
+  "Reply to COMMENT, one of the review's own threads, with a body asked for."
+  (let ((body (diff-review--read-body (format "Reply to %s" (gethash "author" comment)))))
     (diff-review--change-comment
      comment
      (lambda (c)
@@ -3965,16 +4004,15 @@ The review buffer must be current."
                       (diff-review--quote-from-blob comment))))
          (text (concat
                 (when-let* ((source (diff-review--external-p comment)))
-                  (propertize (concat "From " source ", read only"
+                  (propertize (concat "From " source
                                       (if-let* ((url (gethash "url" comment))) (concat "  " url) "")
                                       "\n\n")
                               'face 'shadow))
                 (when (and quote (cdr quote) (not (string-empty-p (cdr quote))))
                   (concat (string-trim-right (diff-review--markdown (format "```%s\n%s\n```" (or (car quote) "") (cdr quote))))
                           "\n\n"))
-                (diff-review--panel-message comment comment)
-                (mapconcat (lambda (reply) (concat "\n" (diff-review--panel-message reply comment)))
-                           (or (gethash "replies" comment) []) ""))))
+                (mapconcat (lambda (message) (diff-review--panel-message message comment))
+                           (diff-review--thread-messages comment) "\n"))))
     (propertize (concat (mapconcat (lambda (line)
                                      (let ((wrap (get-text-property 0 'wrap-prefix line)))
                                        (concat "      " (if wrap (propertize line 'wrap-prefix (concat "      " wrap)) line))))
@@ -4070,7 +4108,8 @@ for when a file unfolds."
                     custom-enabled-themes
                     (let ((comments (diff-review--file-comments (plist-get file :path))))
                       (prin1-to-string
-                       (cons comments (mapcar (lambda (c) (ignore-errors (list (diff-review--label c) (diff-review--state c))))
+                       (cons comments (mapcar (lambda (c) (ignore-errors (list (diff-review--label c) (diff-review--state c)
+                                                                         (diff-review--thread-messages c))))
                                               comments))))))
          (cache (if (and diff-review--diff-cache (< (hash-table-count diff-review--diff-cache) 64))
                     diff-review--diff-cache
@@ -4249,12 +4288,23 @@ COMMENT is the thread it is in."
           ((string-prefix-p "ai:" author) (cons "✦" 'diff-review-author-ai))
           (t (cons "●" 'diff-review-comment-author)))))
 
+(defun diff-review--thread-messages (comment)
+  "bndos: COMMENT's messages to draw: itself, its replies, then its drafts."
+  (append (list comment) (gethash "replies" comment)
+          (and diff-review-thread-drafts-function (funcall diff-review-thread-drafts-function comment))))
+
+(defface diff-review-draft '((t :inherit warning :weight bold))
+  "bndos: face for a message not sent yet.")
+
 (defun diff-review--panel-message (message comment &optional width)
   "MESSAGE of thread COMMENT in full: a header band with its author's mark,
 name, badge and time, then its body, filled to WIDTH when given, and
 details beside a rule in the author's colour."
-  (pcase-let* ((`(,mark . ,face) (diff-review--author-role message comment))
-               (when (diff-review--when (gethash "at" message)))
+  (pcase-let* ((draft (gethash "draft" message))   ; bndos
+               (`(,mark . ,face) (if draft (cons "✎" 'diff-review-draft) (diff-review--author-role message comment)))
+               ;; bndos: a draft's state, as its source words it.
+               (when (concat (cond ((stringp draft) (concat draft "  ")) (draft "draft, not sent  ") (t ""))
+                             (diff-review--when (gethash "at" message))))
                (badge (and diff-review-message-badge-function (funcall diff-review-message-badge-function message)))
                (header (concat " " (propertize (diff-review--glyph mark "*") 'face face) " "
                                (propertize (or (gethash "author" message) "?") 'face face)
@@ -4282,9 +4332,8 @@ details beside a rule in the author's colour."
          (label (diff-review--label comment))
          (quote (ignore-errors (diff-review--panel-quote comment file)))
          ;; Built here, where the caller's hooks see the review.
-         (messages (concat (diff-review--panel-message comment comment)
-                           (mapconcat (lambda (reply) (concat "\n" (diff-review--panel-message reply comment)))
-                                      (or (gethash "replies" comment) []) "")))
+         (messages (mapconcat (lambda (message) (diff-review--panel-message message comment))
+                              (diff-review--thread-messages comment) "\n"))
          (buffer (get-buffer-create diff-review--panel-name)))
     (with-current-buffer buffer
       (unless (derived-mode-p 'diff-review-thread-mode) (diff-review-thread-mode))
@@ -4302,7 +4351,7 @@ details beside a rule in the author's colour."
                 (if label (concat "  " label) "")
                 "\n\n")
         (when-let* ((source (diff-review--external-p comment)))   ; read only, with its link
-          (insert (propertize (format "From %s, read only" source) 'face 'shadow)
+          (insert (propertize (format "From %s" source) 'face 'shadow)
                   (if-let* ((url (gethash "url" comment)))
                       (concat (propertize "  " 'face 'shadow)
                               (buttonize url (lambda (u) (browse-url u)) url))

@@ -546,9 +546,11 @@ or with COMMENTS and REVIEWS when asked for those (all plists)."
                 (should (seq-find (lambda (th) (equal (gethash "id" (car th)) "github:T2")) (diff-review--old-threads)))
                 ;; Read only.
                 (goto-char (diff-review--line-pos 2))
-                ;; Two threads here, both GitHub's: whichever is picked refuses.
+                ;; Two threads here, both GitHub's: whichever is picked refuses,
+                ;; without a way to reply to them (the outbox drafts replies).
                 (cl-letf (((symbol-function 'completing-read)
-                           (lambda (_prompt collection &rest _) (car (all-completions "" collection)))))
+                           (lambda (_prompt collection &rest _) (car (all-completions "" collection))))
+                          (diff-review-external-reply-function nil))
                   (should (string-match-p "GitHub thread"
                                           (cadr (should-error (diff-review-reply) :type 'user-error)))))
                 (should-error (bndos/task-review-resolve) :type 'user-error)))

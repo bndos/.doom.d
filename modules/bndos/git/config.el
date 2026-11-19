@@ -95,6 +95,15 @@ worktree against, or nil for `diff-review-default-base'.")
   (setq bndos-review-github-threads t)
   (define-key diff-review-mode-map (kbd "C-c C-g") #'bndos-review-github-toggle))
 
+;; Replies to those threads: drafts, sent from the outbox once confirmed.
+(use-package! bndos-review-outbox
+  :after bndos-review-github
+  :config
+  (define-key diff-review-mode-map (kbd "C-c C-r") #'bndos-review-outbox)
+  (define-key diff-review-file-mode-map (kbd "C-c C-r") #'bndos-review-outbox)
+  (define-key diff-review-mode-map (kbd "C-c C-v") #'bndos-review-outbox-thread-changes)
+  (define-key diff-review-file-mode-map (kbd "C-c C-v") #'bndos-review-outbox-thread-changes))
+
 (map! :after magit
       :map magit-status-mode-map
       :nv "v" #'bndos/diff-review-dwim)

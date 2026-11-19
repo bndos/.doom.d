@@ -20,6 +20,7 @@
 (require 'bndos-task-git)
 
 (declare-function bndos-review-workspace-prepare "bndos-review-workspace")
+(defvar bndos-review-github--state)
 (declare-function bndos-review-workspace-claim "bndos-review-workspace")
 (declare-function agent-shell-insert "ext:agent-shell")
 (declare-function agent-shell-select-config "ext:agent-shell")
@@ -719,6 +720,36 @@ skips that).  You choose whether the agent may edit code."
   (require 'bndos-task-agent)
   (bndos-task-agent-open (bndos-task-review--in-review bndos-task-review-key)))
 
+(defun bndos-task-review--draft-replies-prompt (state)
+  "What asks an agent to draft replies to the pull request STATE describes."
+  (format "Draft replies to the review threads of pull request #%d (%s/%s), for me to read and send.
+
+1. `%s drafts threads --pr %d` lists the unresolved threads with their ids (--all adds resolved ones), and the conversation: its latest comments and reviews' summaries.
+2. For each thread where you have something worth saying (an answer, what you changed and in which commit, or a question back), write the reply to a file and run `%s drafts add --pr %d --thread ID --body-file FILE`.  `--conversation` instead of `--thread ID` drafts a comment on the pull request itself: that is how a comment or a review's summary on the conversation is answered (GitHub has no replies to those), in one comment quoting each point it answers (`> ` lines) above the answer.
+3. A reply saying you changed something links those changes, for me to check them against the code: commit the fixes (one commit for several threads is fine), then `%s drafts hunks --pr %d --thread ID` lists the hunks since the commit the thread was written on, each with a ref; add `--hunks REF...` to `drafts add` for the ones that answer that thread (or `--hunks-in PATH...`, or `--hunks-matching REGEXP...` for a rename and the like).  Two replies may link the same hunk.  Don't push; say whether the branch needs pushing, as I can't send a reply whose changes GitHub doesn't have.
+4. `%s drafts list --pr %d` shows your drafts; `drafts edit ID --body-file FILE` and `drafts delete ID` change them (`drafts edit ID --hunks ...` links others).
+
+Only drafts: never post to GitHub, resolve threads or push yourself; I review the drafts and send them.  Write as the author of the change, plainly, in GitHub markdown.  Then tell me which threads you drafted replies to, and which you left and why."
+          (plist-get state :number) (plist-get state :owner) (plist-get state :name)
+          bndos-task-cli (plist-get state :number) bndos-task-cli (plist-get state :number)
+          bndos-task-cli (plist-get state :number) bndos-task-cli (plist-get state :number)))
+
+(defun bndos/task-review-draft-replies ()
+  "Ask this task's agent to draft replies to its pull request's GitHub threads.
+They come back as drafts, shown in their threads, sent from the outbox."
+  (interactive)
+  (bndos-task-review--ensure)
+  (require 'bndos-task-agent)
+  (let ((key (bndos-task-review--in-review bndos-task-review-key))
+        (state (bndos-task-review--in-review (bound-and-true-p bndos-review-github--state))))
+    (unless (plist-get state :owner) (user-error "No pull request fetched for this review"))
+    (bndos-task-agent-ensure
+     key
+     (lambda (buffer)
+       (agent-shell-insert :text (bndos-task-review--draft-replies-prompt state) :submit t :shell-buffer buffer)
+       (message "Asked the agent for drafts: they show in their threads and the outbox"))
+     :display t)))
+
 (defun bndos/task-review-send-to-agent ()
   "Put the region or line at point in the agent-shell's input, unsent.
 Plain conversation: nothing becomes a thread and no reply format is asked
@@ -866,7 +897,8 @@ It must still match the file exactly once.  The thread is then resolved."
   "C-c C-k" #'bndos/task-review-ai-cancel
   "C-c C-p" #'bndos/task-review-apply-suggestion
   "C-c C-e" #'diff-review-toggle-sidebar
-  "C-c C-v" #'diff-review-toggle-viewed)
+  "C-c C-v" #'diff-review-toggle-viewed
+  "C-c C-y" #'bndos/task-review-draft-replies)
 
 (define-minor-mode bndos-task-review-mode
   "The agent flow in a task's diff-review overview.

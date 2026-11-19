@@ -40,7 +40,7 @@ fi
 status=0
 "$emacs" -Q --batch -l "$here/load-path.el" -L "$here" \
   -l bndos-core-tests -l bndos-review-tests -l bndos-diff-review-tests -l bndos-cli-tests \
-  -l bndos-dashboard-tests -l bndos-skill-tests -l bndos-agent-integration-tests \
+  -l bndos-dashboard-tests -l bndos-skill-tests -l bndos-agent-integration-tests -l bndos-outbox-tests \
   --eval '(ert-run-tests-batch-and-exit (or (getenv "SELECTOR") t))' || status=$?
 
 if [[ ${1:-} == --gui ]]; then

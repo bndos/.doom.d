@@ -205,6 +205,39 @@ briefs and review files following. You never move folders yourself.
    you were started in is now the project folder, not the repo. Its
    `context` is the `.tasks` folder to keep the plan in from then on.
 
+## Replies to a pull request's review, only drafted
+
+When the user asks for replies to the review threads of a task's pull
+request, draft them; never post them. The user reads, marks and sends
+drafts from Emacs' outbox.
+
+1. `$bt drafts threads --repo <worktree>` lists the unresolved threads with
+   their ids, and the conversation: its latest comments and reviews'
+   summaries, oldest first, a review's with its `review` state (`--all`
+   adds resolved threads, `--pr N` names another pull request).
+2. Ask the task's worker to draft them (it knows the change), with `$bt
+   send`, pointing it at `$bt drafts add`; or draft one yourself: write the
+   reply to a file, then `$bt drafts add --repo <worktree> --thread ID
+   --body-file FILE --author <you>`, or `--conversation` instead of
+   `--thread ID` for a comment on the pull request. GitHub has no replies
+   to the conversation's comments and reviews: answer one, often a whole
+   review in one comment, with a conversation comment that quotes each
+   point it answers (`> ` lines) above its answer.
+   A reply that says something changed links the changes: once the fix
+   is committed, `$bt drafts hunks --repo <worktree> --thread ID` lists the
+   hunks from the commit the thread was written on to HEAD, each with a
+   `ref`; add `--hunks REF...` to `drafts add` for those that answer it,
+   `--hunks-in PATH...` for all in files or folders, or `--hunks-matching
+   REGEXP...` for all whose lines match (a rename, say). One commit may
+   fix several threads; each reply links its own hunks, two replies may
+   link the same. Don't push: tell the user the branch needs pushing, as
+   the outbox won't send a reply whose changes GitHub doesn't have.
+3. `$bt drafts list --repo <worktree>` shows them. `$bt drafts edit ID
+   --body-file FILE` and `$bt drafts delete ID` change only agents' drafts
+   still waiting.
+4. Tell the user how many drafts are waiting and that they send them from
+   the review's outbox (`C-c C-r`).
+
 ## 8. Teardown, only when asked
 
 When the user asks to clean up tasks whose pull requests are merged, for
@@ -255,4 +288,5 @@ each branch they name (or every task of this run):
 - Switch a task's branch, or fix a mix-up yourself with `adopt` or another
   agent.
 - Move or rename a repo or worktree folder by hand; `migrate` does it.
-- Resolve, answer or approve review threads for the user.
+- Resolve, answer or approve review threads for the user, or post to a pull
+  request: replies are drafts (`$bt drafts`) the user sends.

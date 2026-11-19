@@ -414,6 +414,61 @@
     (kill-buffer worktree)
     (should (equal (+workspace-list-names) (list +workspaces-main "elsewhere")))))
 
+;;; Drafted replies: the store is watched
+
+(bndos-ws-test bndos-ws-drafts-written-elsewhere-are-seen
+  (require 'bndos-review-outbox)
+  (let ((store (file-name-as-directory (make-temp-file (expand-file-name "store-" (getenv "WS_TEST_DIR")) t))))
+    (bndos-review-outbox--watch store)
+    (should-not (bndos-review-outbox--live store))
+    ;; Written by another process, as an agent's `bndos-task drafts add' is.
+    (call-process "sh" nil nil nil "-c"
+                  (format "printf '%%s' '{\"id\":\"d1\",\"body\":\"hi\",\"target\":{\"kind\":\"comment\"}}' > %s"
+                          (shell-quote-argument (expand-file-name "drafts/d1.json" store))))
+    (let ((n 0))
+      (while (and (not (bndos-review-outbox--live store)) (< n 50))
+        (sit-for 0.1) (setq n (1+ n))))
+    (should (equal (mapcar (lambda (d) (plist-get d :body)) (bndos-review-outbox--live store)) '("hi")))))
+
+(bndos-ws-test bndos-ws-a-reply-s-changes-have-one-workspace
+  (require 'bndos-review-changes)
+  (let* ((root (file-name-as-directory (make-temp-file "bndos-ws-changes-" t)))
+         (file (expand-file-name "changes.json" (make-temp-file "bndos-ws-review-" t)))
+         (from (+workspace-current-name))
+         (default-directory root)
+         (git (lambda (&rest args) (apply #'call-process "git" nil nil nil args)))
+         (computed nil))
+    (funcall git "init" "-q")
+    (with-temp-file (expand-file-name "a.txt" root) (insert "one\n"))
+    (with-temp-file (expand-file-name "b.txt" root) (insert "two\n"))
+    (funcall git "add" ".")
+    (funcall git "-c" "user.name=t" "-c" "user.email=t@t" "commit" "-q" "-m" "base")
+    (with-temp-file (expand-file-name "a.txt" root) (insert "ONE\n"))
+    (with-temp-file (expand-file-name "b.txt" root) (insert "TWO\n"))
+    (let ((scope (lambda (path)
+                   (list :name path
+                         :compute (lambda ()
+                                    (push path computed)
+                                    (list :hunks (seq-filter (lambda (h) (equal (plist-get h :path) path))
+                                                             (bndos-review-changes-hunks root "HEAD"))))))))
+      ;; Opened from a review's workspace: a workspace of its own, the review's left.
+      (bndos-review-changes-open "changes o/r#1" root file (funcall scope "a.txt"))
+      (should (equal (+workspace-current-name) "changes o/r#1"))
+      (should (derived-mode-p 'diff-review-mode))
+      (should (one-window-p))
+      (should (equal (mapcar (lambda (f) (plist-get f :path)) diff-review--files) '("a.txt")))
+      ;; Another reply's: the same workspace and review, of its changes.
+      (bndos-review-changes-open "changes o/r#1" root file (funcall scope "b.txt"))
+      (should (equal (seq-count (lambda (n) (equal n "changes o/r#1")) (+workspace-list-names)) 1))
+      (should (equal (mapcar (lambda (f) (plist-get f :path)) diff-review--files) '("b.txt")))
+      (should (member "b.txt" computed))
+      ;; q: back where it came from, the review kept for the next.
+      (diff-review-quit)
+      (should (equal (+workspace-current-name) from))
+      (should (find-buffer-visiting file))
+      (+workspace-kill "changes o/r#1" t)
+      (kill-buffer (find-buffer-visiting file)))))
+
 (defun bndos-ws-run (file selector)
   "Run the tests SELECTOR names, ERT's batch report into FILE; return the unexpected count."
   (let* (lines

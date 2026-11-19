@@ -15,6 +15,15 @@ agents and this command are all clients of the same session.
   bndos-task models [--agent ID] [--repo DIR] [--refresh]
   bndos-task context [--repo DIR]
   bndos-task migrate [--repo DIR] [--dry-run]
+  bndos-task drafts threads [--repo DIR] [--pr N] [--all]
+  bndos-task drafts list [--repo DIR] [--pr N]
+  bndos-task drafts hunks (--thread ID | --conversation [--base REF]) [--repo DIR] [--pr N]
+  bndos-task drafts add (--thread ID | --conversation) (--body TEXT | --body-file FILE)
+                        [--hunks REF... | --hunks-in PATH... | --hunks-matching REGEXP...]
+                        [--author NAME] [--repo DIR] [--pr N]
+  bndos-task drafts edit ID [--body TEXT | --body-file FILE] [--hunks... | --unlink]
+                        [--repo DIR] [--pr N]
+  bndos-task drafts delete ID [--repo DIR] [--pr N]
 
 TARGET is a branch, a worktree directory or a session id.  --agent is a
 Hydra agent id, the same as the agent-shell config identifier (claude-code,
@@ -50,6 +59,22 @@ the same name (~/Projects/foo becomes ~/Projects/foo/foo) with its task
 worktrees, records and reviews; it refuses while an agent is working or
 waiting, and tasks get a new agent on their next start.  --dry-run reports
 what it would move and what to redo by hand.
+
+drafts are replies to a pull request's GitHub review threads, or comments
+on its conversation, that wait for the user: Emacs shows them in their
+threads and sends only those the user marks and confirms in its outbox.
+threads lists the pull request's threads (unresolved ones, or --all) with
+their ids; add drafts a reply to one (--thread) or a comment on the
+conversation, as an agent's (agent:NAME, from --author); edit and delete
+change only agents' drafts that are still drafts.  The pull request is the
+current branch's, or --pr.  Nothing is posted to GitHub from here.
+
+A draft may link the changes that answer it, for the user to review: hunks
+of the diff from the commit its thread was written on (for the
+conversation, the latest review's, or --base) to HEAD.  hunks lists them,
+each with a ref; --hunks links refs, --hunks-in every hunk in files or
+folders, --hunks-matching every hunk whose lines match.  The draft keeps
+only where they are; Emacs shows them from git, as they are checked out.
 
 Nothing here commits, pushes, merges or deletes; the worktree is created
 and its parent, session and agent are recorded in git config
@@ -799,6 +824,361 @@ def write_json(path, value):
     os.replace(tmp, path)
 
 
+GH = os.environ.get("BNDOS_TASK_GH", "gh")
+DRAFT_MARKER = re.compile(r"\n*<!-- bndos-draft:([A-Za-z0-9-]+) -->\s*\Z")
+THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    reviewThreads(first: 50, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes { id isResolved isOutdated path line originalLine
+        comments(first: 100) { %s } } }
+    comments(last: 100) { nodes { body createdAt author { login } } }
+    reviews(last: 100) { nodes { body state submittedAt author { login } commit { oid } } } } } }"""
+COMMENT_FIELDS = ("pageInfo { hasNextPage endCursor } "
+                  "nodes { databaseId body createdAt author { login } originalCommit { oid } }")
+COMMENTS_QUERY = """query($id: ID!, $after: String) {
+  node(id: $id) { ... on PullRequestReviewThread {
+    comments(first: 100, after: $after) { %s } } } }""" % COMMENT_FIELDS
+THREADS_QUERY = THREADS_QUERY % COMMENT_FIELDS
+
+
+def gh_json(directory, *args):
+    proc = subprocess.run([GH, *args], cwd=directory, capture_output=True, text=True, encoding="utf-8",
+                          env={**os.environ, "GH_PROMPT_DISABLED": "1", "NO_COLOR": "1"})
+    if proc.returncode != 0:
+        raise Failure(f"gh {args[0]}: {proc.stderr.strip() or proc.returncode}")
+    return json.loads(proc.stdout)
+
+
+def pull_request(repo, number):
+    pr = gh_json(repo, "pr", "view", *([str(number)] if number else []), "--json", "number,url,headRefOid,baseRefOid")
+    match = re.search(r"github\.com/([^/]+)/([^/]+)/pull/", pr.get("url", ""))
+    if not match:
+        raise Failure("not a GitHub pull request")
+    return ({"owner": match[1], "name": match[2], "number": pr["number"]},
+            {"head": pr.get("headRefOid"), "base": pr.get("baseRefOid")})
+
+
+def pr_threads(repo, pr):
+    """PR's review threads and its latest conversation comments."""
+    threads, conversation, reviews, after = [], None, None, None
+    while True:
+        args = ["api", "graphql", "-f", f"query={THREADS_QUERY}", "-f", f"owner={pr['owner']}",
+                "-f", f"name={pr['name']}", "-F", f"number={pr['number']}"]
+        if after:
+            args += ["-f", f"after={after}"]
+        data = gh_json(repo, *args)["data"]["repository"]["pullRequest"]
+        if conversation is None:
+            conversation = data["comments"]["nodes"]
+            # A review's summary, with something said: GitHub shows it in the
+            # conversation, answered there.
+            reviews = [dict(r, createdAt=r.get("submittedAt")) for r in (data.get("reviews") or {}).get("nodes", [])
+                       if r.get("submittedAt") and ((r.get("body") or "").strip()
+                                                    or r.get("state") in ("APPROVED", "CHANGES_REQUESTED"))]
+        page = data["reviewThreads"]
+        threads += page["nodes"]
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        after = page["pageInfo"]["endCursor"]
+    # A thread's comments past its first page.
+    for thread in threads:
+        comments = thread["comments"]
+        while comments["pageInfo"]["hasNextPage"]:
+            more = gh_json(repo, "api", "graphql", "-f", f"query={COMMENTS_QUERY}", "-f", f"id={thread['id']}",
+                           "-f", f"after={comments['pageInfo']['endCursor']}")["data"]["node"]["comments"]
+            comments["nodes"] += more["nodes"]
+            comments["pageInfo"] = more["pageInfo"]
+    return threads, sorted(conversation + reviews, key=lambda c: c.get("createdAt") or "")
+
+
+def gh_message(node):
+    message = {"author": "@" + ((node.get("author") or {}).get("login") or "ghost"),
+               "at": node.get("createdAt"), "body": DRAFT_MARKER.sub("", node.get("body") or "")}
+    if node.get("state"):
+        message["review"] = node["state"].lower()
+    return message
+
+
+def draft_store(repo, pr):
+    store = os.path.join(common_dir(repo), "review", "github", pr["owner"], pr["name"], str(pr["number"]))
+    for state in ("drafts", "sending", "sent"):
+        os.makedirs(os.path.join(store, state), exist_ok=True)
+    return store
+
+
+def changes_text(changes):
+    """CHANGES as the hash of a draft takes them, as Emacs does."""
+    links = sorted(f"link:{l['id']}@{l['path']}:{l['from']}-{l['to']}" for l in changes.get("links") or [])
+    rules = sorted("rule:in:" + ",".join(r["in"]) if "in" in r else "rule:matching:" + r["matching"]
+                   for r in changes.get("rules") or [])
+    return "\n".join([f"base:{changes.get('base')}", f"head:{changes.get('head')}", *links, *rules])
+
+
+def draft_hash(draft):
+    text = draft.get("body") or ""
+    if draft.get("changes"):
+        text += "\0" + changes_text(draft["changes"])
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+# --- The changes a reply links: hunks of `git diff -U0' from the commit
+# commented on, kept as an id and a place in that base; never diff text.
+
+HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def hunk_id(path, minus, plus):
+    return hashlib.sha256(f"{path}\0{chr(10).join(minus)}\0{chr(10).join(plus)}".encode()).hexdigest()[:16]
+
+
+def git_out(repo, *args):
+    proc = subprocess.run(["git", "--no-optional-locks", "-c", "core.quotePath=false", *args], cwd=repo,
+                          capture_output=True, text=True, encoding="utf-8")
+    if proc.returncode != 0:
+        raise Failure(f"git {args[0]}: {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def diff_hunks(repo, base, target):
+    out = git_out(repo, "diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames",
+                  "--src-prefix=a/", "--dst-prefix=b/", base, target, "--")
+    hunks, path, old_path, hunk = [], None, None, None
+    for line in out.split("\n"):
+        if line.startswith("diff --git "):
+            path = old_path = hunk = None
+        # A file's header, until its first hunk: a removed "-- x" is a line.
+        elif hunk is None and line.startswith("--- "):
+            old_path = None if line == "--- /dev/null" else line[6:].rstrip("\t")
+        elif hunk is None and line.startswith("+++ "):
+            path = old_path if line == "+++ /dev/null" else line[6:].rstrip("\t")
+        elif m := HUNK_HEADER.match(line):
+            hunk = {"path": path or old_path, "old": int(m[1]), "old_len": int(m[2] or 1),
+                    "new": int(m[3]), "new_len": int(m[4] or 1), "minus": [], "plus": []}
+            hunks.append(hunk)
+        elif hunk is not None and line[:1] == "-":
+            hunk["minus"].append(line[1:])
+        elif hunk is not None and line[:1] == "+":
+            hunk["plus"].append(line[1:])
+    for h in hunks:
+        h["id"] = hunk_id(h["path"], h["minus"], h["plus"])
+        h["from"], h["to"] = (h["old"], h["old"] + h["old_len"] - 1) if h["old_len"] else (h["old"] + 1, h["old"])
+        h["ref"] = f"{h['id'][:12]}@{h['path']}:{h['from']}"
+    return hunks
+
+
+def have_commit(repo, sha):
+    """Whether SHA is here, fetched from origin if need be."""
+    def here():
+        return subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=repo,
+                              capture_output=True).returncode == 0
+    if here():
+        return True
+    subprocess.run(["git", "fetch", "-q", "origin", sha], cwd=repo, capture_output=True)
+    return here()
+
+
+def reply_base(repo, args, threads, conversation, refs):
+    """The commit a reply's changes are taken from: the one its thread was
+    written on; for the conversation --base, the latest review's commit, or
+    where the branch left its base."""
+    if getattr(args, "thread", None):
+        thread = next((t for t in threads if t["id"] == args.thread), None)
+        if not thread:
+            raise Failure(f"no review thread {args.thread}")
+        base = ((thread["comments"]["nodes"][0].get("originalCommit")) or {}).get("oid")
+        if not base:
+            raise Failure("the thread has no commit it was written on")
+    elif getattr(args, "base", None):
+        base = git_out(repo, "rev-parse", "--verify", f"{args.base}^{{commit}}").strip()
+    else:
+        reviewed = [c for c in conversation if c.get("commit")]
+        base = (reviewed[-1]["commit"]["oid"] if reviewed
+                else git_out(repo, "merge-base", "HEAD", refs["base"]).strip() if refs.get("base") and have_commit(repo, refs["base"])
+                else None)
+        if not base:
+            raise Failure("no commit to take changes from: give --base")
+    if not have_commit(repo, base):
+        raise Failure(f"commit {base[:12]} isn't here, nor on origin")
+    return base
+
+
+def linked_changes(repo, base, refs_given, paths, patterns):
+    """The links REFS_GIVEN, PATHS and PATTERNS name among the hunks from BASE
+    to HEAD, or a Failure; nil when none is asked for."""
+    if not (refs_given or paths or patterns):
+        return None
+    head = git_out(repo, "rev-parse", "HEAD").strip()
+    hunks = diff_hunks(repo, base, head)
+    chosen = []
+    for ref in refs_given or []:
+        prefix, _, place = ref.partition("@")
+        path, _, start = place.rpartition(":")
+        match = [h for h in hunks if h["id"].startswith(prefix) and len(prefix) >= 8
+                 and (not place or (h["path"] == path and str(h["from"]) == start))]
+        if len(match) != 1:
+            raise Failure(f"{ref}: {'no' if not match else len(match)} hunk(s) like it between "
+                          f"{base[:12]} and HEAD (see drafts hunks)")
+        chosen += match
+    rules = []
+    if paths:
+        rules.append({"in": paths})
+        chosen += [h for h in hunks if any(h["path"] == p or h["path"].startswith(p.rstrip("/") + "/") for p in paths)]
+    for pattern in patterns or []:
+        try:
+            regexp = re.compile(pattern)
+        except re.error as e:
+            raise Failure(f"--hunks-matching {pattern}: {e}")
+        rules.append({"matching": pattern})
+        chosen += [h for h in hunks if any(regexp.search(l) for l in h["minus"] + h["plus"])]
+    if not chosen:
+        raise Failure("nothing linked: no hunk between the base and HEAD is like that")
+    links = sorted({(h["id"], h["path"], h["from"], h["to"]) for h in chosen}, key=lambda l: (l[1], l[2], l[0]))
+    return {"base": base, "head": head,
+            "links": [{"id": i, "path": p, "from": f, "to": t} for i, p, f, t in links], "rules": rules}
+
+
+def load_drafts(store):
+    drafts = []
+    for state in ("drafts", "sending", "sent"):
+        folder = os.path.join(store, state)
+        for name in sorted(os.listdir(folder)):
+            if name.startswith(".") or not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(folder, name), encoding="utf-8") as f:
+                    draft = json.load(f)
+            except (OSError, ValueError):
+                continue
+            drafts.append({**draft, "state": state, "hash": draft_hash(draft)})
+    return sorted(drafts, key=lambda d: d.get("created") or "")
+
+
+def read_body(args):
+    body = args.body
+    if args.body_file:
+        with open(args.body_file, encoding="utf-8") as f:
+            body = f.read()
+    body = (body or "").strip()
+    if not body:
+        raise Failure("nothing to say: the body is empty")
+    return body
+
+
+def hold_agent_draft(store, draft_id):
+    """Take an agent's draft out of reach of a send while it is changed: the
+    held file and the draft, or a Failure."""
+    path = os.path.join(store, "drafts", f"{draft_id}.json")
+    held = os.path.join(store, "drafts", f".{draft_id}.held-{os.getpid()}")
+    try:
+        os.rename(path, held)
+    except FileNotFoundError:
+        raise Failure(f"no draft {draft_id} to change: sent, being sent, deleted or being changed")
+    with open(held, encoding="utf-8") as f:
+        draft = json.load(f)
+    if not (draft.get("author") or "").startswith("agent:"):
+        move_no_replace(held, path)
+        raise Failure(f"draft {draft_id} is the user's: only agents' drafts change from here")
+    return held, path, draft
+
+
+def move_no_replace(source, target):
+    """Move SOURCE to TARGET only if nothing is there: whether it moved."""
+    try:
+        os.link(source, target)
+    except FileExistsError:
+        return False
+    os.unlink(source)
+    return True
+
+
+def cmd_drafts(args):
+    pr, refs = pull_request(args.repo, args.pr)
+    store = draft_store(args.repo, pr)
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if args.action == "threads":
+        threads, conversation = pr_threads(args.repo, pr)
+        emit({"protocol": "bndos-task/1", "pull_request": pr,
+              "threads": [{"id": t["id"], "path": t["path"], "line": t.get("line") or t.get("originalLine"),
+                           "commit": ((t["comments"]["nodes"][0].get("originalCommit") or {}).get("oid")
+                                      if t["comments"]["nodes"] else None),
+                           "resolved": t["isResolved"], "outdated": t["isOutdated"],
+                           "messages": [gh_message(c) for c in t["comments"]["nodes"]]}
+                          for t in threads if args.all or not t["isResolved"]],
+              "conversation": [gh_message(c) for c in conversation]})
+    elif args.action == "list":
+        emit({"protocol": "bndos-task/1", "pull_request": pr, "drafts": load_drafts(store)})
+    elif args.action == "hunks":
+        threads, conversation = pr_threads(args.repo, pr)
+        base = reply_base(args.repo, args, threads, conversation, refs)
+        head = git_out(args.repo, "rev-parse", "HEAD").strip()
+        dirty = bool(git_out(args.repo, "status", "--porcelain", "--untracked-files=no").strip())
+        emit({"protocol": "bndos-task/1", "pull_request": pr, "base": base, "head": head,
+              "pushed": head == refs.get("head"), "uncommitted": dirty,
+              "hunks": [{"ref": h["ref"], "path": h["path"], "line": h["new"],
+                         "removes": h["minus"], "adds": h["plus"]} for h in diff_hunks(args.repo, base, head)]})
+    elif args.action == "add":
+        body = read_body(args)
+        threads, conversation = pr_threads(args.repo, pr)
+        if args.thread:
+            thread = next((t for t in threads if t["id"] == args.thread), None)
+            if not thread:
+                raise Failure(f"no review thread {args.thread} on {pr['owner']}/{pr['name']}#{pr['number']}")
+            comments = thread["comments"]["nodes"]
+            target = {"kind": "reply", "thread": thread["id"], "comment": comments[0]["databaseId"],
+                      "path": thread["path"], "line": thread.get("line") or thread.get("originalLine")}
+            seen = max(c["createdAt"] for c in comments)
+        else:
+            target = {"kind": "comment"}
+            seen = max((c["createdAt"] for c in conversation), default=None)
+        author = args.author if args.author.startswith("agent:") else f"agent:{args.author}"
+        changes = linked_changes(args.repo, reply_base(args.repo, args, threads, conversation, refs),
+                                 args.hunks, args.hunks_in, args.hunks_matching) \
+            if (args.hunks or args.hunks_in or args.hunks_matching) else None
+        draft_id = f"d{datetime.datetime.now(datetime.timezone.utc):%Y%m%d%H%M%S}-{secrets.token_hex(4)}"
+        draft = {"version": 1, "id": draft_id, "pr": pr, "target": target, "body": body, "author": author,
+                 "seen": seen, "created": now, "updated": now}
+        if changes:
+            draft["changes"] = changes
+        tmp = os.path.join(store, "drafts", f".new-{secrets.token_hex(6)}")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(draft, f, indent=1)
+        if not move_no_replace(tmp, os.path.join(store, "drafts", f"{draft_id}.json")):
+            os.unlink(tmp)
+            raise Failure("a draft with that id is there already: try again")
+        emit({"protocol": "bndos-task/1", "status": "drafted", "draft": {**draft, "state": "drafts"}})
+    elif args.action == "edit":
+        relink = args.hunks or args.hunks_in or args.hunks_matching
+        if not (args.body or args.body_file or relink or args.unlink):
+            raise Failure("nothing to change: give a body, changes to link, or --unlink")
+        body = read_body(args) if (args.body or args.body_file) else None
+        changes = None
+        if relink:
+            # Linked anew from the same base as before, or the target's.
+            with open(os.path.join(store, "drafts", f"{args.id}.json"), encoding="utf-8") as f:
+                target = json.load(f).get("target") or {}
+            threads, conversation = pr_threads(args.repo, pr)
+            where = argparse.Namespace(thread=target.get("thread"), base=args.base)
+            changes = linked_changes(args.repo, reply_base(args.repo, where, threads, conversation, refs),
+                                     args.hunks, args.hunks_in, args.hunks_matching)
+        held, path, draft = hold_agent_draft(store, args.id)
+        if body is not None:
+            draft["body"] = body
+        if changes:
+            draft["changes"] = changes
+        elif args.unlink:
+            draft.pop("changes", None)
+        draft["updated"] = now
+        with open(held, "w", encoding="utf-8") as f:
+            json.dump(draft, f, indent=1)
+        if not move_no_replace(held, path):
+            raise Failure(f"draft {args.id} came back meanwhile; the edit is kept in {held}")
+        emit({"protocol": "bndos-task/1", "status": "edited", "draft": {**draft, "state": "drafts"}})
+    elif args.action == "delete":
+        held, _, draft = hold_agent_draft(store, args.id)
+        os.unlink(held)
+        emit({"protocol": "bndos-task/1", "status": "deleted", "id": args.id})
+
+
 def migrate_plan(repo):
     """What moving REPO into a project folder of its own would do, or a Failure
     saying why it can't now."""
@@ -1007,6 +1387,56 @@ def main():
     context = sub.add_parser("context", help="the project folder's .tasks folder, if the repo is in one")
     context.add_argument("--repo", default=os.getcwd())
     context.set_defaults(fn=cmd_context)
+
+    drafts = sub.add_parser("drafts", help="draft replies to a pull request's threads, for the user to send")
+    drafts_sub = drafts.add_subparsers(dest="action", required=True)
+
+    def drafts_args(p):
+        p.add_argument("--repo", default=os.getcwd())
+        p.add_argument("--pr", type=int, help="the pull request (default: the current branch's)")
+        p.set_defaults(fn=cmd_drafts)
+
+    def body_args(p, required=True):
+        group = p.add_mutually_exclusive_group(required=required)
+        group.add_argument("--body")
+        group.add_argument("--body-file")
+
+    def changes_args(p):
+        p.add_argument("--hunks", nargs="+", metavar="REF", help="hunks from `drafts hunks` that answer it")
+        p.add_argument("--hunks-in", nargs="+", metavar="PATH", help="every hunk in these files or folders")
+        p.add_argument("--hunks-matching", nargs="+", metavar="REGEXP",
+                       help="every hunk whose removed or added lines match")
+        p.add_argument("--base", help="for the conversation: the commit changes are taken from "
+                                      "(default the latest review's)")
+
+    d = drafts_sub.add_parser("threads", help="the pull request's review threads, with their ids")
+    d.add_argument("--all", action="store_true", help="resolved threads too")
+    drafts_args(d)
+    drafts_args(drafts_sub.add_parser("list", help="the drafts, being sent and sent"))
+    d = drafts_sub.add_parser("hunks", help="the hunks a reply can link: from the commit commented on to HEAD")
+    target = d.add_mutually_exclusive_group(required=True)
+    target.add_argument("--thread", help="the review thread's id (from threads)")
+    target.add_argument("--conversation", action="store_true", help="a comment on the pull request")
+    d.add_argument("--base", help="for the conversation: the commit to start from (default the latest review's)")
+    drafts_args(d)
+    d = drafts_sub.add_parser("add", help="draft a reply to a thread, or a comment on the conversation")
+    target = d.add_mutually_exclusive_group(required=True)
+    target.add_argument("--thread", help="the review thread's id (from threads)")
+    target.add_argument("--conversation", action="store_true", help="a comment on the pull request")
+    body_args(d)
+    changes_args(d)
+    d.add_argument("--author", default=os.environ.get("BNDOS_TASK_AGENT", "agent"),
+                   help="the agent drafting (stored as agent:NAME)")
+    drafts_args(d)
+    d = drafts_sub.add_parser("edit", help="change an agent's draft: its body, the changes it links")
+    d.add_argument("id")
+    body_args(d, required=False)
+    changes_args(d)
+    d.add_argument("--unlink", action="store_true", help="link no changes")
+    drafts_args(d)
+    d = drafts_sub.add_parser("delete", help="delete an agent's draft")
+    d.add_argument("id")
+    drafts_args(d)
 
     models = sub.add_parser("models", help="list the models and modes an agent offers")
     models.add_argument("--agent")
