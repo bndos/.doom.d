@@ -19,6 +19,8 @@
 (require 'bndos-task-store)
 (require 'bndos-task-git)
 
+(declare-function bndos-review-workspace-prepare "bndos-review-workspace")
+(declare-function bndos-review-workspace-claim "bndos-review-workspace")
 (declare-function agent-shell-insert "ext:agent-shell")
 (declare-function agent-shell-select-config "ext:agent-shell")
 (declare-function bndos-task-agent-summary "bndos-task-agent")
@@ -284,10 +286,13 @@ SELECT, show it in the selected window."
     (bndos-task-store-update key #'identity)
     (when workspace
       (bndos-task-review-switch-workspace worktree))
-    (let ((buffer (find-file-noselect file)))
+    (let* ((own (and select (fboundp 'bndos-review-workspace-prepare)
+                     (bndos-review-workspace-prepare file nil)))
+           (buffer (find-file-noselect file)))
       (with-current-buffer buffer
         (unless (derived-mode-p 'diff-review-mode) (diff-review-mode))
         (rename-buffer (format "review: %s" (plist-get record :branch)) t))
+      (when own (bndos-review-workspace-claim buffer own))
       (when select
         (switch-to-buffer buffer)
         (when (fboundp 'persp-add-buffer) (ignore-errors (persp-add-buffer buffer))))

@@ -84,6 +84,10 @@ worktree against, or nil for `diff-review-default-base'.")
 (use-package! diff-review-magit
   :commands diff-review-magit-commits)
 
+;; One review per workspace; a review of commits or a branch in its own.
+(use-package! bndos-review-workspace
+  :after diff-review)
+
 ;; A branch's pull request threads in its reviews, read only.
 (use-package! bndos-review-github
   :after diff-review

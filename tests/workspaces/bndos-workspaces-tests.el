@@ -330,6 +330,90 @@
     (+workspace-switch "saved")
     (should (equal (mapcar #'car (bndos-ws-layout)) before))))
 
+;;; Reviews: one per workspace
+
+(defun bndos-ws-repo ()
+  "A repository under the test folder: main has three commits, a.txt changing."
+  (make-directory bndos-ws-dir t)
+  (let ((root (file-name-as-directory (file-truename (make-temp-file (expand-file-name "repo-" bndos-ws-dir) t)))))
+    (let ((default-directory root))
+      (dolist (args '(("init" "-q" "-b" "main") ("config" "user.email" "t@t") ("config" "user.name" "t")))
+        (apply #'process-file "git" nil nil nil args))
+      (dolist (content '("one\n" "one\ntwo\n" "one\ntwo\nthree\n"))
+        (with-temp-file (expand-file-name "a.txt" root) (insert content))
+        (process-file "git" nil nil nil "add" "a.txt")
+        (process-file "git" nil nil nil "commit" "-qm" "change")))
+    root))
+
+(defun bndos-ws-git (root &rest args)
+  (let ((default-directory root))
+    (string-trim (with-output-to-string (apply #'process-file "git" nil standard-output nil args)))))
+
+(defun bndos-ws-review-commit (root)
+  "Review ROOT's second commit, which isn't checked out, as magit's `v' does."
+  (let* ((new (bndos-ws-git root "rev-parse" "HEAD~1"))
+         (file (expand-file-name (format "review/%s.json" (substring new 0 7))
+                                 (bndos-ws-git root "rev-parse" "--path-format=absolute" "--git-common-dir"))))
+    (diff-review-find-file file root (concat new "^") new)
+    (window-buffer (selected-window))))
+
+(defun bndos-ws-review-worktree (root)
+  (let ((default-directory root))
+    (diff-review-find-file (expand-file-name "review/main.worktree.json"
+                                             (bndos-ws-git root "rev-parse" "--path-format=absolute" "--git-common-dir"))
+                           root "HEAD~1")
+    (window-buffer (selected-window))))
+
+(defun bndos-ws-throwaways (root)
+  (seq-filter (lambda (l) (string-match-p "/review/worktrees/" l))
+              (split-string (bndos-ws-git root "worktree" "list") "\n" t)))
+
+(bndos-ws-test bndos-ws-a-commit-review-has-a-workspace-of-its-own
+  (let* ((root (bndos-ws-repo))
+         (review (bndos-ws-review-commit root))
+         (name (+workspace-current-name)))
+    (should (string-prefix-p "review " name))
+    (should (eq (buffer-local-value 'major-mode review) 'diff-review-mode))
+    ;; Its files come from a throwaway worktree.
+    (with-current-buffer review (diff-review--open 0))
+    (should (= (length (bndos-ws-throwaways root)) 1))
+    ;; Asked for again from elsewhere: back to it, not a second.
+    (+workspace-switch +workspaces-main)
+    (should (eq (bndos-ws-review-commit root) review))
+    (should (equal (+workspace-current-name) name))
+    (should (= (length (+workspace-list-names)) 2))
+    ;; Ending the review closes its workspace and its worktree.
+    (kill-buffer review)
+    (should-not (+workspace-exists-p name))
+    (should (equal (+workspace-current-name) +workspaces-main))
+    (should-not (bndos-ws-throwaways root))))
+
+(bndos-ws-test bndos-ws-closing-a-review-workspace-ends-the-review
+  (let* ((root (bndos-ws-repo))
+         (review (bndos-ws-review-commit root)))
+    (+workspace/kill (+workspace-current-name))
+    (should-not (buffer-live-p review))
+    (should (equal (+workspace-list-names) (list +workspaces-main)))))
+
+(bndos-ws-test bndos-ws-a-workspace-holds-one-review
+  (let* ((root (bndos-ws-repo))
+         (worktree (bndos-ws-review-worktree root)))
+    ;; The worktree's review stays where it is opened.
+    (should (equal (+workspace-current-name) +workspaces-main))
+    ;; A second review here goes to a workspace of its own.
+    (let ((commit (bndos-ws-review-commit root)))
+      (should-not (equal (+workspace-current-name) +workspaces-main))
+      (should-not (memq worktree (+workspace-buffer-list)))
+      (should (memq commit (+workspace-buffer-list)))
+      (kill-buffer commit))
+    ;; The worktree's review, asked for from elsewhere: where it is.
+    (+workspace/new "elsewhere")
+    (should (eq (bndos-ws-review-worktree root) worktree))
+    (should (equal (+workspace-current-name) +workspaces-main))
+    ;; Killing it leaves its workspace, which isn't the review's own.
+    (kill-buffer worktree)
+    (should (equal (+workspace-list-names) (list +workspaces-main "elsewhere")))))
+
 (defun bndos-ws-run (file selector)
   "Run the tests SELECTOR names, ERT's batch report into FILE; return the unexpected count."
   (let* (lines
