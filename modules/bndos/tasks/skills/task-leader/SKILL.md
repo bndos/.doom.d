@@ -208,8 +208,9 @@ briefs and review files following. You never move folders yourself.
 ## Replies to a pull request's review, only drafted
 
 When the user asks for replies to the review threads of a task's pull
-request, draft them; never post them. The user reads, marks and sends
-drafts from Emacs' outbox.
+request, or a review of it, draft them; never post them. Emacs shows the
+drafts as comments of the review; the user edits them at point (an
+agent's draft edited is theirs) and picks those to send.
 
 1. `$bt drafts threads --repo <worktree>` lists the unresolved threads with
    their ids, and the conversation: its latest comments and reviews'
@@ -222,7 +223,8 @@ drafts from Emacs' outbox.
    `--thread ID` for a comment on the pull request. GitHub has no replies
    to the conversation's comments and reviews: answer one, often a whole
    review in one comment, with a conversation comment that quotes each
-   point it answers (`> ` lines) above its answer.
+   point it answers (`> ` lines) above its answer; `--quote ID` (a
+   message's `id` from `drafts threads`) starts a draft quoting it.
    A reply that says something changed links the changes: once the fix
    is committed, `$bt drafts hunks --repo <worktree> --thread ID` lists the
    hunks from the commit the thread was written on to HEAD, each with a
@@ -231,12 +233,20 @@ drafts from Emacs' outbox.
    REGEXP...` for all whose lines match (a rename, say). One commit may
    fix several threads; each reply links its own hunks, two replies may
    link the same. Don't push: tell the user the branch needs pushing, as
-   the outbox won't send a reply whose changes GitHub doesn't have.
-3. `$bt drafts list --repo <worktree>` shows them. `$bt drafts edit ID
+   Emacs won't send a reply whose changes GitHub doesn't have.
+3. Comments on the code go in a review: `$bt drafts lines --repo
+   <worktree>` lists the lines of the pull request's diff GitHub takes
+   comments on, as GitHub has the branch. `$bt drafts add --repo
+   <worktree> --path PATH --line N --body-file FILE --author <you>` drafts
+   one (`--start-line M` for lines M to N, `--side LEFT` on removed lines,
+   no `--line` for the whole file); `--review` instead of `--path` drafts
+   the review's summary, one per review. Lines out of the diff are
+   refused. They go as one review when the user sends them.
+4. `$bt drafts list --repo <worktree>` shows them. `$bt drafts edit ID
    --body-file FILE` and `$bt drafts delete ID` change only agents' drafts
    still waiting.
-4. Tell the user how many drafts are waiting and that they send them from
-   the review's outbox (`C-c C-r`).
+5. Tell the user how many drafts are waiting: they send those they pick
+   from the review (`C-c C-r`).
 
 ## 8. Teardown, only when asked
 

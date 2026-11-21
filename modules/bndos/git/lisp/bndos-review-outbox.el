@@ -1,11 +1,15 @@
-;;; bndos-review-outbox.el --- Replies to a pull request: drafted, confirmed, sent -*- lexical-binding: t; -*-
+;;; bndos-review-outbox.el --- What to say on a pull request: drafted, picked, sent -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 
-;; Replies to a pull request's GitHub threads, and comments on its
-;; conversation, are drafts first: written here (r on a GitHub thread) or by
-;; an agent (`bndos-task drafts'), shown in their threads, and sent from the
-;; outbox only: the drafts marked there, after a confirmation.
+;; What the user says on a pull request is a draft first: a reply in a
+;; GitHub thread, a comment on its conversation, a comment on lines or a
+;; file, or the summary of a review.  Written here (r on a thread, C-c C-g
+;; c on lines) or by an agent (`bndos-task drafts'), each is shown where it
+;; goes, a comment of the review like any other: edited, deleted or
+;; quoted at point.  C-c C-r sends those the user picks, after a
+;; confirmation: comments on lines and the summary as one GitHub review.
+;; An agent's draft the user edits is the user's.
 ;;
 ;; A draft is a file, its folder its state, under the repository's common
 ;; git directory, in review/github/OWNER/NAME/NUMBER/:
@@ -14,13 +18,13 @@
 ;;   sending/ID.json   claimed by a send; nothing else touches it
 ;;   sent/ID.json      on GitHub, its link kept
 ;;
-;; Moving a file is atomic, so one send claims a draft, once.  A mark keeps
-;; the hash of the draft as shown; the send claims the draft and sends it
-;; only when it is still that one, so a draft changed or deleted after it was
-;; marked, by an agent or another Emacs, is not sent.  An edit or a deletion
+;; Moving a file is atomic, so one send claims a draft, once.  Picking one
+;; keeps the hash of the draft as asked about; the send claims the draft and
+;; sends it only when it is still that one, so a draft changed or deleted
+;; after it was picked, by an agent or another Emacs, is not sent.  An edit or a deletion
 ;; claims the draft too, and checks it is the one the user saw.
 ;;
-;; A sent reply ends with an invisible marker, <!-- bndos-draft:ID -->.  A
+;; A sent draft ends with an invisible marker, <!-- bndos-draft:ID -->.  A
 ;; send that may or may not have reached GitHub (no answer, a server error)
 ;; leaves its draft in sending/, unconfirmed, and never sends it again by
 ;; itself: the next fetch that finds the marker on GitHub moves it to sent/;
@@ -36,22 +40,17 @@
 (require 'bndos-review-github)
 (require 'bndos-review-changes)
 
-(declare-function evil-define-key* "evil-core")
-(declare-function evil-set-initial-state "evil-core")
-
 (defgroup bndos-review-outbox nil
   "Drafted replies to pull requests."
   :group 'diff-review)
 
 (defcustom bndos-review-outbox-max-age 120
   "Seconds GitHub's threads may be old when drafts are sent; older, they are
-fetched again first, and the outbox shown again before anything is sent."
+fetched again first, before anything is asked or sent."
   :type 'integer)
 
 (defface bndos-review-outbox-warning '((t :inherit warning))
   "Warnings about a draft.")
-(defface bndos-review-outbox-blocked '((t :inherit error))
-  "Why a draft can't be sent.")
 
 (defconst bndos-review-outbox--states '("drafts" "sending" "sent"))
 
@@ -135,7 +134,7 @@ of which coding system."
    "\n"))
 
 (defun bndos-review-outbox-hash (draft)
-  "What a mark or an edit keeps of DRAFT: the hash of its body, and of the
+  "What picking or editing keeps of DRAFT: the hash of its body, and of the
 changes it links."
   (secure-hash 'sha256 (encode-coding-string
                         (concat (or (plist-get draft :body) "")
@@ -205,12 +204,14 @@ changes it links."
            "it changed meanwhile")
           (t held))))
 
-(defun bndos-review-outbox-change (store id hash body)
-  "Make BODY draft ID's, if it is still the one HASH names: t, or a reason."
+(defun bndos-review-outbox-change (store id hash body &optional author)
+  "Make BODY draft ID's, and AUTHOR its author when given, if it is still the
+one HASH names: t, or a reason."
   (let ((held (bndos-review-outbox--hold store id hash)))
     (if (not (file-name-absolute-p held))
         held
       (let ((draft (bndos-review-outbox--read held)))
+        (when author (setq draft (plist-put draft :author author)))
         (bndos-review-outbox--write held (plist-put (plist-put draft :body body) :updated (bndos-review-outbox--now)))
         (bndos-review-outbox--move held (bndos-review-outbox--path store "drafts" id))
         (bndos-review-outbox-changed store)
@@ -250,7 +251,7 @@ claim of an Emacs no longer running was cut short."
 
 (defcustom bndos-review-outbox-stuck-after 600
   "Seconds after which a send another Emacs claimed, still running, may be
-put back by hand (R): that Emacs lost track of it."
+put back by hand (`bndos-review-draft-put-back'): that Emacs lost track of it."
   :type 'integer
   :group 'diff-review)
 
@@ -274,12 +275,12 @@ names: the draft, or a reason it wasn't claimed."
         (held (bndos-review-outbox--held store id))
         (to (bndos-review-outbox--path store "sending" id)))
     (if (not (bndos-review-outbox--move from held))
-        "sent, deleted or being changed since it was marked"
+        "sent, deleted or being changed since you chose it"
       (let ((draft (bndos-review-outbox--read held)))
         (cond
          ((not (equal (bndos-review-outbox-hash draft) hash))
           (bndos-review-outbox--move held from)
-          "changed since it was marked")
+          "changed since you chose it")
          ((not (equal (plist-get draft :pr) pr))
           (bndos-review-outbox--move held from)
           "the review shows another pull request now")
@@ -334,7 +335,40 @@ that found it on GitHub: then a sent draft is recorded there, nothing else."
                    (format "%s/pulls/%d/comments/%d/replies" repo (plist-get pr :number) (plist-get target :comment))
                  (error "The draft names no comment to reply to")))
       ("comment" (format "%s/issues/%d/comments" repo (plist-get pr :number)))
+      ("file" (format "%s/pulls/%d/comments" repo (plist-get pr :number)))
+      ((or "line" "summary") (format "%s/pulls/%d/reviews" repo (plist-get pr :number)))
       (kind (error "Unknown kind of draft: %s" kind)))))
+
+(defun bndos-review-outbox--review-kind-p (draft)
+  "Whether DRAFT goes with a review: a comment on lines, or the summary."
+  (member (plist-get (plist-get draft :target) :kind) '("line" "summary")))
+
+(defun bndos-review-outbox--payload (draft)
+  "What is posted of DRAFT, alone: its body, with its marker."
+  (let ((body (concat (plist-get draft :body) (bndos-review-outbox--marker (plist-get draft :id))))
+        (target (plist-get draft :target)))
+    (pcase (plist-get target :kind)
+      ("file" (list :body body :commit_id (plist-get target :commit) :path (plist-get target :path)
+                    :subject_type "file"))
+      (_ (list :body body)))))
+
+(defun bndos-review-outbox--review-payload (drafts event head)
+  "The review DRAFTS make, comments on lines and a summary, with EVENT, on
+HEAD, the pull request's head commit."
+  (let ((summary (seq-find (lambda (d) (equal (plist-get (plist-get d :target) :kind) "summary")) drafts)))
+    (list :commit_id head :event event
+          :body (if summary (concat (plist-get summary :body) (bndos-review-outbox--marker (plist-get summary :id))) "")
+          :comments
+          (vconcat
+           (cl-loop for d in drafts
+                    for target = (plist-get d :target)
+                    when (equal (plist-get target :kind) "line")
+                    collect (append (list :path (plist-get target :path)
+                                          :body (concat (plist-get d :body) (bndos-review-outbox--marker (plist-get d :id)))
+                                          :line (plist-get target :line)
+                                          :side (or (plist-get target :side) "RIGHT"))
+                                    (when-let* ((start (plist-get target :start_line)))
+                                      (list :start_line start :start_side (or (plist-get target :side) "RIGHT")))))))))
 
 (defun bndos-review-outbox--response (result)
   "What gh's RESULT, run raw with --include, says of a post: (STATUS . BODY),
@@ -358,30 +392,30 @@ STATUS the HTTP status or nil when there is none, BODY the parsed reply or nil."
                      (or (and (hash-table-p body) (gethash "message" body))
                          (plist-get result :err) ""))))))
 
-(defun bndos-review-outbox--post (review draft callback)
-  "Post DRAFT to REVIEW's pull request; then CALLBACK with its outcome.
-The outcome goes by the HTTP status GitHub answered with: a 2xx is sent, a
-4xx refused (nothing was posted); anything else, no answer or a 5xx, may or
-may not have been posted."
+(defun bndos-review-outbox--post-to (review endpoint payload marker callback)
+  "Post PAYLOAD to ENDPOINT, for REVIEW's pull request; then CALLBACK with its
+outcome.  The outcome goes by the HTTP status GitHub answered with: a 2xx is
+sent, a 4xx refused (nothing was posted); anything else, no answer or a 5xx,
+may or may not have been posted.  MARKER, when given, is what the body
+GitHub keeps should end with."
   (with-current-buffer review
     (unless (executable-find bndos-review-github-program)
       (error "No %s to post with" bndos-review-github-program))
-    (let ((input (make-temp-file "bndos-outbox-" nil ".json"))
-          (marker (bndos-review-outbox--marker (plist-get draft :id))))
-      (bndos-review-outbox--write-json input (list :body (concat (plist-get draft :body) marker)))
+    (let ((input (make-temp-file "bndos-outbox-" nil ".json")))
+      (bndos-review-outbox--write-json input payload)
       (bndos-review-github--gh
-       (list "api" "--include" "-X" "POST" (bndos-review-outbox--endpoint draft)
-             "--input" input)
+       (list "api" "--include" "-X" "POST" endpoint "--input" input)
        (lambda (result)
          (ignore-errors (delete-file input))
          (pcase-let ((`(,status . ,body) (condition-case nil (bndos-review-outbox--response result)
                                            (error (cons nil nil)))))
            (funcall callback
                     (cond ((and status (<= 200 status 299) (hash-table-p body) (gethash "id" body))
-                           (unless (string-suffix-p (string-trim-left marker) (string-trim-right (or (gethash "body" body) "")))
+                           (when (and marker
+                                      (not (string-suffix-p (string-trim-left marker)
+                                                            (string-trim-right (or (gethash "body" body) "")))))
                              (display-warning 'bndos-review-outbox
-                                              (format "GitHub didn't keep the hidden tag of draft %s: a send left unconfirmed can't be checked"
-                                                      (plist-get draft :id))))
+                                              "GitHub didn't keep the hidden tag of a draft: a send left unconfirmed can't be checked"))
                            (list 'sent (gethash "html_url" body) (gethash "id" body)))
                           ((and status (<= 400 status 499))
                            (list 'failed (bndos-review-outbox--failure status body result)))
@@ -390,41 +424,85 @@ may not have been posted."
                                               (if (string-empty-p (or err "")) "no answer" err))))))))
        t))))
 
-(defun bndos-review-outbox-send-marks (review store marks done)
-  "Send the drafts MARKS names, (ID . HASH) each, one at a time, to REVIEW's
-pull request; then DONE with (ID . OUTCOME) each, OUTCOME as
-`bndos-review-outbox--settle' takes it or (skipped REASON).  DONE is called
-whatever goes wrong; a draft claimed is always settled."
-  (let ((results nil)
-        (pr (bndos-review-outbox--pr review)))
+(defun bndos-review-outbox--post (review draft callback)
+  "Post DRAFT, alone, to REVIEW's pull request; then CALLBACK with its outcome."
+  (bndos-review-outbox--post-to review (bndos-review-outbox--endpoint draft) (bndos-review-outbox--payload draft)
+                                (bndos-review-outbox--marker (plist-get draft :id)) callback))
+
+(defun bndos-review-outbox--post-review (review drafts event callback)
+  "Post DRAFTS as one review with EVENT, on the pull request's head as REVIEW
+has it; then CALLBACK with its outcome."
+  (let ((head (or (plist-get (bndos-review-outbox--github review) :head-oid)
+                  (error "The pull request's head isn't known")))
+        (summary (seq-find (lambda (d) (equal (plist-get (plist-get d :target) :kind) "summary")) drafts)))
+    (bndos-review-outbox--post-to review (bndos-review-outbox--endpoint (car drafts))
+                                  (bndos-review-outbox--review-payload drafts event head)
+                                  (and summary (bndos-review-outbox--marker (plist-get summary :id)))
+                                  callback)))
+
+(defun bndos-review-outbox-send-marks (review store marks done &optional event)
+  "Send the drafts MARKS names, (ID . HASH) each, to REVIEW's pull request:
+replies, comments and comments on files one at a time; comments on lines
+and the summary then as one review, with EVENT (default COMMENT).  Then
+DONE with (ID . OUTCOME) each, OUTCOME as `bndos-review-outbox--settle'
+takes it or (skipped REASON).  DONE is called whatever goes wrong; a draft
+claimed is always settled."
+  (let* ((results nil)
+         (pr (bndos-review-outbox--pr review))
+         (drafts (bndos-review-outbox-load store))
+         (reviewed (seq-filter (lambda (m) (bndos-review-outbox--review-kind-p
+                                            (seq-find (lambda (d) (equal (plist-get d :id) (car m))) drafts)))
+                               marks))
+         (alone (seq-difference marks reviewed)))
     (cl-labels
-        ((next (rest)
+        ((claim (id hash)
+           (condition-case err (bndos-review-outbox--claim store id hash pr)
+             (error (format "not claimed: %s" (error-message-string err)))))
+         (settle (claimed outcome)
+           (dolist (draft claimed)
+             (let ((id (plist-get draft :id)))
+               (setq bndos-review-outbox--in-flight (delete id bndos-review-outbox--in-flight))
+               (condition-case err (bndos-review-outbox--settle store draft outcome)
+                 (error (display-warning 'bndos-review-outbox
+                                         (format "Draft %s: %S, not recorded: %s" id outcome
+                                                 (error-message-string err)))))
+               (push (cons id outcome) results))))
+         (send (claimed post then)
+           ;; POST calls back once; before gh starts, nothing was posted.
+           (dolist (draft claimed) (push (plist-get draft :id) bndos-review-outbox--in-flight))
+           (ignore-errors (bndos-review-outbox-changed store))
+           (let ((finished nil))
+             (cl-flet ((finish (outcome)
+                         (unless finished
+                           (setq finished t)
+                           (settle claimed outcome)
+                           (funcall then))))
+               (condition-case err (funcall post #'finish)
+                 (error (finish (list 'failed (format "not sent: %s" (error-message-string err)))))))))
+         (next (rest)
            (if (null rest)
-               (funcall done (nreverse results))
+               (send-review)
              (pcase-let* ((`(,id . ,hash) (car rest))
-                          (draft (condition-case err (bndos-review-outbox--claim store id hash pr)
-                                   (error (format "not claimed: %s" (error-message-string err))))))
+                          (draft (claim id hash)))
                (if (stringp draft)
                    (progn (push (cons id (list 'skipped draft)) results)
                           (next (cdr rest)))
-                 (push id bndos-review-outbox--in-flight)
-                 (let ((finished nil))
-                   (cl-flet ((finish (outcome)
-                               (unless finished
-                                 (setq finished t)
-                                 (setq bndos-review-outbox--in-flight (delete id bndos-review-outbox--in-flight))
-                                 (condition-case err (bndos-review-outbox--settle store draft outcome)
-                                   (error (display-warning 'bndos-review-outbox
-                                                           (format "Draft %s: %S, not recorded: %s" id outcome
-                                                                   (error-message-string err)))))
-                                 (push (cons id outcome) results)
-                                 (next (cdr rest)))))
-                     (ignore-errors (bndos-review-outbox-changed store))
-                     ;; Before gh starts, nothing was posted.
-                     (condition-case err
-                         (bndos-review-outbox--post review draft #'finish)
-                       (error (finish (list 'failed (format "not sent: %s" (error-message-string err)))))))))))))
-      (next marks))))
+                 (send (list draft) (lambda (finish) (bndos-review-outbox--post review draft finish))
+                       (lambda () (next (cdr rest))))))))
+         (send-review ()
+           (let (claimed)
+             (pcase-dolist (`(,id . ,hash) reviewed)
+               (let ((draft (claim id hash)))
+                 (if (stringp draft)
+                     (push (cons id (list 'skipped draft)) results)
+                   (push draft claimed))))
+             (setq claimed (nreverse claimed))
+             (if (null claimed)
+                 (funcall done (nreverse results))
+               (send claimed
+                     (lambda (finish) (bndos-review-outbox--post-review review claimed (or event "COMMENT") finish))
+                     (lambda () (funcall done (nreverse results))))))))
+      (next alone))))
 
 (defun bndos-review-outbox-reconcile (review sent)
   "Move the drafts GitHub shows, SENT as (ID URL WHERE), to sent/: an
@@ -443,7 +521,10 @@ where the draft was going: its thread, or the conversation."
                 (when (and draft
                            (pcase (plist-get target :kind)
                              ("reply" (equal where (plist-get target :thread)))
-                             ("comment" (eq where 'conversation)))
+                             ("comment" (eq where 'conversation))
+                             ;; A thread of its own.
+                             ((or "line" "file") (stringp where))
+                             ("summary" (eq where 'review)))
                            (not (bndos-review-outbox--sender-alive-p (plist-get draft :claim)))
                            (bndos-review-outbox--move file sent-file))
                   (bndos-review-outbox--write
@@ -499,21 +580,72 @@ where the draft was going: its thread, or the conversation."
   "How many drafts of REVIEW's pull request aren't sent yet."
   (if-let* ((store (bndos-review-outbox-store review))) (length (bndos-review-outbox--live store)) 0))
 
-(defun bndos-review-outbox-notes (review)
-  "REVIEW's drafted comments on the conversation, as notes of its timeline."
+(defvar bndos-review-outbox--blobs (make-hash-table :test #'equal)
+  "(ROOT REV PATH) -> the blob, or `none'.")
+
+(defun bndos-review-outbox--blob (rev path)
+  "The blob of PATH at REV here, or nil; from git once."
+  (let* ((key (list default-directory rev path))
+         (hit (gethash key bndos-review-outbox--blobs)))
+    (if hit
+        (and (not (eq hit 'none)) hit)
+      (let ((blob (bndos-review-github--git "rev-parse" "--verify" "--quiet" (concat rev ":" path))))
+        ;; A commit not here yet may be fetched: only a blob found is kept.
+        (when blob (puthash key blob bndos-review-outbox--blobs))
+        blob))))
+
+(defun bndos-review-outbox--draft-thread (draft base)
+  "DRAFT, a comment on lines or a file, as a thread of the review, on the
+lines it is on in the commit it was written on (or, on removed lines, that
+commit's merge base with BASE).  `default-directory' is the review's root."
+  (let* ((c (bndos-review-outbox--message draft))
+         (target (plist-get draft :target))
+         (path (plist-get target :path))
+         (line (plist-get target :line))
+         (commit (plist-get target :commit))
+         (old (equal (plist-get target :side) "LEFT")))
+    (puthash "id" (concat "draft:" (plist-get draft :id)) c)
+    (puthash "at" (plist-get draft :created) c)
+    (puthash "path" path c)
+    (puthash "external" "GitHub" c)
+    (puthash "chip" "Draft" c)
+    (puthash "chip-face" 'diff-review-draft c)
+    (puthash "replies" [] c)
+    (when line
+      (puthash "lines" (vector (or (plist-get target :start_line) line) line) c)
+      (let* ((rev (if old (and base commit (bndos-review-github--git "merge-base" base commit)) commit))
+             (blob (and rev (bndos-review-outbox--blob rev path))))
+        (if (not blob)
+            (puthash "outdated" t c)
+          (puthash "blob" blob c)
+          (when old (puthash "base-blob" blob c))))
+      (when old (puthash "side" "old" c)))
+    c))
+
+(defun bndos-review-outbox-comments (review)
+  "REVIEW's drafts that aren't replies, as comments of the review: comments on
+the conversation and the review's summary in its timeline, comments on lines
+and files on them."
   (when-let* ((store (bndos-review-outbox-store review)))
-    (mapcar (lambda (draft)
-              (let ((m (bndos-review-outbox--message draft)))
-                (puthash "id" (concat "draft:" (plist-get draft :id)) m)
-                (puthash "at" (plist-get draft :created) m)
-                (puthash "external" "GitHub" m)
-                (puthash "note" t m)
-                (puthash "where" "conversation" m)
-                (puthash "chip" "Draft" m)
-                (puthash "chip-face" 'diff-review-draft m)
-                m))
-            (seq-filter (lambda (d) (equal (plist-get (plist-get d :target) :kind) "comment"))
-                        (bndos-review-outbox--live store)))))
+    (with-current-buffer review
+      (let ((default-directory diff-review--root)
+            (base (plist-get bndos-review-github--state :base-oid)))
+        (delq nil
+              (mapcar (lambda (draft)
+                        (pcase (plist-get (plist-get draft :target) :kind)
+                          ((or "comment" "summary")
+                           (let ((m (bndos-review-outbox--message draft))
+                                 (summary (equal (plist-get (plist-get draft :target) :kind) "summary")))
+                             (puthash "id" (concat "draft:" (plist-get draft :id)) m)
+                             (puthash "at" (plist-get draft :created) m)
+                             (puthash "external" "GitHub" m)
+                             (puthash "note" t m)
+                             (puthash "where" "conversation" m)
+                             (puthash "chip" (if summary "Draft review" "Draft") m)
+                             (puthash "chip-face" 'diff-review-draft m)
+                             m))
+                          ((or "line" "file") (bndos-review-outbox--draft-thread draft base))))
+                      (bndos-review-outbox--live store)))))))
 
 (defvar bndos-review-outbox--watches nil "(STORE . DESCRIPTORS) watched.")
 (defvar bndos-review-outbox--timer nil)
@@ -543,13 +675,10 @@ where the draft was going: its thread, or the conversation."
   (let ((stores bndos-review-outbox--dirty))
     (setq bndos-review-outbox--dirty nil)
     (dolist (buffer (buffer-list))
-      (cond ((and (provided-mode-derived-p (buffer-local-value 'major-mode buffer) 'diff-review-mode)
-                  (member (ignore-errors (bndos-review-outbox-store buffer)) stores))
-             (bndos-review-github--show buffer)
-             (diff-review--panel-refresh))
-            ((and (eq (buffer-local-value 'major-mode buffer) 'bndos-review-outbox-mode)
-                  (member (buffer-local-value 'bndos-review-outbox--store buffer) stores))
-             (with-current-buffer buffer (bndos-review-outbox--render)))))))
+      (when (and (provided-mode-derived-p (buffer-local-value 'major-mode buffer) 'diff-review-mode)
+                 (member (ignore-errors (bndos-review-outbox-store buffer)) stores))
+        (bndos-review-github--show buffer)
+        (diff-review--panel-refresh)))))
 
 ;;;; Writing a draft
 
@@ -574,54 +703,81 @@ where the draft was going: its thread, or the conversation."
 (defun bndos-review-outbox--author ()
   (or (diff-review--author) user-login-name))
 
-(defun bndos-review-outbox-edit-draft (store draft)
-  "Edit DRAFT of STORE; keep the text in the kill ring if it can't be saved."
+(defun bndos-review-outbox-edit-draft (store draft &optional author)
+  "Edit DRAFT of STORE, AUTHOR's from then on when given; keep the text in the
+kill ring if it can't be saved."
   (let* ((hash (bndos-review-outbox-hash draft))
-         (body (bndos-review-outbox--read-body "Edit the draft" (plist-get draft :body)))
-         (result (bndos-review-outbox-change store (plist-get draft :id) hash body)))
+         (body (bndos-review-outbox--read-body (format "Edit the draft%s"
+                                                       (if (and author (not (equal author (plist-get draft :author))))
+                                                           (format " (%s's, yours once saved)" (plist-get draft :author))
+                                                         ""))
+                                               (plist-get draft :body)))
+         (result (bndos-review-outbox-change store (plist-get draft :id) hash body author)))
     (unless (eq result t)
       (kill-new body)
       (user-error "Draft not saved: %s; your text is in the kill ring" result))
-    (message "Draft saved: send it from the outbox (%s)"
-             (substitute-command-keys "\\[bndos-review-outbox]"))))
+    (message "Draft saved: %s sends it" (substitute-command-keys "\\[bndos-review-send]"))))
+
+(defun bndos-review-outbox--drafts-of (store comment &optional states)
+  "The drafts of STORE that COMMENT shows, in STATES (default all not sent):
+COMMENT itself, a draft, or the replies drafted in its thread."
+  (let ((id (gethash "draft-id" comment))
+        (thread (gethash "thread-id" comment)))
+    (seq-filter (lambda (d) (and (or (null states) (member (plist-get d :state) states))
+                                 (if id (equal (plist-get d :id) id)
+                                   (and thread (equal (plist-get (plist-get d :target) :thread) thread)))))
+                (bndos-review-outbox--live store))))
+
+(defun bndos-review-outbox--pick (drafts what)
+  "One of DRAFTS, asked for when there are several, to WHAT."
+  (if (cdr drafts)
+      (let* ((names (mapcar (lambda (d) (cons (format "%s: %s  [%s]" (plist-get d :author)
+                                                      (truncate-string-to-width
+                                                       (car (split-string (plist-get d :body) "\n")) 50 nil nil "…")
+                                                      (plist-get d :id))
+                                                  d))
+                            drafts)))
+        (cdr (assoc (completing-read (format "Draft to %s: " what) (mapcar #'car names) nil t) names)))
+    (car drafts)))
 
 (defun bndos-review-outbox-reply (comment)
   "Draft a reply to COMMENT, a GitHub thread or comment
-\(`diff-review-external-reply-function'); a draft is edited."
+\(`diff-review-external-reply-function'); a draft there is edited, yours
+once saved."
   (let* ((review (diff-review--in-review (current-buffer)))
          (store (or (bndos-review-outbox-store review) (user-error "No pull request fetched for this review")))
-         (own (diff-review--in-review (bndos-review-outbox--author)))
-         (draft-id (gethash "draft-id" comment))
+         (own (with-current-buffer review (bndos-review-outbox--author)))
          (thread (gethash "thread-id" comment))
-         (mine (and thread (seq-find (lambda (d) (and (equal (plist-get (plist-get d :target) :thread) thread)
-                                                      (equal (plist-get d :state) "drafts")
-                                                      (equal (plist-get d :author) own)))
-                                     (bndos-review-outbox--live store)))))
+         (drafts (bndos-review-outbox--drafts-of store comment '("drafts"))))
     (cond
-     (draft-id
-      (let ((draft (seq-find (lambda (d) (equal (plist-get d :id) draft-id)) (bndos-review-outbox--live store))))
-        (unless (equal (plist-get draft :state) "drafts") (user-error "That draft is being sent"))
-        (bndos-review-outbox-edit-draft store draft)))
-     (mine (bndos-review-outbox-edit-draft store mine))
-     (thread
-      (unless (gethash "reply-to" comment) (user-error "This thread has no comment to reply to"))
-      (let ((body (bndos-review-outbox--read-body (format "Reply to %s (a draft)" (gethash "author" comment)))))
-        (bndos-review-outbox-create
-         store (list :pr (bndos-review-outbox--pr review)
-                     :target (list :kind "reply" :thread thread :comment (gethash "reply-to" comment)
-                                   :path (gethash "path" comment)
-                                   :line (cdr (diff-review--comment-lines comment)))
-                     :body body :author own
-                     :seen (bndos-review-outbox--last-at (cons comment (append (gethash "replies" comment) nil)))))
-        (message "Reply drafted: send it from the outbox (%s)" (substitute-command-keys "\\[bndos-review-outbox]"))))
+     (drafts (bndos-review-outbox-edit-draft store (bndos-review-outbox--pick drafts "edit") own))
+     ((gethash "draft-id" comment) (user-error "That draft is being sent"))
+     (thread (bndos-review-outbox--new-reply review store comment nil))
      ;; GitHub has no replies to the conversation's comments and reviews:
      ;; a comment of its own, quoting all of it, to answer it point by point.
-     (t (bndos-review-outbox-comment
-         review (concat (mapconcat (lambda (line) (if (string-empty-p line) ">" (concat "> " line)))
-                                   (split-string (string-trim-right (or (gethash "body" comment) "")) "\n")
-                                   "\n")
-                        "\n\n")
-         (gethash "author" comment))))))
+     (t (bndos-review-outbox-comment review (concat (bndos-review-outbox--quoted (gethash "body" comment)) "\n\n")
+                                     (gethash "author" comment))))))
+
+(defun bndos-review-outbox--quoted (text)
+  "TEXT as a quote, each line with \"> \"."
+  (mapconcat (lambda (line) (if (string-empty-p (string-trim line)) ">" (concat "> " line)))
+             (split-string (string-trim-right (or text "")) "\n")
+             "\n"))
+
+(defun bndos-review-outbox--new-reply (review store comment initial)
+  "Draft a reply in COMMENT's thread, starting with INITIAL."
+  (unless (gethash "reply-to" comment) (user-error "This thread has no comment to reply to"))
+  (let ((body (bndos-review-outbox--read-body (format "Reply to %s (a draft)" (gethash "author" comment)) initial)))
+    (when (and initial (equal body (string-trim initial)))
+      (user-error "Nothing said but the quote"))
+    (bndos-review-outbox-create
+     store (list :pr (bndos-review-outbox--pr review)
+                 :target (list :kind "reply" :thread (gethash "thread-id" comment) :comment (gethash "reply-to" comment)
+                               :path (gethash "path" comment)
+                               :line (cdr (diff-review--comment-lines comment)))
+                 :body body :author (with-current-buffer review (bndos-review-outbox--author))
+                 :seen (bndos-review-outbox--last-at (cons comment (append (gethash "replies" comment) nil)))))
+    (message "Reply drafted: %s sends it" (substitute-command-keys "\\[bndos-review-send]"))))
 
 (defun bndos-review-outbox--pr (review)
   (with-current-buffer review
@@ -646,16 +802,9 @@ ANSWERS, an author, starts with INITIAL, the quote of what they wrote."
                  :body body
                  :author (with-current-buffer review (bndos-review-outbox--author))
                  :seen (bndos-review-outbox--conversation-at review)))
-    (message "Comment drafted: send it from the outbox (%s)" (substitute-command-keys "\\[bndos-review-outbox]"))))
+    (message "Comment drafted: %s sends it" (substitute-command-keys "\\[bndos-review-send]"))))
 
-;;;; The outbox
-
-(defvar-local bndos-review-outbox--review nil "The review this outbox sends for.")
-(defvar-local bndos-review-outbox--store nil "Its drafts' folder.")
-(defvar-local bndos-review-outbox--marks nil "(ID . HASH) of the drafts marked, as shown when marked.")
-(defvar-local bndos-review-outbox--sending nil "Non-nil while this outbox sends.")
-(defvar-local bndos-review-outbox--report nil "What the last send did, for the header.")
-(defvar-local bndos-review-outbox--login nil "Whom GitHub posts as.")
+;;;; What to know of a draft
 
 (defun bndos-review-outbox--github (review)
   "REVIEW's fetched GitHub state."
@@ -685,7 +834,7 @@ ANSWERS, an author, starts with INITIAL, the quote of what they wrote."
           ((not thread)
            (setq blocker "its thread isn't on the pull request (deleted, or not fetched)"))
           ((plist-get (bndos-review-outbox--github review) :pending-review)
-           (setq blocker "you have a pending review on this pull request on GitHub: submit or discard it there, then g"))
+           (setq blocker "you have a pending review on this pull request on GitHub: submit or discard it there, then fetch again"))
           (t
            (let ((new (seq-count (lambda (m) (> (diff-review--time (gethash "at" m)) seen))
                                  (cons thread (append (gethash "replies" thread) nil)))))
@@ -694,6 +843,16 @@ ANSWERS, an author, starts with INITIAL, the quote of what they wrote."
                      warnings)))
            (when (gethash "resolved" thread) (push "the thread is resolved on GitHub" warnings))
            (when (gethash "github-outdated" thread) (push "the thread is on outdated lines" warnings))))))
+      ((or "line" "file" "summary")
+       (let ((head (plist-get (bndos-review-outbox--github review) :head-oid))
+             (commit (plist-get target :commit)))
+         (cond
+          ((plist-get (bndos-review-outbox--github review) :pending-review)
+           (setq blocker "you have a pending review on this pull request on GitHub: submit or discard it there, then fetch again"))
+          ((and commit (not (equal commit head)))
+           (setq blocker (format "written on %s, the pull request's head then; it is %s now: its lines may have moved, write it again"
+                                 (substring commit 0 (min 12 (length commit)))
+                                 (if head (substring head 0 (min 12 (length head))) "not known")))))))
       ("comment"
        (let ((new (seq-count (lambda (c) (and (bndos-review-outbox--note-p c)
                                               (> (diff-review--time (gethash "at" c)) seen)))
@@ -713,7 +872,7 @@ ANSWERS, an author, starts with INITIAL, the quote of what they wrote."
          (t (setq warnings (append (reverse (cdr (bndos-review-changes-summary view))) warnings))))
         ;; It says what changed: the reviewer must be able to see it.
         (unless blocker
-          (cond ((null head) (setq blocker "the pull request's head on GitHub isn't known: g fetches it"))
+          (cond ((null head) (setq blocker "the pull request's head on GitHub isn't known: fetch it"))
                 ((not (equal head (bndos-review-changes-head root)))
                  (setq blocker "the branch here isn't the pull request's head on GitHub: push (or pull) first"))))
         (when (bndos-review-changes-dirty-p root)
@@ -730,206 +889,174 @@ ANSWERS, an author, starts with INITIAL, the quote of what they wrote."
                      (format "  %s: %s" (gethash "author" thread)
                              (truncate-string-to-width (diff-review--first-line thread) 50 nil nil "…"))
                    ""))))
+      ("line"
+       (let ((start (plist-get target :start_line)) (line (plist-get target :line)))
+         (format "Comment on %s:%s%s" (plist-get target :path)
+                 (if (and start (/= start line)) (format "%d-%d" start line) line)
+                 (if (equal (plist-get target :side) "LEFT") " (removed lines)" ""))))
+      ("file" (format "Comment on %s" (plist-get target :path)))
+      ("summary" "The review's summary")
       (_ (if-let* ((answers (plist-get target :answers)))
              (format "Comment on the pull request, answering %s" answers)
            "Comment on the pull request")))))
 
-(defun bndos-review-outbox--marked-p (draft)
-  (equal (cdr (assoc (plist-get draft :id) bndos-review-outbox--marks)) (bndos-review-outbox-hash draft)))
+;;;; At point, in the review
 
-(defun bndos-review-outbox--insert-draft (draft)
-  (let* ((review bndos-review-outbox--review)
-         (problems (bndos-review-outbox-problems review draft))
-         (start (point))
-         (state (plist-get draft :state))
-         (stale-mark (and (assoc (plist-get draft :id) bndos-review-outbox--marks)
-                          (not (bndos-review-outbox--marked-p draft)))))
-    (insert (pcase state
-              ("drafts" (cond ((car problems) (propertize " ✗ " 'face 'bndos-review-outbox-blocked))
-                              ((bndos-review-outbox--marked-p draft) (propertize "[x]" 'face 'success))
-                              (t "[ ]")))
-              ("sending" (if (bndos-review-outbox-unconfirmed-p draft)
-                             (propertize " ? " 'face 'bndos-review-outbox-warning)
-                           (propertize " … " 'face 'shadow)))
-              (_ (propertize " ✓ " 'face 'success)))
-            " " (propertize (bndos-review-outbox--describe-target review draft) 'face 'bold) "\n"
-            "    " (propertize (format "by %s · %s" (plist-get draft :author)
-                                       (diff-review--when (plist-get draft :updated)))
-                               'face 'shadow)
-            (if-let* ((sent (plist-get draft :sent)))
-                (concat "  " (propertize (or (plist-get sent :url) "") 'face 'link))
-              "")
-            "\n")
-    (when-let* ((changes (plist-get draft :changes)))
-      (insert "    " (propertize (format "Changes: %s%s · v to review them" (bndos-review-changes-count changes)
-                                         (if (plist-get changes :rules)
-                                             (concat ", " (bndos-review-outbox--rules-text changes)) ""))
-                                 'face 'shadow)
-              "\n"))
-    (when (equal state "sending")
-      (insert "    " (propertize (if (bndos-review-outbox-unconfirmed-p draft)
-                                     (format "unconfirmed (%s): it may be on GitHub. g fetches and settles it if it is; R puts it back among the drafts"
-                                             (or (plist-get draft :error) "the sending Emacs stopped"))
-                                   "sending…")
-                                 'face 'bndos-review-outbox-warning)
-              "\n"))
-    (when (equal state "drafts")
-      (when stale-mark
-        (insert "    " (propertize "changed since you marked it: m to mark it again" 'face 'bndos-review-outbox-warning) "\n"))
-      (when (car problems)
-        (insert "    " (propertize (concat "can't send: " (car problems)) 'face 'bndos-review-outbox-blocked) "\n"))
-      (dolist (w (cdr problems))
-        (insert "    " (propertize (concat "⚠ " w) 'face 'bndos-review-outbox-warning) "\n")))
-    (unless (equal state "sent")
-      (insert (mapconcat (lambda (line) (concat "    " (propertize "│ " 'face 'shadow) line))
-                         (split-string (plist-get draft :body) "\n") "\n")
-              "\n"))
-    (insert "\n")
-    (put-text-property start (point) 'bndos-review-outbox-id (plist-get draft :id))
-    (put-text-property start (point) 'bndos-review-outbox-hash (bndos-review-outbox-hash draft))))
+(defun bndos-review-outbox--here ()
+  "The review, its drafts' store and the comment at point: in the overview,
+a file, or the thread panel (its thread)."
+  (let* (comment review
+         (here (lambda () (setq comment (diff-review--thread-here)
+                                review (diff-review--in-review (current-buffer))))))
+    (if (bound-and-true-p diff-review--panel-source)
+        (diff-review--panel-in-source here)
+      (funcall here))
+    (list review
+          (or (bndos-review-outbox-store review) (user-error "No pull request fetched for this review"))
+          comment)))
 
-(defun bndos-review-outbox--render ()
-  "Draw this outbox."
-  (let* ((inhibit-read-only t)
-         (review bndos-review-outbox--review)
-         (state (and (buffer-live-p review) (bndos-review-outbox--github review)))
-         (drafts (delq nil (bndos-review-outbox-load bndos-review-outbox--store)))
-         (id (get-text-property (point) 'bndos-review-outbox-id))
-         (line (count-lines (point-min) (point))))
-    ;; Marks of drafts gone are dropped; of drafts changed, kept to say so.
-    (setq bndos-review-outbox--marks
-          (seq-filter (lambda (m) (seq-find (lambda (d) (and (equal (plist-get d :id) (car m))
-                                                             (equal (plist-get d :state) "drafts")))
-                                            drafts))
-                      bndos-review-outbox--marks))
-    (erase-buffer)
-    (insert (propertize (format "Outbox  %s/%s#%s" (plist-get state :owner) (plist-get state :name)
-                                (plist-get state :number))
-                        'face 'diff-review-title)
-            "  " (propertize (format "posting as %s" (if bndos-review-outbox--login
-                                                          (concat "@" bndos-review-outbox--login) "?"))
-                             'face 'bold)
-            "\n"
-            (let ((age (bndos-review-outbox--age review)))
-              (propertize (if age (format "GitHub's threads fetched %s ago" (format-seconds "%Y, %D, %H, %M, %z%S" age))
-                            "GitHub's threads not fetched")
-                          'face (if (and age (< age bndos-review-outbox-max-age)) 'shadow 'bndos-review-outbox-warning)))
-            (if (plist-get state :fetching) (propertize "  fetching…" 'face 'shadow) "")
-            "\n"
-            (diff-review--key-hints '((bndos-review-outbox-mark . "mark") (bndos-review-outbox-mark-all . "mark all")
-                                      (bndos-review-outbox-unmark-all . "unmark all") (bndos-review-outbox-edit . "edit")
-                                      (bndos-review-outbox-delete . "delete") (bndos-review-outbox-new-comment . "comment")
-                                      (bndos-review-outbox-send . "send marked")
-                                      (bndos-review-outbox-refresh . "fetch")))
-            "\n")
-    (when bndos-review-outbox--sending (insert (propertize "Sending…\n" 'face 'bndos-review-outbox-warning)))
-    (when bndos-review-outbox--report (insert bndos-review-outbox--report "\n"))
-    (insert "\n")
-    (let ((groups `(("Drafts" . ,(seq-filter (lambda (d) (equal (plist-get d :state) "drafts")) drafts))
-                    ("Being sent or unconfirmed" . ,(seq-filter (lambda (d) (equal (plist-get d :state) "sending")) drafts))
-                    ("Sent" . ,(last (seq-filter (lambda (d) (equal (plist-get d :state) "sent")) drafts) 10)))))
-      (pcase-dolist (`(,heading . ,items) groups)
-        (when (or items (equal heading "Drafts"))
-          (insert (propertize (format "%s (%d%s)" heading (length items)
-                                      (if (equal heading "Drafts")
-                                          (format ", %d marked" (seq-count #'bndos-review-outbox--marked-p items)) ""))
-                              'face 'magit-section-heading)
-                  "\n")
-          (if items (mapc #'bndos-review-outbox--insert-draft items)
-            (insert (propertize "  None: r on a GitHub thread drafts a reply\n\n" 'face 'shadow))))))
-    (goto-char (or (and id (text-property-any (point-min) (point-max) 'bndos-review-outbox-id id))
-                   (progn (goto-char (point-min)) (forward-line line) (point))))))
-
-(defun bndos-review-outbox--draft-at-point ()
-  "The draft at point, as it is now; an error if it isn't as shown."
-  (let* ((id (or (get-text-property (point) 'bndos-review-outbox-id) (user-error "No draft here")))
-         (draft (seq-find (lambda (d) (equal (plist-get d :id) id)) (bndos-review-outbox-load bndos-review-outbox--store))))
-    (unless draft
-      (bndos-review-outbox--render)
-      (user-error "That draft is gone"))
-    (unless (equal (bndos-review-outbox-hash draft) (get-text-property (point) 'bndos-review-outbox-hash))
-      (bndos-review-outbox--render)
-      (user-error "That draft changed since it was shown: look again"))
-    draft))
-
-(defun bndos-review-outbox--shown ()
-  "The drafts shown, as (ID . HASH) of what is shown."
-  (let ((pos (point-min)) shown)
-    (while (setq pos (text-property-not-all pos (point-max) 'bndos-review-outbox-id nil))
-      (push (cons (get-text-property pos 'bndos-review-outbox-id) (get-text-property pos 'bndos-review-outbox-hash))
-            shown)
-      (setq pos (or (next-single-property-change pos 'bndos-review-outbox-id) (point-max))))
-    (nreverse shown)))
-
-(defun bndos-review-outbox-mark ()
-  "Mark the draft at point to be sent, or unmark it; then go to the next."
+(defun bndos-review-draft-edit ()
+  "Edit the draft at point: yours once saved, sent as your own."
   (interactive)
-  (let ((draft (bndos-review-outbox--draft-at-point)))
-    (unless (equal (plist-get draft :state) "drafts") (user-error "Only drafts are sent"))
-    (if (bndos-review-outbox--marked-p draft)
-        (setq bndos-review-outbox--marks (assoc-delete-all (plist-get draft :id) bndos-review-outbox--marks))
-      (when-let* ((blocker (car (bndos-review-outbox-problems bndos-review-outbox--review draft))))
-        (user-error "Can't send this one: %s" blocker))
-      (setf (alist-get (plist-get draft :id) bndos-review-outbox--marks nil nil #'equal)
-            (bndos-review-outbox-hash draft)))
-    (bndos-review-outbox--render)
-    (when-let* ((next (next-single-property-change (point) 'bndos-review-outbox-id)))
-      (goto-char next)
-      (unless (get-text-property (point) 'bndos-review-outbox-id)
-        (goto-char (or (next-single-property-change (point) 'bndos-review-outbox-id) (point)))))))
+  (pcase-let* ((`(,review ,store ,comment) (bndos-review-outbox--here))
+               (drafts (bndos-review-outbox--drafts-of store comment '("drafts"))))
+    (unless drafts (user-error "No draft here%s" (if (bndos-review-outbox--drafts-of store comment) " but one being sent" "")))
+    (bndos-review-outbox-edit-draft store (bndos-review-outbox--pick drafts "edit")
+                                    (with-current-buffer review (bndos-review-outbox--author)))))
 
-(defun bndos-review-outbox-mark-all ()
-  "Mark every draft shown that can be sent, as shown."
+(defun bndos-review-draft-delete ()
+  "Delete the draft at point, if it is still as it was when asked."
   (interactive)
-  (let ((shown (bndos-review-outbox--shown)) (changed 0))
-    (dolist (draft (bndos-review-outbox-load bndos-review-outbox--store))
-      (let ((as-shown (cdr (assoc (plist-get draft :id) shown))))
-        (when (and (equal (plist-get draft :state) "drafts")
-                   (not (car (bndos-review-outbox-problems bndos-review-outbox--review draft))))
-          (if (not (equal as-shown (bndos-review-outbox-hash draft)))
-              (cl-incf changed)
-            (setf (alist-get (plist-get draft :id) bndos-review-outbox--marks nil nil #'equal) as-shown)))))
-    (bndos-review-outbox--render)
-    (when (> changed 0)
-      (message "%d draft%s new or changed since shown, not marked: look again" changed (if (= changed 1) "" "s")))))
-
-(defun bndos-review-outbox-unmark-all ()
-  "Unmark every draft."
-  (interactive)
-  (setq bndos-review-outbox--marks nil)
-  (bndos-review-outbox--render))
-
-(defun bndos-review-outbox-edit ()
-  "Edit the draft at point."
-  (interactive)
-  (let ((draft (bndos-review-outbox--draft-at-point)))
-    (unless (equal (plist-get draft :state) "drafts") (user-error "Only drafts are edited"))
-    (bndos-review-outbox-edit-draft bndos-review-outbox--store draft)))
-
-(defun bndos-review-outbox-delete ()
-  "Delete the draft at point, if it is still as shown."
-  (interactive)
-  (let ((draft (bndos-review-outbox--draft-at-point)))
-    (unless (equal (plist-get draft :state) "drafts") (user-error "Only drafts are deleted"))
+  (pcase-let* ((`(,_review ,store ,comment) (bndos-review-outbox--here))
+               (drafts (bndos-review-outbox--drafts-of store comment '("drafts")))
+               (draft (or (bndos-review-outbox--pick drafts "delete") (user-error "No draft here")))
+               (hash (bndos-review-outbox-hash draft)))
     (when (y-or-n-p (format "Delete the draft by %s, “%s”? " (plist-get draft :author)
                             (truncate-string-to-width (car (split-string (plist-get draft :body) "\n")) 40 nil nil "…")))
-      (let ((result (bndos-review-outbox-remove bndos-review-outbox--store (plist-get draft :id)
-                                                (bndos-review-outbox-hash draft))))
-        (bndos-review-outbox--render)
-        (unless (eq result t) (user-error "Not deleted: %s" result))))))
+      (let ((result (bndos-review-outbox-remove store (plist-get draft :id) hash)))
+        (unless (eq result t) (user-error "Not deleted: %s" result))
+        (message "Draft deleted")))))
 
-(defun bndos-review-outbox-return ()
-  "Put the unconfirmed draft at point back among the drafts, once you know it
+(defun bndos-review-draft-quote ()
+  "Reply to a message of the thread at point quoting it: in a thread, a reply;
+on the conversation, a comment of its own."
+  (interactive)
+  (pcase-let* ((`(,review ,store ,comment) (bndos-review-outbox--here))
+               (messages (seq-remove (lambda (m) (gethash "draft" m))
+                                     (cons comment (append (gethash "replies" comment) nil)))))
+    (unless (diff-review--external-p comment) (user-error "Not a GitHub thread or comment"))
+    (when (gethash "draft-id" comment) (user-error "A draft: edit it instead"))
+    (let* ((names (mapcar (lambda (m) (cons (format "%s: %s" (gethash "author" m)
+                                                    (truncate-string-to-width (diff-review--first-line m) 60 nil nil "…"))
+                                            m))
+                          messages))
+           (message (if (cdr names)
+                        (cdr (assoc (completing-read "Quote: " (mapcar #'car names) nil t nil nil (car (car (last names))))
+                                    names))
+                      (cdar names)))
+           (quote (concat (bndos-review-outbox--quoted (gethash "body" message)) "\n\n")))
+      (if (gethash "thread-id" comment)
+          (bndos-review-outbox--new-reply review store comment quote)
+        (bndos-review-outbox-comment review quote (gethash "author" message))))))
+
+(defun bndos-review-outbox--diff-lines (root base head path)
+  "The lines of PATH the pull request's diff shows, from BASE's merge base with
+HEAD to HEAD, as GitHub does (3 lines of context): (RIGHT . LEFT) ranges,
+\(FROM . TO) each; nil when it doesn't change PATH."
+  (let ((default-directory root) right left)
+    (when-let* ((merge-base (bndos-review-github--git "merge-base" base head)))
+      (with-temp-buffer
+        (when (zerop (process-file "git" nil t nil "--no-optional-locks" "diff" "-U3" "--no-color" "--no-ext-diff"
+                                   "--no-renames" merge-base head "--" path))
+          (goto-char (point-min))
+          (while (re-search-forward "^@@ -\\([0-9]+\\)\\(?:,\\([0-9]+\\)\\)? \\+\\([0-9]+\\)\\(?:,\\([0-9]+\\)\\)? @@" nil t)
+            (let ((old (string-to-number (match-string 1))) (old-len (if (match-string 2) (string-to-number (match-string 2)) 1))
+                  (new (string-to-number (match-string 3))) (new-len (if (match-string 4) (string-to-number (match-string 4)) 1)))
+              (when (> new-len 0) (push (cons new (+ new new-len -1)) right))
+              (when (> old-len 0) (push (cons old (+ old old-len -1)) left))))
+          (and (> (buffer-size) 0) (cons (nreverse right) (nreverse left))))))))
+
+(defun bndos-review-outbox--line-target (review path lines)
+  "A comment's target on LINES, (FIRST . LAST) of PATH as the pull request's
+head has them, or of the file with LINES nil; an error when GitHub wouldn't
+take it."
+  (with-current-buffer review
+    (let* ((state bndos-review-github--state)
+           (head (or (plist-get state :head-oid) (user-error "The pull request's head isn't known: fetch it")))
+           (base (or (plist-get state :base-oid) (user-error "The pull request's base isn't known: fetch it")))
+           (ranges (or (bndos-review-outbox--diff-lines diff-review--root base head path)
+                       (user-error "%s isn't changed by the pull request (or its head isn't here): comments go on its changed files"
+                                   path))))
+      (if (null lines)
+          (list :kind "file" :path path :commit head)
+        (unless (seq-some (lambda (r) (and (<= (car r) (car lines)) (<= (cdr lines) (cdr r)))) (car ranges))
+          (user-error "%s:%s isn't in one hunk of the pull request's diff, so GitHub won't take it; lines there: %s"
+                      path (if (= (car lines) (cdr lines)) (car lines) (format "%d-%d" (car lines) (cdr lines)))
+                      (mapconcat (lambda (r) (if (= (car r) (cdr r)) (number-to-string (car r)) (format "%d-%d" (car r) (cdr r))))
+                                 (car ranges) ", ")))
+        (append (list :kind "line" :path path :line (cdr lines) :side "RIGHT" :commit head)
+                (and (/= (car lines) (cdr lines)) (list :start_line (car lines))))))))
+
+(defun bndos-review-outbox--as-head-p (review path)
+  "Whether this buffer, a file of REVIEW, is PATH as the pull request's head has it."
+  (let ((head (plist-get (buffer-local-value 'bndos-review-github--state review) :head-oid)))
+    (and head (equal (diff-review--buffer-blob)
+                     (with-current-buffer review
+                       (let ((default-directory diff-review--root)) (bndos-review-outbox--blob head path)))))))
+
+(defun bndos-review-draft-comment (&optional file)
+  "Draft a comment on the region's lines, or the line at point, of the pull
+request's head, sent with your review; with FILE (a prefix argument), on
+the whole file."
+  (interactive "P")
+  (unless diff-review-file-mode (user-error "Not in a file under review"))
+  (let* ((review (diff-review--in-review (current-buffer)))
+         (store (or (bndos-review-outbox-store review) (user-error "No pull request fetched for this review")))
+         (path diff-review--file-path)
+         (lines (and (not file) (diff-review--region-lines))))
+    (unless (bndos-review-outbox--as-head-p review path)
+      (user-error "%s here isn't as the pull request's head has it: comment where it is (commit and push, or fetch)" path))
+    (let* ((target (bndos-review-outbox--line-target review path lines))
+           (body (bndos-review-outbox--read-body
+                  (format "%s (a draft, sent with your review)"
+                          (bndos-review-outbox--describe-target review (list :target target))))))
+      (deactivate-mark)
+      (bndos-review-outbox-create
+       store (list :pr (bndos-review-outbox--pr review) :target target :body body
+                   :author (with-current-buffer review (bndos-review-outbox--author))))
+      (message "Comment drafted: %s sends it with your review" (substitute-command-keys "\\[bndos-review-send]")))))
+
+(defun bndos-review-draft-summary ()
+  "Draft the summary of your review, or edit it."
+  (interactive)
+  (let* ((review (diff-review--in-review (current-buffer)))
+         (store (or (bndos-review-outbox-store review) (user-error "No pull request fetched for this review")))
+         (own (with-current-buffer review (bndos-review-outbox--author)))
+         (drafted (seq-filter (lambda (d) (equal (plist-get (plist-get d :target) :kind) "summary"))
+                              (bndos-review-outbox--live store))))
+    (cond
+     ((seq-find (lambda (d) (equal (plist-get d :state) "drafts")) drafted)
+      (bndos-review-outbox-edit-draft store (seq-find (lambda (d) (equal (plist-get d :state) "drafts")) drafted) own))
+     (drafted (user-error "The review's summary is being sent"))
+     (t (bndos-review-outbox-create
+         store (list :pr (bndos-review-outbox--pr review) :target (list :kind "summary")
+                     :body (bndos-review-outbox--read-body "The review's summary (a draft)") :author own))
+        (message "Summary drafted: %s sends it with your review" (substitute-command-keys "\\[bndos-review-send]"))))))
+
+(defun bndos-review-draft-put-back ()
+  "Put the unconfirmed send at point back among the drafts, once you know it
 isn't on GitHub.  Also one another Emacs, still running, claimed long ago."
   (interactive)
-  (let* ((draft (bndos-review-outbox--draft-at-point))
-         (store bndos-review-outbox--store)
-         (id (plist-get draft :id))
-         (stuck (bndos-review-outbox--stuck-p draft))
-         (returnable (lambda (d) (and (plist-get d :body)
-                                      (or (bndos-review-outbox-unconfirmed-p d)
-                                          (and stuck (bndos-review-outbox--stuck-p d)))))))
-    (unless (funcall returnable draft) (user-error "Not an unconfirmed draft"))
+  (pcase-let* ((`(,_review ,store ,comment) (bndos-review-outbox--here))
+               (stuck-p (lambda (d) (or (bndos-review-outbox-unconfirmed-p d) (bndos-review-outbox--stuck-p d))))
+               (draft (or (bndos-review-outbox--pick (seq-filter stuck-p (bndos-review-outbox--drafts-of store comment '("sending")))
+                                                     "put back")
+                          (user-error "No unconfirmed send here")))
+               (id (plist-get draft :id))
+               (stuck (bndos-review-outbox--stuck-p draft))
+               (returnable (lambda (d) (and (plist-get d :body)
+                                            (or (bndos-review-outbox-unconfirmed-p d)
+                                                (and stuck (bndos-review-outbox--stuck-p d)))))))
     (when (yes-or-no-p
            (if stuck
                (format "Emacs %s claimed it %s and still runs: is it on GitHub?  Put it back only if it isn't, and that Emacs isn't sending it: "
@@ -941,49 +1068,137 @@ isn't on GitHub.  Also one another Emacs, still running, claimed long ago."
              (draft (and (bndos-review-outbox--move file held)
                          (append (list :state "sending" :file held) (bndos-review-outbox--read held)))))
         (cond
-         ((not draft) (bndos-review-outbox--render) (user-error "It moved meanwhile: look again"))
+         ((not draft) (user-error "It moved meanwhile: look again"))
          ((not (funcall returnable draft))
           (bndos-review-outbox--move held file)
-          (bndos-review-outbox--render)
           (user-error "It is being sent, or can't be read: look again")))
         (bndos-review-outbox--write held (plist-put (plist-put draft :claim nil) :error "put back after an unconfirmed send"))
         (unless (bndos-review-outbox--move held (bndos-review-outbox--path store "drafts" id))
           (bndos-review-outbox--move held file)
           (user-error "A draft with its id is there already: look again"))
         (bndos-review-outbox-changed store)
-        (bndos-review-outbox--render)))))
+        (message "Put back among the drafts")))))
 
-(defun bndos-review-outbox-new-comment ()
-  "Draft a comment on the pull request's conversation."
-  (interactive)
-  (bndos-review-outbox-comment bndos-review-outbox--review))
+;;;; Sending what the user picks
 
-(defun bndos-review-outbox-visit ()
-  "Show the thread the draft at point replies to."
-  (interactive)
-  (let* ((draft (bndos-review-outbox--draft-at-point))
-         (thread (plist-get (plist-get draft :target) :thread))
-         (review bndos-review-outbox--review))
-    (pop-to-buffer review)
-    (if thread
-        (diff-review--goto-comment (concat "github:" thread))
-      (goto-char (point-min))
-      (re-search-forward "^Comments" nil t))))
+(defvar-local bndos-review-outbox-report nil "In a review: what its last send did.")
+(defvar-local bndos-review-outbox--sending nil "In a review: non-nil while it sends.")
 
-(defun bndos-review-outbox-refresh (&optional then)
-  "Fetch GitHub's threads again, settling unconfirmed sends; then THEN."
+(defvar bndos-review-outbox-choose-function #'bndos-review-outbox--choose
+  "Function of (REVIEW DRAFTS) giving those of DRAFTS to send.")
+
+(defun bndos-review-outbox--line (review draft problems)
+  "DRAFT in a line, with PROBLEMS' warnings."
+  (format "%s — %s: “%s”%s"
+          (bndos-review-outbox--describe-target review draft)
+          (plist-get draft :author)
+          (truncate-string-to-width (replace-regexp-in-string "\n+" " " (plist-get draft :body)) 60 nil nil "…")
+          (if (cdr problems) (propertize (concat "  ⚠ " (string-join (cdr problems) "; ")) 'face 'bndos-review-outbox-warning) "")))
+
+(defun bndos-review-outbox--choose (review drafts)
+  "Ask, draft by draft, which of DRAFTS to send: y, n, ! all the rest, q stop."
+  (let (chosen)
+    (map-y-or-n-p (lambda (d) (format "Send %s? " (bndos-review-outbox--line review d (bndos-review-outbox-problems review d))))
+                  (lambda (d) (push d chosen))
+                  drafts
+                  '("draft" "drafts" "send"))
+    (nreverse chosen)))
+
+(defun bndos-review-outbox--own-p (review)
+  "Whether REVIEW's pull request is that of whom GitHub posts as."
+  (let ((state (bndos-review-outbox--github review)))
+    (and (plist-get state :viewer) (equal (plist-get state :viewer) (plist-get state :author)))))
+
+(defun bndos-review-outbox--confirm (review chosen)
+  "Confirm sending CHOSEN to REVIEW's pull request: the event of the review
+they make, when they make one (\"COMMENT\", \"REQUEST_CHANGES\" or
+\"APPROVE\"), t when they make none, nil when declined."
+  (let* ((state (bndos-review-outbox--github review))
+         (count (lambda (pred) (seq-count pred chosen)))
+         (lines (funcall count (lambda (d) (equal (plist-get (plist-get d :target) :kind) "line"))))
+         (summary (seq-some (lambda (d) (equal (plist-get (plist-get d :target) :kind) "summary")) chosen))
+         (alone (funcall count (lambda (d) (not (bndos-review-outbox--review-kind-p d)))))
+         (what (string-join
+                (delq nil (list (and (> alone 0) (format "%d draft%s" alone (if (= alone 1) "" "s")))
+                                (and (or summary (> lines 0))
+                                     (format "a review (%s)"
+                                             (string-join (delq nil (list (and summary "its summary")
+                                                                          (and (> lines 0) (format "%d comment%s on lines" lines (if (= lines 1) "" "s")))))
+                                                          ", ")))))
+                " and "))
+         (where (format "%s/%s#%s as %s" (plist-get state :owner) (plist-get state :name) (plist-get state :number)
+                        (if (plist-get state :viewer) (concat "@" (plist-get state :viewer)) "this project's GitHub account"))))
+    (cond
+     ((not (or summary (> lines 0)))
+      (and (y-or-n-p (format "Send %s to %s? " what where)) t))
+     ;; GitHub takes no verdict on your own pull request.
+     ((bndos-review-outbox--own-p review)
+      (and (y-or-n-p (format "Send %s to %s, your own pull request: a comment review? " what where)) "COMMENT"))
+     (t
+      (pcase (car (read-multiple-choice (format "Send %s to %s" what where)
+                                        '((?c "comment" "a review that only comments")
+                                          (?r "request changes" "a review asking for changes")
+                                          (?a "approve" "a review approving it")
+                                          (?q "cancel" "send nothing"))))
+        (?c "COMMENT")
+        (?r (if summary "REQUEST_CHANGES"
+              (user-error "Asking for changes needs the review's summary: %s drafts it"
+                          (substitute-command-keys "\\[bndos-review-draft-summary]"))))
+        (?a "APPROVE")
+        (_ nil))))))
+
+(defun bndos-review-send ()
+  "Send drafts of this review's pull request: those you pick, after a
+confirmation.  Comments on lines and the summary go as one review."
   (interactive)
-  (let ((outbox (current-buffer))
-        (review bndos-review-outbox--review))
-    (bndos-review-outbox--whoami outbox)
-    (bndos-review-github-refresh review t)
-    (bndos-review-outbox--render)
-    (bndos-review-outbox--when-fetched
-     review (lambda ()
-              (when (buffer-live-p outbox)
-                (with-current-buffer outbox
-                  (bndos-review-outbox--render)
-                  (when then (funcall then))))))))
+  (let* ((review (diff-review--in-review (current-buffer)))
+         (store (or (bndos-review-outbox-store review) (user-error "No pull request fetched for this review")))
+         (age (bndos-review-outbox--age review)))
+    (cond
+     ((buffer-local-value 'bndos-review-outbox--sending review) (user-error "Already sending"))
+     ((plist-get (bndos-review-outbox--github review) :fetching)
+      (user-error "Fetching GitHub's threads: send once they're in"))
+     ((or (null age) (> age bndos-review-outbox-max-age))
+      ;; What to know before sending is GitHub's as it is now.
+      (message "Fetching GitHub's threads first…")
+      (bndos-review-github-refresh review t)
+      (bndos-review-outbox--when-fetched
+       review (lambda () (when (and (buffer-live-p review) (bndos-review-outbox--age review)
+                                    (< (bndos-review-outbox--age review) bndos-review-outbox-max-age))
+                           (with-current-buffer review (bndos-review-send))))))
+     (t
+      (let* ((bndos-review-changes-cache-seconds 0)   ; the code as it is now
+             (drafts (seq-filter (lambda (d) (equal (plist-get d :state) "drafts")) (bndos-review-outbox-load store)))
+             (blocked (seq-filter (lambda (d) (car (bndos-review-outbox-problems review d))) drafts))
+             (ready (seq-difference drafts blocked)))
+        (unless drafts (user-error "No drafts to send"))
+        (when blocked
+          (display-message-or-buffer
+           (concat (format "%d draft%s can't be sent:\n" (length blocked) (if (cdr blocked) "s" ""))
+                   (mapconcat (lambda (d) (format "  %s — %s" (bndos-review-outbox--describe-target review d)
+                                                  (car (bndos-review-outbox-problems review d))))
+                              blocked "\n"))))
+        (unless ready (user-error "Nothing can be sent"))
+        ;; Each as it was when asked about: one changed since isn't sent.
+        (let* ((chosen (funcall bndos-review-outbox-choose-function review ready))
+               (marks (mapcar (lambda (d) (cons (plist-get d :id) (bndos-review-outbox-hash d))) chosen))
+               (event (and chosen (bndos-review-outbox--confirm review chosen))))
+          (if (not event)
+              (message "Nothing sent")
+            (with-current-buffer review
+              (setq bndos-review-outbox--sending t
+                    bndos-review-outbox-report nil))
+            (message "Sending…")
+            (bndos-review-outbox-send-marks
+             review store marks
+             (lambda (results)
+               (when (buffer-live-p review)
+                 (with-current-buffer review
+                   (setq bndos-review-outbox--sending nil
+                         bndos-review-outbox-report (bndos-review-outbox--summary results))
+                   (message "%s" (substring-no-properties bndos-review-outbox-report))
+                   (bndos-review-github-refresh review t))))
+             (and (stringp event) event)))))))))
 
 (defun bndos-review-outbox--when-fetched (review fn)
   "Call FN once REVIEW's fetch is over."
@@ -995,65 +1210,6 @@ isn't on GitHub.  Also one another Emacs, still running, claimed long ago."
                                             (not (plist-get (bndos-review-outbox--github review) :fetching)))
                                     (cancel-timer timer)
                                     (funcall fn)))))))
-
-(defun bndos-review-outbox--whoami (outbox)
-  (with-current-buffer bndos-review-outbox--review
-    (bndos-review-github--gh '("api" "user")
-                             (lambda (user)
-                               (when (and (hash-table-p user) (buffer-live-p outbox))
-                                 (with-current-buffer outbox
-                                   (setq bndos-review-outbox--login (gethash "login" user))
-                                   (bndos-review-outbox--render)))))))
-
-(defun bndos-review-outbox-send ()
-  "Send the drafts marked, as they were when marked, after a confirmation."
-  (interactive)
-  (when bndos-review-outbox--sending (user-error "Already sending"))
-  (let* ((outbox (current-buffer))
-         (review bndos-review-outbox--review)
-         (store bndos-review-outbox--store)
-         (drafts (bndos-review-outbox-load store))
-         (marks (seq-filter (lambda (m) (seq-find (lambda (d) (and (equal (plist-get d :id) (car m))
-                                                                   (equal (plist-get d :state) "drafts")
-                                                                   (equal (bndos-review-outbox-hash d) (cdr m))))
-                                                  drafts))
-                            bndos-review-outbox--marks))
-         (age (bndos-review-outbox--age review)))
-    (cond
-     ((null bndos-review-outbox--marks) (user-error "Nothing marked: m marks a draft"))
-     ((plist-get (bndos-review-outbox--github review) :fetching)
-      (user-error "Fetching GitHub's threads: look again once they're in, then send"))
-     ((/= (length marks) (length bndos-review-outbox--marks))
-      (bndos-review-outbox--render)
-      (user-error "Marked drafts changed or went since you marked them: look again, then send"))
-     ((or (null age) (> age bndos-review-outbox-max-age))
-      (bndos-review-outbox-refresh)
-      (message "GitHub's threads were old: fetching them; look at the outbox again, then send"))
-     ((let ((bndos-review-changes-cache-seconds 0))   ; the code as it is now
-        (seq-some (lambda (m) (car (bndos-review-outbox-problems
-                                    review (seq-find (lambda (d) (equal (plist-get d :id) (car m))) drafts))))
-                  marks))
-      (user-error "A marked draft can't be sent: see the outbox"))
-     ((y-or-n-p (format "Send the %d marked draft%s to %s/%s#%s as %s? "
-                        (length marks) (if (= 1 (length marks)) "" "s")
-                        (plist-get (bndos-review-outbox--github review) :owner)
-                        (plist-get (bndos-review-outbox--github review) :name)
-                        (plist-get (bndos-review-outbox--github review) :number)
-                        (if bndos-review-outbox--login (concat "@" bndos-review-outbox--login) "this project's GitHub account")))
-      (setq bndos-review-outbox--sending t
-            bndos-review-outbox--report nil
-            bndos-review-outbox--marks nil)
-      (bndos-review-outbox--render)
-      (bndos-review-outbox-send-marks
-       review store marks
-       (lambda (results)
-         (when (buffer-live-p outbox)
-           (with-current-buffer outbox
-             (setq bndos-review-outbox--sending nil
-                   bndos-review-outbox--report (bndos-review-outbox--summary results))
-             (bndos-review-outbox--render)
-             (message "%s" (substring-no-properties bndos-review-outbox--report))))
-         (when (buffer-live-p review) (bndos-review-github-refresh review t))))))))
 
 (defun bndos-review-outbox--summary (results)
   (let ((count (lambda (kind) (seq-count (lambda (r) (eq (cadr r) kind)) results))))
@@ -1070,44 +1226,6 @@ isn't on GitHub.  Also one another Emacs, still running, claimed long ago."
                                                        "; "))
                                   'face 'warning))))
      ", ")))
-
-(defvar-keymap bndos-review-outbox-mode-map
-  :doc "Keys of the outbox."
-  :parent special-mode-map
-  "m" #'bndos-review-outbox-mark
-  "M" #'bndos-review-outbox-mark-all
-  "U" #'bndos-review-outbox-unmark-all
-  "e" #'bndos-review-outbox-edit
-  "d" #'bndos-review-outbox-delete
-  "c" #'bndos-review-outbox-new-comment
-  "R" #'bndos-review-outbox-return
-  "RET" #'bndos-review-outbox-visit
-  "v" #'bndos-review-outbox-view-changes
-  "u" #'bndos-review-outbox-unexplained
-  "g" #'bndos-review-outbox-refresh
-  "C-c C-c" #'bndos-review-outbox-send)
-
-(define-derived-mode bndos-review-outbox-mode special-mode "Outbox"
-  "Drafted replies to a pull request, sent from here once marked and confirmed.
-\\{bndos-review-outbox-mode-map}"
-  (setq truncate-lines nil)
-  (setq-local revert-buffer-function (lambda (&rest _) (bndos-review-outbox-refresh))))
-
-(with-eval-after-load 'evil
-  (evil-set-initial-state 'bndos-review-outbox-mode 'normal)
-  (evil-define-key* 'normal bndos-review-outbox-mode-map
-    "m" #'bndos-review-outbox-mark
-    "M" #'bndos-review-outbox-mark-all
-    "U" #'bndos-review-outbox-unmark-all
-    "e" #'bndos-review-outbox-edit
-    "d" #'bndos-review-outbox-delete
-    "c" #'bndos-review-outbox-new-comment
-    "R" #'bndos-review-outbox-return
-    (kbd "RET") #'bndos-review-outbox-visit
-    "v" #'bndos-review-outbox-view-changes
-    "u" #'bndos-review-outbox-unexplained
-    "gr" #'bndos-review-outbox-refresh
-    "q" #'quit-window))
 
 ;;;; The changes a draft links
 
@@ -1186,22 +1304,15 @@ the thread DRAFT answers and DRAFT."
   (setq bndos-review-github-borrow borrow)
   (bndos-review-github--borrow (current-buffer)))
 
-(defun bndos-review-outbox-view-changes ()
-  "Show the changes the draft at point links."
-  (interactive)
-  (bndos-review-outbox-show-changes bndos-review-outbox--review (bndos-review-outbox--draft-at-point)))
-
 (defun bndos-review-outbox-thread-changes ()
-  "Show the changes the draft replying to the thread at point links."
+  "Show the changes the draft at point links: a reply in its thread, or a
+comment."
   (interactive)
-  (let* ((review (diff-review--in-review (current-buffer)))
-         (comment (with-current-buffer review (diff-review--thread-here)))
-         (thread (and comment (gethash "thread-id" comment)))
-         (store (or (bndos-review-outbox-store review) (user-error "No pull request fetched for this review")))
-         (draft (seq-find (lambda (d) (and (plist-get d :changes)
-                                           (if thread (equal (plist-get (plist-get d :target) :thread) thread)
-                                             (equal (plist-get d :id) (and comment (gethash "draft-id" comment))))))
-                          (bndos-review-outbox--live store))))
+  (pcase-let* ((`(,review ,store ,comment) (bndos-review-outbox--here))
+               (draft (bndos-review-outbox--pick
+                       (seq-filter (lambda (d) (plist-get d :changes))
+                                   (bndos-review-outbox--drafts-of store comment '("drafts" "sending" "sent")))
+                       "show the changes of")))
     (unless draft (user-error "No draft here links changes"))
     (bndos-review-outbox-show-changes review draft)))
 
@@ -1209,8 +1320,8 @@ the thread DRAFT answers and DRAFT."
   "Show the changes no draft links, since the oldest commit a draft's changes
 are taken from; those the base branch brought left out."
   (interactive)
-  (let* ((review bndos-review-outbox--review)
-         (store bndos-review-outbox--store)
+  (let* ((review (diff-review--in-review (current-buffer)))
+         (store (or (bndos-review-outbox-store review) (user-error "No pull request fetched for this review")))
          (root (buffer-local-value 'diff-review--root review))
          (all (delq nil (mapcar (lambda (d) (plist-get d :changes)) (bndos-review-outbox--live store)))))
     (unless all (user-error "No draft links changes"))
@@ -1248,23 +1359,6 @@ are taken from; those the base branch brought left out."
                                            bases))
                   bases)
         (car bases))))
-
-(defun bndos-review-outbox ()
-  "Show the outbox of this review's pull request: its drafts, to mark and send."
-  (interactive)
-  (let* ((review (diff-review--in-review (current-buffer)))
-         (store (or (bndos-review-outbox-store review) (user-error "No pull request fetched for this review")))
-         (state (bndos-review-outbox--github review))
-         (buffer (get-buffer-create (format "*outbox: %s/%s#%s*" (plist-get state :owner) (plist-get state :name)
-                                            (plist-get state :number)))))
-    (bndos-review-outbox--watch store)
-    (with-current-buffer buffer
-      (unless (derived-mode-p 'bndos-review-outbox-mode) (bndos-review-outbox-mode))
-      (setq bndos-review-outbox--review review
-            bndos-review-outbox--store store)
-      (bndos-review-outbox-refresh))
-    (pop-to-buffer buffer)
-    buffer))
 
 (setq diff-review-thread-drafts-function #'bndos-review-outbox--thread-drafts
       diff-review-external-reply-function #'bndos-review-outbox-reply)

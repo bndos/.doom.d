@@ -1,7 +1,7 @@
-;;; bndos-outbox-tests.el --- Drafted replies to a pull request, sent from the outbox -*- lexical-binding: t; -*-
+;;; bndos-outbox-tests.el --- Drafts for a pull request, sent those picked -*- lexical-binding: t; -*-
 
 ;; Against a fake gh (`bndos-test-gh-pr') that keeps a pull request in files
-;; and records what is posted: what is sent is what was marked, once.
+;; and records what is posted: what is sent is what was picked, once.
 
 (require 'test-helper)
 (require 'bndos-review-tests)
@@ -38,13 +38,14 @@ if args[:2] == ['api', 'graphql']:
         sys.exit(0)
     reviews = load('reviews.json', [])
     if 'reviewThreads' not in query:
-        pr = {'comments': {'nodes': conversation}, 'reviews': {'nodes': reviews},
+        pr = {'author': {'login': load('author.json', 'octo')},
+              'comments': {'nodes': conversation}, 'reviews': {'nodes': reviews},
               'pending': {'totalCount': 1 if load('pending.json', False) else 0}}
     else:
         pr = {'reviewThreads': {'pageInfo': {'hasNextPage': False, 'endCursor': None},
                                 'nodes': [dict(t, comments=page(t['comments']['nodes'], None)) for t in threads]},
               'comments': {'nodes': conversation}, 'reviews': {'nodes': reviews}}
-    print(json.dumps({'data': {'repository': {'pullRequest': pr}}})); sys.exit(0)
+    print(json.dumps({'data': {'viewer': {'login': 'tester'}, 'repository': {'pullRequest': pr}}})); sys.exit(0)
 def answer(status, reason, value, code):
     # As gh api --include prints it: status line, headers, a blank line, the body.
     sys.stdout.write('HTTP/2.0 %d %s\\nContent-Type: application/json\\r\\nX-Github-Media-Type: github.v3\\r\\n\\r\\n%s'
@@ -53,7 +54,8 @@ def answer(status, reason, value, code):
     sys.exit(code)
 if args[:4] == ['api', '--include', '-X', 'POST']:
     path = args[4]
-    with open(args[args.index('--input') + 1], 'rb') as f: body = json.loads(f.read().decode('utf-8'))['body']
+    with open(args[args.index('--input') + 1], 'rb') as f: payload = json.loads(f.read().decode('utf-8'))
+    body = payload.get('body') or ''
     modes = load('modes.json', [])
     mode = modes.pop(0) if modes else 'ok'
     save('modes.json', modes)
@@ -71,7 +73,7 @@ if args[:4] == ['api', '--include', '-X', 'POST']:
         os.kill(os.getpid(), 9)
     posts = load('posts.json', [])
     n = len(posts) + 1
-    posts.append({'path': path, 'body': body})
+    posts.append({'path': path, 'body': body, 'payload': payload})
     save('posts.json', posts)
     node = {'databaseId': 1000 + n, 'url': 'https://github.com/me/repo/pull/7#c%d' % (1000 + n), 'body': body,
             'createdAt': '2026-11-19T12:00:%02dZ' % n, 'author': {'login': 'tester'}}
@@ -79,6 +81,27 @@ if args[:4] == ['api', '--include', '-X', 'POST']:
         to = int(path.split('/comments/')[1].split('/')[0])
         for t in threads:
             if t['comments']['nodes'][0]['databaseId'] == to: t['comments']['nodes'].append(node)
+        save('threads.json', threads)
+    elif path.endswith('/reviews'):
+        # A review: a thread of each comment on lines, its summary in the timeline.
+        for i, c in enumerate(payload.get('comments') or []):
+            threads.append({'id': 'T%d-%d' % (n, i), 'isResolved': False, 'isOutdated': False, 'path': c['path'],
+                            'diffSide': c.get('side', 'RIGHT'), 'line': c['line'], 'originalLine': c['line'],
+                            'originalStartLine': c.get('start_line'),
+                            'comments': {'nodes': [dict(node, databaseId=2000 + 10 * n + i, body=c['body'],
+                                                        originalCommit={'oid': payload['commit_id']})]}})
+        save('threads.json', threads)
+        reviews = load('reviews.json', [])
+        reviews.append({'id': 'PRR%d' % n, 'url': node['url'], 'body': body, 'submittedAt': node['createdAt'],
+                        'state': {'COMMENT': 'COMMENTED', 'REQUEST_CHANGES': 'CHANGES_REQUESTED',
+                                  'APPROVE': 'APPROVED'}[payload['event']],
+                        'author': {'login': 'tester'}})
+        save('reviews.json', reviews)
+    elif '/pulls/' in path:
+        # A comment on a file: a thread on no lines.
+        threads.append({'id': 'T%d' % n, 'isResolved': False, 'isOutdated': False, 'path': payload['path'],
+                        'diffSide': 'RIGHT', 'line': None, 'originalLine': None, 'originalStartLine': None,
+                        'comments': {'nodes': [dict(node, originalCommit={'oid': payload['commit_id']})]}})
         save('threads.json', threads)
     else:
         conversation.append(node); save('conversation.json', conversation)
@@ -91,21 +114,23 @@ if args[:4] == ['api', '--include', '-X', 'POST']:
 sys.exit(2)
 "
   "A gh keeping a pull request in files beside it: pr.json, threads.json,
-conversation.json; posts go to posts.json, each answered as modes.json's
+conversation.json, reviews.json; posts go to posts.json (a review makes
+threads of its comments and a summary of its body), each answered as modes.json's
 next mode says: ok, slow, refused and pending (422, nothing posted),
 noanswer (nothing posted, no answer), killed (gh dies, nothing posted),
 lost (posted, a 502), garbled (posted, a reply cut short), untagged
 \(posted, the reply's body without its marker).")
 
-(defun bndos-test-gh-pr (dir head)
-  "Write the fake gh into DIR: pull request 7, one thread on src/a.txt:2 and
-one comment on its conversation.  Return the gh."
+(defun bndos-test-gh-pr (dir head &optional base)
+  "Write the fake gh into DIR: pull request 7 from BASE (default HEAD) to
+HEAD, one thread on src/a.txt:2 and one comment on its conversation, by
+@octo; GitHub posts as @tester.  Return the gh."
   (let ((gh (expand-file-name "gh" dir)))
     (with-temp-file gh (insert bndos-test-gh-pr-script))
     (set-file-modes gh #o755)
     (bndos-test-gh-pr-write dir "pr.json"
                             (list :number 7 :url "https://github.com/me/repo/pull/7" :state "OPEN"
-                                  :baseRefName "main" :baseRefOid head :headRefOid head))
+                                  :baseRefName "main" :baseRefOid (or base head) :headRefOid head))
     (bndos-test-gh-pr-write dir "threads.json"
                             (vector (list :id "T1" :isResolved :false :isOutdated :false :path "src/a.txt"
                                           :diffSide "RIGHT" :line 2 :originalLine 2 :originalStartLine :null
@@ -130,13 +155,16 @@ one comment on its conversation.  Return the gh."
                            (json-parse-buffer :object-type 'plist :array-type 'list)))))
 
 (defmacro bndos-test-with-pr (spec &rest body)
-  "SPEC is (REVIEW STUBS WT): a task review whose pull request, #7, the fake
-gh in STUBS serves, fetched."
+  "SPEC is (REVIEW STUBS WT [FROM-MAIN]): a task review whose pull request, #7,
+the fake gh in STUBS serves, fetched.  With FROM-MAIN, the pull request's
+base is main, so its diff is the task's commit: src/a.txt and b.txt."
   (declare (indent 1))
   `(bndos-test-with-two-files (key ,(nth 2 spec) ,(nth 0 spec))
      (ignore key)
      (let* ((,(nth 1 spec) (make-temp-file "bndos-gh-" t))
-            (bndos-review-github-program (bndos-test-gh-pr ,(nth 1 spec) (bndos-test-git ,(nth 2 spec) "rev-parse" "HEAD")))
+            (bndos-review-github-program
+             (bndos-test-gh-pr ,(nth 1 spec) (bndos-test-git ,(nth 2 spec) "rev-parse" "HEAD")
+                               (and ,(nth 3 spec) (bndos-test-git ,(nth 2 spec) "rev-parse" "HEAD~1"))))
             (bndos-review-outbox--in-flight nil)
             (diff-review-overview-threads 'full))
        (unwind-protect
@@ -167,48 +195,57 @@ gh in STUBS serves, fetched."
     (cl-letf (((symbol-function 'read-string-from-buffer) (lambda (&rest _) body)))
       (diff-review-reply))))
 
-(defun bndos-test-mark-all ()
-  "Mark all drafts of this outbox, drawn again first as a watch would."
-  (bndos-review-outbox--render)
-  (bndos-review-outbox-mark-all))
+(defun bndos-test-redraw (review)
+  "Draw REVIEW again, its store changed, as the store's watch does."
+  (bndos-review-outbox-changed (bndos-review-outbox-store review))
+  (bndos-review-outbox--redraw))
 
-(defun bndos-test-outbox (review)
-  (cl-letf (((symbol-function 'pop-to-buffer) #'set-buffer))
-    (with-current-buffer review (bndos-review-outbox)))
-  (let ((outbox (get-buffer "*outbox: me/repo#7*")))
-    (should (bndos-proc-wait (lambda () (and (with-current-buffer outbox bndos-review-outbox--login)
-                                             (not (plist-get (buffer-local-value 'bndos-review-github--state review)
-                                                             :fetching))))
-                             10))
-    (with-current-buffer outbox (bndos-review-outbox--render))
-    outbox))
-
-(defun bndos-test-outbox-at (outbox regexp)
-  "In OUTBOX, point on the draft whose text matches REGEXP."
-  (with-current-buffer outbox
-    (bndos-review-outbox--render)
+(defun bndos-test-at-thread (review regexp)
+  "In REVIEW, drawn again, point on the text matching REGEXP."
+  (bndos-test-redraw review)
+  (with-current-buffer review
     (goto-char (point-min))
-    (should (re-search-forward regexp nil t))))
+    (should (re-search-forward regexp nil t))
+    (goto-char (match-beginning 0))))
 
-(defun bndos-test-send (outbox &optional confirm)
-  "Send OUTBOX's marked drafts, confirming with CONFIRM (default yes), and wait."
-  (with-current-buffer outbox
-    (cl-letf (((symbol-function 'y-or-n-p) (or confirm (lambda (&rest _) t))))
-      (bndos-review-outbox-send))
-    (should (bndos-proc-wait (lambda () (not bndos-review-outbox--sending)) 15))
+(defun bndos-test-send (review &optional confirm choose)
+  "Send REVIEW's drafts as \\[bndos-review-send] does, and wait: CHOOSE, as
+`bndos-review-outbox-choose-function', picks them (default all); CONFIRM
+answers the confirmation (default yes), a character for the kind of review."
+  (let ((bndos-review-outbox-choose-function (or choose (lambda (_review drafts) drafts)))
+        (confirm (or confirm #'always)))
+    (with-current-buffer review
+      (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest args) (apply confirm args)))
+                ((symbol-function 'read-multiple-choice)
+                 (lambda (&rest args)
+                   (let ((answer (apply confirm args)))
+                     (cond ((characterp answer) (list answer)) (answer (list ?c)) (t (list ?q)))))))
+        (bndos-review-send)))
+    (should (bndos-proc-wait (lambda () (not (buffer-local-value 'bndos-review-outbox--sending review))) 15))
     ;; And the fetch a send ends with.
-    (should (bndos-proc-wait (lambda () (not (plist-get (buffer-local-value 'bndos-review-github--state
-                                                                            bndos-review-outbox--review)
+    (should (bndos-proc-wait (lambda () (not (plist-get (buffer-local-value 'bndos-review-github--state review)
                                                         :fetching)))
                              15))))
+
+(defun bndos-test-report (review) (buffer-local-value 'bndos-review-outbox-report review))
+
+(defun bndos-test-asked (review draft)
+  "What sending asks of DRAFT."
+  (bndos-review-outbox--line review draft (bndos-review-outbox-problems review draft)))
+
+(defun bndos-test-draft (review body)
+  "REVIEW's draft whose body is BODY."
+  (seq-find (lambda (d) (equal (plist-get d :body) body)) (bndos-test-drafts review)))
 
 (defun bndos-test-posts (stubs) (bndos-test-gh-pr-read stubs "posts.json"))
 
 
-;;; A reply: a draft, then sent once marked and confirmed
+;;; A reply: a draft, then sent once picked and confirmed
 
 (ert-deftest bndos-outbox-a-reply-is-a-draft-until-sent ()
   (bndos-test-with-pr (review stubs wt)
+    (with-current-buffer review
+      (should (string-match-p "No drafts" (cadr (should-error (bndos-review-send) :type 'user-error)))))
     (bndos-test-draft-reply review "Fixed in the next commit.")
     (let ((draft (car (bndos-test-drafts review "drafts"))))
       (should (equal (plist-get (plist-get draft :target) :kind) "reply"))
@@ -222,25 +259,28 @@ gh in STUBS serves, fetched."
         (should (string-match-p "✎ 1 draft" text))
         (should (string-match-p "draft, not sent" text))
         (should (string-match-p "Fixed in the next commit\\." text))))
-    (let ((outbox (bndos-test-outbox review)))
-      (with-current-buffer outbox
-        (should (string-match-p "posting as @tester" (buffer-string)))
-        (should (string-match-p "Reply on src/a.txt:2  @octo: Why uppercase\\?" (buffer-string)))
-        ;; Nothing marked, nothing sent.
-        (should-error (bndos-review-outbox-send) :type 'user-error))
-      (bndos-test-outbox-at outbox "Reply on")
-      (with-current-buffer outbox (bndos-review-outbox-mark))
-      ;; Declined: nothing sent, the mark kept.
-      (bndos-test-send outbox (lambda (&rest _) nil))
-      (should-not (bndos-test-posts stubs))
-      (bndos-test-send outbox)
-      (let ((posts (bndos-test-posts stubs)))
-        (should (= (length posts) 1))
-        (should (equal (plist-get (car posts) :path) "repos/me/repo/pulls/7/comments/501/replies"))
-        (should (string-match-p "\\`Fixed in the next commit\\.\n\n<!-- bndos-draft:d[0-9]+-[0-9a-f]+ -->\\'"
-                                (plist-get (car posts) :body))))
-      (should (= (length (bndos-test-drafts review "sent")) 1))
-      (should (string-match-p "1 sent" (with-current-buffer outbox bndos-review-outbox--report))))
+    ;; Asked of each: where it goes, whose, what it says.  None picked, none sent.
+    (let (asked)
+      (bndos-test-send review nil (lambda (review drafts) (setq asked (mapcar (lambda (d) (bndos-test-asked review d)) drafts))
+                                    nil))
+      (should (= (length asked) 1))
+      (should (string-match-p "\\`Reply on src/a.txt:2  @octo: Why uppercase\\? — [^:]+: “Fixed in the next commit\\.”"
+                              (car asked))))
+    (should-not (bndos-test-posts stubs))
+    ;; Declined at the confirmation: nothing sent.
+    (bndos-test-send review #'ignore)
+    (should-not (bndos-test-posts stubs))
+    (let (question)
+      (bndos-test-send review (lambda (q &rest _) (setq question q) t))
+      ;; A reply alone makes no review: only a yes.
+      (should (string-match-p "Send 1 draft to me/repo#7 as @tester\\?" question)))
+    (let ((posts (bndos-test-posts stubs)))
+      (should (= (length posts) 1))
+      (should (equal (plist-get (car posts) :path) "repos/me/repo/pulls/7/comments/501/replies"))
+      (should (string-match-p "\\`Fixed in the next commit\\.\n\n<!-- bndos-draft:d[0-9]+-[0-9a-f]+ -->\\'"
+                              (plist-get (car posts) :body))))
+    (should (= (length (bndos-test-drafts review "sent")) 1))
+    (should (string-match-p "1 sent" (bndos-test-report review)))
     ;; Fetched again: GitHub's reply, without the marker, and no draft.
     (bndos-test-fetch review)
     (with-current-buffer review
@@ -261,9 +301,7 @@ gh in STUBS serves, fetched."
     (with-current-buffer review
       (bndos-review-outbox--redraw)
       (should (string-match-p "^ +Draft +conversation" (buffer-string))))
-    (let ((outbox (bndos-test-outbox review)))
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox))
+    (bndos-test-send review)
     (should (equal (plist-get (car (bndos-test-posts stubs)) :path) "repos/me/repo/issues/7/comments"))))
 
 
@@ -288,19 +326,16 @@ gh in STUBS serves, fetched."
             (diff-review-reply))))
       (let ((draft (car (bndos-test-drafts review "drafts"))))
         (should (equal (plist-get draft :target) '(:kind "comment" :answers "@octo")))
-        (should (equal (plist-get draft :seen) "2026-11-12T11:00:00Z")))
-      (let ((outbox (bndos-test-outbox review)))
-        (with-current-buffer outbox
-          (should (string-match-p "Comment on the pull request, answering @octo" (buffer-string))))
+        (should (equal (plist-get draft :seen) "2026-11-12T11:00:00Z"))
+        (should (string-match-p "\\`Comment on the pull request, answering @octo" (bndos-test-asked review draft)))
         ;; Another review since: said before sending.
         (bndos-test-gh-pr-write stubs "reviews.json"
                                 (vector summary (list :id "PRR2" :url "https://github.com/me/repo/pull/7#prr2"
                                                       :state "COMMENTED" :body "One more thing."
                                                       :submittedAt "2026-11-12T12:00:00Z" :author (list :login "octo"))))
         (bndos-test-fetch review)
-        (with-current-buffer outbox
-          (bndos-review-outbox--render)
-          (should (string-match-p "1 new comment or review on the pull request since it was drafted" (buffer-string)))))
+        (should (string-match-p "1 new comment or review on the pull request since it was drafted"
+                                (bndos-test-asked review draft))))
       ;; Agents see the reviews' summaries too, in the conversation's order.
       (let ((process-environment (cons (concat "BNDOS_TASK_GH=" bndos-review-github-program) process-environment))
             (default-directory wt))
@@ -311,45 +346,54 @@ gh in STUBS serves, fetched."
                            '("Looks close." "Overall good.\n\n1. Rename foo.\n2. Add tests." "One more thing.")))
             (should (equal (alist-get 'review (aref conversation 1)) "changes_requested"))))))))
 
-;;; What is sent is what was marked
+;;; What is sent is what was picked
 
 (defun bndos-test-store-file (review state draft)
   (bndos-review-outbox--path (bndos-review-outbox-store review) state (plist-get draft :id)))
 
 (defun bndos-test-rewrite (review draft body)
-  "Change DRAFT's body behind the outbox's back, as an agent would."
+  "Change DRAFT's body behind Emacs's back, as an agent would."
   (let ((file (bndos-test-store-file review "drafts" draft)))
     (bndos-review-outbox--write file (plist-put (bndos-review-outbox--read file) :body body))))
 
-(ert-deftest bndos-outbox-sends-only-drafts-as-they-were-marked ()
+(ert-deftest bndos-outbox-sends-only-drafts-as-they-were-picked ()
   (bndos-test-with-pr (review stubs wt)
     (bndos-test-draft-reply review "first")
     (cl-letf (((symbol-function 'read-string-from-buffer) (lambda (&rest _) "second")))
       (bndos-review-outbox-comment review))
-    (let* ((outbox (bndos-test-outbox review))
-           (first (seq-find (lambda (d) (equal (plist-get d :body) "first")) (bndos-test-drafts review)))
-           (second (seq-find (lambda (d) (equal (plist-get d :body) "second")) (bndos-test-drafts review))))
-      (with-current-buffer outbox (bndos-test-mark-all))
-      ;; Changed after it was marked: the outbox says so and sends nothing.
-      (bndos-test-rewrite review first "first, changed")
-      (with-current-buffer outbox
-        (should-error (bndos-review-outbox-send) :type 'user-error)
-        (should (string-match-p "changed since you marked it" (buffer-string))))
-      (should-not (bndos-test-posts stubs))
+    (let ((first (bndos-test-draft review "first"))
+          (second (bndos-test-draft review "second")))
       ;; Changed while the confirmation was up: that one isn't sent.
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox (lambda (&rest _) (bndos-test-rewrite review second "second, changed") t))
+      (bndos-test-send review (lambda (&rest _) (bndos-test-rewrite review second "second, changed") t))
       (let ((posts (bndos-test-posts stubs)))
         (should (= (length posts) 1))
-        (should (string-prefix-p "first, changed\n" (plist-get (car posts) :body))))
-      (should (string-match-p "1 not sent: changed since it was marked"
-                              (with-current-buffer outbox bndos-review-outbox--report)))
+        (should (string-prefix-p "first\n" (plist-get (car posts) :body))))
+      (should (string-match-p "1 sent, 1 not sent: changed since you chose it" (bndos-test-report review)))
       (should (equal (mapcar (lambda (d) (plist-get d :body)) (bndos-test-drafts review "drafts"))
                      '("second, changed")))
       ;; Deleted while the confirmation was up: not sent either.
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox (lambda (&rest _) (delete-file (bndos-test-store-file review "drafts" second)) t))
-      (should (= (length (bndos-test-posts stubs)) 1)))))
+      (bndos-test-send review (lambda (&rest _) (delete-file (bndos-test-store-file review "drafts" second)) t))
+      (should (= (length (bndos-test-posts stubs)) 1))
+      (ignore first))))
+
+(ert-deftest bndos-outbox-sends-only-those-picked ()
+  (bndos-test-with-pr (review stubs wt)
+    (bndos-test-draft-reply review "send me")
+    (cl-letf (((symbol-function 'read-string-from-buffer) (lambda (&rest _) "keep me")))
+      (bndos-review-outbox-comment review))
+    ;; Asked draft by draft: y the first, n the other.
+    (let (asked)
+      (cl-letf (((symbol-function 'map-y-or-n-p)
+                 (lambda (prompter actor list &rest _)
+                   (dolist (d list)
+                     (push (funcall prompter d) asked)
+                     (when (equal (plist-get d :body) "send me") (funcall actor d))))))
+        (bndos-test-send review nil #'bndos-review-outbox--choose))
+      (should (= (length asked) 2))
+      (should (seq-every-p (lambda (q) (string-prefix-p "Send " q)) asked)))
+    (should (equal (mapcar (lambda (p) (car (split-string (plist-get p :body) "\n"))) (bndos-test-posts stubs))
+                   '("send me")))
+    (should (equal (mapcar (lambda (d) (plist-get d :body)) (bndos-test-drafts review "drafts")) '("keep me")))))
 
 (ert-deftest bndos-outbox-a-draft-is-sent-once ()
   (bndos-test-with-pr (review stubs wt)
@@ -382,7 +426,7 @@ gh in STUBS serves, fetched."
       ;; Not among the drafts while held, so not sent.
       (bndos-review-outbox-send-marks review store (list (cons (plist-get draft :id) (bndos-review-outbox-hash draft)))
                                       (lambda (r) (setq results r)))
-      (should (equal (cdr (car results)) '(skipped "sent, deleted or being changed since it was marked")))
+      (should (equal (cdr (car results)) '(skipped "sent, deleted or being changed since you chose it")))
       (should-not (bndos-test-posts stubs))
       ;; Held by a process that died: back among the drafts.
       (rename-file held (expand-file-name (format "drafts/.%s.held-999999" (plist-get draft :id)) store))
@@ -398,27 +442,23 @@ gh in STUBS serves, fetched."
   (bndos-test-with-pr (review stubs wt)
     (bndos-test-draft-reply review "refused")
     (bndos-test-gh-pr-write stubs "modes.json" ["refused"])
-    (let ((outbox (bndos-test-outbox review)))
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox)
-      (let ((draft (car (bndos-test-drafts review "drafts"))))
-        (should (string-match-p "HTTP 422" (plist-get draft :error)))
-        (should-not (plist-get draft :claim)))
-      (should (string-match-p "1 failed, kept as drafts" (with-current-buffer outbox bndos-review-outbox--report)))
-      (with-current-buffer outbox
-        (bndos-review-outbox--render)
-        (should (string-match-p "the last send failed: .*HTTP 422" (buffer-string))))
-      ;; Sent again once the user says so.
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox)
-      (should (= (length (bndos-test-posts stubs)) 1))
-      (should (bndos-test-drafts review "sent")))))
+    (bndos-test-send review)
+    (let ((draft (car (bndos-test-drafts review "drafts"))))
+      (should (string-match-p "HTTP 422" (plist-get draft :error)))
+      (should-not (plist-get draft :claim))
+      (should (string-match-p "the last send failed: .*HTTP 422" (bndos-test-asked review draft))))
+    (should (string-match-p "1 failed, kept as drafts" (bndos-test-report review)))
+    (bndos-test-redraw review)
+    (with-current-buffer review (should (string-match-p "draft, not sent: it failed" (buffer-string))))
+    ;; Sent again once the user says so.
+    (bndos-test-send review)
+    (should (= (length (bndos-test-posts stubs)) 1))
+    (should (bndos-test-drafts review "sent"))))
 
 ;; By the HTTP status GitHub answers with, never by gh's wording.
 (ert-deftest bndos-outbox-goes-by-the-status-github-answers ()
   (bndos-test-with-pr (review stubs wt)
-    (let ((outbox (bndos-test-outbox review))
-          (send (lambda (body mode)
+    (let ((send (lambda (body mode)
                   (bndos-test-draft-reply review body)
                   (bndos-test-gh-pr-write stubs "modes.json" (vector mode))
                   (let* ((draft (seq-find (lambda (d) (equal (plist-get d :body) body))
@@ -430,7 +470,6 @@ gh in STUBS serves, fetched."
                     (should (bndos-proc-wait (lambda () results) 15))
                     (cdr (car results)))))
           (warnings nil))
-      (ignore outbox)
       ;; A pending review of mine on GitHub: refused, and said why.
       (let ((outcome (funcall send "while pending" "pending")))
         (should (eq (car outcome) 'failed))
@@ -461,22 +500,20 @@ gh in STUBS serves, fetched."
     ;; Posted, its answer lost: unconfirmed, then settled by the marker.
     (bndos-test-draft-reply review "lost answer")
     (bndos-test-gh-pr-write stubs "modes.json" ["lost"])
-    (let ((outbox (bndos-test-outbox review))
-          (draft (car (bndos-test-drafts review)))
+    (let ((draft (car (bndos-test-drafts review)))
           results)
-      ;; Sent without the fetch the outbox ends a send with, to see it unsettled.
+      ;; Sent without the fetch a send ends with, to see it unsettled.
       (bndos-review-outbox-send-marks review (bndos-review-outbox-store review)
                                       (list (cons (plist-get draft :id) (bndos-review-outbox-hash draft)))
                                       (lambda (r) (setq results r)))
       (should (bndos-proc-wait (lambda () results) 15))
       (should (equal (car (cdr (car results))) 'unknown))
       (should (bndos-review-outbox-unconfirmed-p (car (bndos-test-drafts review "sending"))))
-      (with-current-buffer outbox
-        (bndos-review-outbox--render)
-        (should (string-match-p "unconfirmed (HTTP 502)" (buffer-string)))
-        ;; Not a draft: mark all leaves it, R is for it.
-        (bndos-test-mark-all)
-        (should-not bndos-review-outbox--marks))
+      (bndos-test-redraw review)
+      (with-current-buffer review (should (string-match-p "unconfirmed: may be on GitHub" (buffer-string))))
+      ;; Not a draft: not asked about.
+      (with-current-buffer review
+        (should (string-match-p "No drafts" (cadr (should-error (bndos-review-send) :type 'user-error)))))
       (bndos-test-fetch review)
       (should (= (length (bndos-test-drafts review "sent")) 1))
       (should (plist-get (plist-get (car (bndos-test-drafts review "sent")) :sent) :found))
@@ -484,15 +521,15 @@ gh in STUBS serves, fetched."
       ;; Never posted, no answer: unconfirmed until the user puts it back.
       (bndos-test-draft-reply review "no answer")
       (bndos-test-gh-pr-write stubs "modes.json" ["noanswer"])
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox)
-      (should (string-match-p "1 unconfirmed: check GitHub" (with-current-buffer outbox bndos-review-outbox--report)))
+      (bndos-test-send review)
+      (should (string-match-p "1 unconfirmed: check GitHub" (bndos-test-report review)))
       (bndos-test-fetch review)
       (should (= (length (bndos-test-drafts review "sending")) 1))
-      (bndos-test-outbox-at outbox "no answer")
-      (with-current-buffer outbox
+      ;; At its thread: put back.
+      (bndos-test-at-thread review "Why uppercase\\?")
+      (with-current-buffer review
         (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
-          (bndos-review-outbox-return)))
+          (bndos-review-draft-put-back)))
       (should (equal (mapcar (lambda (d) (plist-get d :body)) (bndos-test-drafts review "drafts")) '("no answer")))
       (should (= (length (bndos-test-posts stubs)) 1)))))
 
@@ -505,10 +542,8 @@ gh in STUBS serves, fetched."
       ;; No question of a coding system: in batch one would be an error.
       (bndos-test-draft-reply review body)
       (should (equal (plist-get (car (bndos-test-drafts review "drafts")) :body) body))
-      (let ((outbox (bndos-test-outbox review)))
-        (with-current-buffer outbox (bndos-test-mark-all))
-        (bndos-test-send outbox)
-        (should (string-match-p "1 sent" (with-current-buffer outbox bndos-review-outbox--report))))
+      (bndos-test-send review)
+      (should (string-match-p "1 sent" (bndos-test-report review)))
       (should (string-prefix-p (concat body "\n\n<!-- bndos-draft:")
                                (plist-get (car (bndos-test-posts stubs)) :body)))
       (should (equal (plist-get (car (bndos-test-drafts review "sent")) :body) body)))
@@ -523,23 +558,17 @@ gh in STUBS serves, fetched."
 (ert-deftest bndos-outbox-a-send-that-cant-start-leaves-nothing-stuck ()
   (bndos-test-with-pr (review stubs wt)
     (bndos-test-draft-reply review "no gh")
-    (let ((outbox (bndos-test-outbox review)))
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (let ((bndos-review-github-program (expand-file-name "missing-gh" stubs)))
-        (with-current-buffer outbox
-          (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
-            (bndos-review-outbox-send))
-          (should (bndos-proc-wait (lambda () (not bndos-review-outbox--sending)) 15))))
-      (should-not bndos-review-outbox--in-flight)
-      (let ((draft (car (bndos-test-drafts review "drafts"))))
-        (should (equal (plist-get draft :body) "no gh"))
-        (should (string-match-p "not sent" (plist-get draft :error))))
-      (should (string-match-p "1 failed" (with-current-buffer outbox bndos-review-outbox--report)))
-      ;; And the outbox sends again.
-      (bndos-test-fetch review)
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox)
-      (should (= (length (bndos-test-posts stubs)) 1)))))
+    (let ((bndos-review-github-program (expand-file-name "missing-gh" stubs)))
+      (bndos-test-send review))
+    (should-not bndos-review-outbox--in-flight)
+    (let ((draft (car (bndos-test-drafts review "drafts"))))
+      (should (equal (plist-get draft :body) "no gh"))
+      (should (string-match-p "not sent" (plist-get draft :error))))
+    (should (string-match-p "1 failed" (bndos-test-report review)))
+    ;; And it sends again.
+    (bndos-test-fetch review)
+    (bndos-test-send review)
+    (should (= (length (bndos-test-posts stubs)) 1))))
 
 (ert-deftest bndos-outbox-a-send-of-another-emacs-is-left-to-it ()
   (bndos-test-with-pr (review stubs wt)
@@ -548,8 +577,7 @@ gh in STUBS serves, fetched."
            (draft (car (bndos-test-drafts review)))
            (id (plist-get draft :id))
            (other (start-process "other-emacs" nil (expand-file-name invocation-name invocation-directory)
-                                 "-Q" "--batch" "--eval" "(sleep-for 60)"))
-           (outbox (bndos-test-outbox review)))
+                                 "-Q" "--batch" "--eval" "(sleep-for 60)")))
       (unwind-protect
           (progn
             ;; Claimed by the other Emacs, posting now.
@@ -559,11 +587,12 @@ gh in STUBS serves, fetched."
                                                    (list :pid (process-id other) :host (system-name) :at "now")))
             (let ((sending (car (bndos-test-drafts review "sending"))))
               (should-not (bndos-review-outbox-unconfirmed-p sending)))
-            (bndos-test-outbox-at outbox "theirs")
-            (with-current-buffer outbox
-              (should (string-match-p "sending…" (buffer-string)))
+            (bndos-test-at-thread review "Why uppercase\\?")
+            (with-current-buffer review
+              (should (string-match-p "theirs" (buffer-string)))
+              (should (string-match-p "sending" (buffer-string)))
               (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
-                (should-error (bndos-review-outbox-return) :type 'user-error)))
+                (should-error (bndos-review-draft-put-back) :type 'user-error)))
             ;; Its post arrives: a fetch leaves it to the Emacs sending it.
             (bndos-review-outbox-reconcile review (list (list id "https://x" "T1")))
             (should (bndos-test-drafts review "sending"))
@@ -572,11 +601,11 @@ gh in STUBS serves, fetched."
                                         (plist-put (bndos-review-outbox--clean draft) :claim
                                                    (list :pid (process-id other) :host (system-name)
                                                          :at "2026-01-01T00:00:00Z")))
-            (bndos-test-outbox-at outbox "theirs")
-            (with-current-buffer outbox
+            (bndos-test-at-thread review "Why uppercase\\?")
+            (with-current-buffer review
               (let (question)
                 (cl-letf (((symbol-function 'yes-or-no-p) (lambda (q) (setq question q) nil)))
-                  (bndos-review-outbox-return))
+                  (bndos-review-draft-put-back))
                 (should (string-match-p "still runs" question))))
             (should (bndos-test-drafts review "sending"))
             ;; That Emacs gone: unconfirmed, and settled by what GitHub has.
@@ -587,47 +616,16 @@ gh in STUBS serves, fetched."
             (should (bndos-test-drafts review "sent")))
         (when (process-live-p other) (delete-process other))))))
 
-(ert-deftest bndos-outbox-marks-what-is-shown ()
-  (bndos-test-with-pr (review stubs wt)
-    (bndos-test-draft-reply review "as shown")
-    (let ((outbox (bndos-test-outbox review))
-          (draft (car (bndos-test-drafts review))))
-      (bndos-test-outbox-at outbox "as shown")
-      ;; Changed by an agent after it was drawn, before the redraw.
-      (bndos-review-outbox-change (bndos-review-outbox-store review) (plist-get draft :id)
-                                  (bndos-review-outbox-hash draft) "not as shown")
-      (with-current-buffer outbox
-        (goto-char (point-min))
-        (re-search-forward "as shown")
-        (let ((inhibit-redisplay t))
-          (should-error (bndos-review-outbox-mark) :type 'user-error))
-        (should-not bndos-review-outbox--marks)
-        ;; Drawn again, as it is now: m marks that.
-        (goto-char (point-min))
-        (re-search-forward "not as shown")
-        (bndos-review-outbox-mark)
-        (should (equal (cdr (car bndos-review-outbox--marks))
-                       (bndos-review-outbox-hash (car (bndos-test-drafts review))))))
-      ;; M leaves one changed or new since drawn.
-      (with-current-buffer outbox (bndos-review-outbox-unmark-all))
-      (bndos-test-draft-reply review "new, not shown")
-      (with-current-buffer outbox
-        ;; r on a thread with my draft edits it: the new text is the same draft's.
-        (bndos-review-outbox-mark-all)
-        (should-not bndos-review-outbox--marks)
-        (bndos-review-outbox-mark-all)
-        (should (= (length bndos-review-outbox--marks) 1))))))
-
 (ert-deftest bndos-outbox-a-draft-goes-to-its-own-pull-request ()
   (bndos-test-with-pr (review stubs wt)
     (bndos-test-draft-reply review "for #7")
-    (let ((outbox (bndos-test-outbox review))
-          (draft (car (bndos-test-drafts review)))
+    (let ((draft (car (bndos-test-drafts review)))
+          (store (bndos-review-outbox-store review))
           results)
       ;; The review shows another pull request now.
       (with-current-buffer review
         (setq bndos-review-github--state (plist-put (copy-sequence bndos-review-github--state) :number 8)))
-      (bndos-review-outbox-send-marks review (with-current-buffer outbox bndos-review-outbox--store)
+      (bndos-review-outbox-send-marks review store
                                       (list (cons (plist-get draft :id) (bndos-review-outbox-hash draft)))
                                       (lambda (r) (setq results r)))
       (should (equal (cdr (car results)) '(skipped "the review shows another pull request now")))
@@ -651,17 +649,16 @@ gh in STUBS serves, fetched."
     (bndos-test-gh-pr-write stubs "pending.json" t)
     (bndos-test-fetch review)
     (bndos-test-draft-reply review "while pending")
-    (let ((outbox (bndos-test-outbox review)))
-      (bndos-test-outbox-at outbox "while pending")
-      (with-current-buffer outbox
-        (should (string-match-p "can't send: you have a pending review" (buffer-string)))
-        (should-error (bndos-review-outbox-mark) :type 'user-error))
-      ;; Submitted on GitHub: sent.
-      (bndos-test-gh-pr-write stubs "pending.json" :false)
-      (bndos-test-fetch review)
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox)
-      (should (= (length (bndos-test-posts stubs)) 1)))))
+    (let ((shown nil))
+      (cl-letf (((symbol-function 'display-message-or-buffer) (lambda (m &rest _) (setq shown m))))
+        (with-current-buffer review
+          (should (string-match-p "Nothing can be sent" (cadr (should-error (bndos-review-send) :type 'user-error))))))
+      (should (string-match-p "1 draft can't be sent:\n  Reply on src/a.txt:2.* — you have a pending review" shown)))
+    ;; Submitted on GitHub: sent.
+    (bndos-test-gh-pr-write stubs "pending.json" :false)
+    (bndos-test-fetch review)
+    (bndos-test-send review)
+    (should (= (length (bndos-test-posts stubs)) 1))))
 
 (ert-deftest bndos-outbox-reads-long-threads-to-their-end ()
   (bndos-test-with-pr (review stubs wt)
@@ -680,9 +677,7 @@ gh in STUBS serves, fetched."
     (bndos-test-draft-reply review "sixth")
     (should (equal (plist-get (car (bndos-test-drafts review)) :seen) "2026-11-12T10:05:00Z"))
     ;; Sent, on the third page: found there.
-    (let ((outbox (bndos-test-outbox review)))
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox))
+    (bndos-test-send review)
     (bndos-test-fetch review)
     (should (bndos-test-drafts review "sent"))
     (should-not (bndos-test-drafts review "sending"))
@@ -738,18 +733,15 @@ gh in STUBS serves, fetched."
         (should (= (length (plist-get (plist-get draft :changes) :links)) 1))
         ;; Emacs and the CLI hash a draft and its links alike.
         (should (equal (plist-get listed :hash) (bndos-review-outbox-hash draft)))))
-    ;; Under its thread, one line; in the outbox, a line and nothing blocking.
-    (bndos-review-outbox-changed (bndos-review-outbox-store review))   ; as the watch does
+    ;; Under its thread, one line, nothing blocking it.
+    (bndos-test-redraw review)
     (with-current-buffer review
-      (bndos-review-outbox--redraw)
       (should (string-match-p "draft, not sent · 1 change in 1 file" (buffer-string))))
-    (let ((outbox (bndos-test-outbox review)))
-      (bndos-test-outbox-at outbox "Lowercased it")
-      (with-current-buffer outbox
-        (should (string-match-p "Changes: 1 change in 1 file · v to review them" (buffer-string)))
-        (should-not (string-match-p "can't send" (buffer-string)))
-        ;; v: a review of the changes alone, of the worktree as checked out.
-        (bndos-review-outbox-view-changes))
+    (should-not (car (bndos-review-outbox-problems review (car (bndos-test-drafts review)))))
+    (progn
+      ;; At its thread: a review of the changes alone, of the worktree as checked out.
+      (bndos-test-at-thread review "Why uppercase\\?")
+      (with-current-buffer review (bndos-review-outbox-thread-changes))
       (let ((view (find-buffer-visiting (expand-file-name "changes-review.json" (bndos-review-outbox-store review)))))
         (with-current-buffer view
           (should (derived-mode-p 'diff-review-mode))
@@ -764,8 +756,8 @@ gh in STUBS serves, fetched."
         ;; The pull request's review is its own still.
         (with-current-buffer review
           (should-not bndos-review-changes-scope))
-        ;; u: what no draft explains, the test here, in the same review.
-        (with-current-buffer outbox (bndos-review-outbox-unexplained))
+        ;; What no draft explains, the test here, in the same review.
+        (with-current-buffer review (bndos-review-outbox-unexplained))
         (should (eq (find-buffer-visiting (expand-file-name "changes-review.json" (bndos-review-outbox-store review))) view))
         (with-current-buffer view
           (should (string-match-p "Changes no draft explains" (buffer-string)))
@@ -790,11 +782,9 @@ gh in STUBS serves, fetched."
       ;; Linked by ref and by rule: arrays and all, as the CLI writes them.
       (should (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--thread" "T1" "--body" "Lowercased; tested."
                                              "--hunks" (car refs) "--hunks-in" "tests/" "--author" "worker")))))
-    (let ((outbox (bndos-test-outbox review))
-          (before (plist-get (car (bndos-test-drafts review)) :changes)))
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (bndos-test-send outbox)
-      (should (string-match-p "1 sent" (with-current-buffer outbox bndos-review-outbox--report)))
+    (let ((before (plist-get (car (bndos-test-drafts review)) :changes)))
+      (bndos-test-send review)
+      (should (string-match-p "1 sent" (bndos-test-report review)))
       (should (= (length (bndos-test-posts stubs)) 1))
       ;; Sent, its changes as they were: Emacs rewrote the file on the way.
       (let ((sent (car (bndos-test-drafts review "sent"))))
@@ -809,32 +799,30 @@ gh in STUBS serves, fetched."
     (let ((ref (plist-get (car (plist-get (cdr (bndos-test-gh-cli wt "drafts" "hunks" "--thread" "T1")) :hunks)) :ref)))
       (should (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--thread" "T1" "--body" "Done."
                                           "--hunks" ref "--author" "worker")))))
-    (let ((outbox (bndos-test-outbox review)))
+    (let ((draft (car (bndos-test-drafts review)))
+          (bndos-review-changes-cache-seconds 0))
       ;; A commit here, not pushed: the reply can't go.
       (bndos-test-commit wt "more" "b.txt" "b, more\n")
-      (bndos-test-outbox-at outbox "Done")
-      (with-current-buffer outbox
-        (should (string-match-p "can't send: the branch here isn't the pull request's head on GitHub" (buffer-string)))
-        (should-error (bndos-review-outbox-mark) :type 'user-error))
+      (should (string-match-p "the branch here isn't the pull request's head on GitHub"
+                              (car (bndos-review-outbox-problems review draft))))
+      (cl-letf (((symbol-function 'display-message-or-buffer) #'ignore))
+        (should-error (bndos-test-send review) :type 'user-error))
       ;; Pushed: it can; an edit not committed is warned of.
       (bndos-test-push stubs wt)
       (bndos-test-fetch review)
       (bndos-test-write wt "b.txt" "edited\n")
-      (let ((bndos-review-changes-cache-seconds 0))
-        (bndos-test-outbox-at outbox "Done")
-        (with-current-buffer outbox
-          (should-not (string-match-p "can't send" (buffer-string)))
-          (should (string-match-p "uncommitted changes in the worktree" (buffer-string))))
-        ;; The fix undone: said before sending.
-        (bndos-test-git wt "checkout" "-q" "--" "b.txt")
-        (bndos-test-commit wt "undo" "src/a.txt" "one\nTWO\nfour\n")
-        (bndos-test-push stubs wt)
-        (bndos-test-fetch review)
-        (bndos-test-outbox-at outbox "Done")
-        (with-current-buffer outbox
-          (should (string-match-p "1 linked change gone: the code is back as the reviewer saw it" (buffer-string))))))))
+      (let ((problems (bndos-review-outbox-problems review draft)))
+        (should-not (car problems))
+        (should (member "uncommitted changes in the worktree: the reviewer won't see them" (cdr problems))))
+      ;; The fix undone: said before sending.
+      (bndos-test-git wt "checkout" "-q" "--" "b.txt")
+      (bndos-test-commit wt "undo" "src/a.txt" "one\nTWO\nfour\n")
+      (bndos-test-push stubs wt)
+      (bndos-test-fetch review)
+      (should (string-match-p "1 linked change gone: the code is back as the reviewer saw it"
+                              (bndos-test-asked review draft))))))
 
-(ert-deftest bndos-outbox-relinking-changes-a-marked-draft ()
+(ert-deftest bndos-outbox-relinking-changes-a-picked-draft ()
   (bndos-test-with-pr (review stubs wt)
     (bndos-test-fix stubs wt review)
     (let ((ref (seq-find (lambda (r) (string-match-p "@src/a.txt:" r))
@@ -842,16 +830,14 @@ gh in STUBS serves, fetched."
                                  (plist-get (cdr (bndos-test-gh-cli wt "drafts" "hunks" "--thread" "T1")) :hunks)))))
       (should (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--thread" "T1" "--body" "Done."
                                           "--hunks" ref "--author" "worker")))))
-    (let ((outbox (bndos-test-outbox review))
-          (id (plist-get (car (bndos-test-drafts review)) :id)))
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (should (with-current-buffer outbox bndos-review-outbox--marks))
-      ;; The agent links other changes, the text the same: no longer as marked.
-      (should (zerop (car (bndos-test-gh-cli wt "drafts" "edit" id "--hunks-in" "tests/"))))
+    (let ((id (plist-get (car (bndos-test-drafts review)) :id)))
+      ;; The agent links other changes while the confirmation is up, the text
+      ;; the same: no longer what was picked.
+      (bndos-test-send review (lambda (&rest _)
+                                (should (zerop (car (bndos-test-gh-cli wt "drafts" "edit" id "--hunks-in" "tests/"))))
+                                t))
       (should (equal (plist-get (car (bndos-test-drafts review)) :body) "Done."))
-      (with-current-buffer outbox
-        (should (string-match-p "changed or went since you marked them"
-                                (cadr (should-error (bndos-review-outbox-send) :type 'user-error)))))
+      (should (string-match-p "changed since you chose it" (bndos-test-report review)))
       (should-not (bndos-test-posts stubs)))))
 
 ;;; Editing, deleting, and what to know before sending
@@ -859,36 +845,35 @@ gh in STUBS serves, fetched."
 (ert-deftest bndos-outbox-edits-and-deletions-are-of-the-draft-as-seen ()
   (bndos-test-with-pr (review stubs wt)
     (bndos-test-draft-reply review "v1")
-    (let ((outbox (bndos-test-outbox review))
-          (draft (car (bndos-test-drafts review))))
+    (let ((draft (car (bndos-test-drafts review))))
       ;; r on a thread with my draft edits it.
       (bndos-test-draft-reply review "v2")
       (should (equal (mapcar (lambda (d) (plist-get d :body)) (bndos-test-drafts review)) '("v2")))
       ;; Changed by someone else while it was being edited: not saved, the text kept.
-      (bndos-test-outbox-at outbox "v2")
-      (with-current-buffer outbox
+      (bndos-test-at-thread review "Why uppercase\\?")
+      (with-current-buffer review
         (cl-letf (((symbol-function 'read-string-from-buffer)
                    (lambda (&rest _) (bndos-test-rewrite review draft "theirs") "mine")))
-          (should-error (bndos-review-outbox-edit) :type 'user-error)))
+          (should-error (bndos-review-draft-edit) :type 'user-error)))
       (should (equal (current-kill 0) "mine"))
       (should (equal (plist-get (car (bndos-test-drafts review)) :body) "theirs"))
       ;; Deleted only as shown.
-      (bndos-test-outbox-at outbox "theirs")
-      (with-current-buffer outbox
+      (bndos-test-at-thread review "Why uppercase\\?")
+      (with-current-buffer review
         (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) (bndos-test-rewrite review draft "again") t)))
-          (should-error (bndos-review-outbox-delete) :type 'user-error)))
+          (should-error (bndos-review-draft-delete) :type 'user-error)))
       (should (bndos-test-drafts review))
-      (bndos-test-outbox-at outbox "again")
-      (with-current-buffer outbox
+      (bndos-test-at-thread review "Why uppercase\\?")
+      (with-current-buffer review
         (cl-letf (((symbol-function 'y-or-n-p) #'always))
-          (bndos-review-outbox-delete)))
+          (bndos-review-draft-delete)))
       (should-not (bndos-test-drafts review)))))
 
 (ert-deftest bndos-outbox-says-what-changed-since-a-draft-was-written ()
   (bndos-test-with-pr (review stubs wt)
     (bndos-test-draft-reply review "my answer")
-    (let ((outbox (bndos-test-outbox review))
-          (head (bndos-test-git wt "rev-parse" "HEAD")))
+    (let ((head (bndos-test-git wt "rev-parse" "HEAD"))
+          (draft (car (bndos-test-drafts review))))
       ;; A new message in the thread, which is resolved meanwhile.
       (bndos-test-gh-pr-write stubs "threads.json"
                               (vector (list :id "T1" :isResolved t :isOutdated :false :path "src/a.txt"
@@ -896,31 +881,31 @@ gh in STUBS serves, fetched."
                                             :comments (list :nodes (vector (bndos-test-gh-node 501 "Why uppercase?" 1 head)
                                                                            (bndos-test-gh-node 502 "Also this." 30 head))))))
       (bndos-test-fetch review)
-      (with-current-buffer outbox
-        (bndos-review-outbox--render)
-        (should (string-match-p "1 new message in the thread since it was drafted" (buffer-string)))
-        (should (string-match-p "the thread is resolved on GitHub" (buffer-string))))
-      ;; The thread gone: it can't be marked.
+      (let ((asked (bndos-test-asked review draft)))
+        (should (string-match-p "1 new message in the thread since it was drafted" asked))
+        (should (string-match-p "the thread is resolved on GitHub" asked)))
+      ;; The thread gone: it can't be sent.
       (bndos-test-gh-pr-write stubs "threads.json" [])
       (bndos-test-fetch review)
-      (bndos-test-outbox-at outbox "my answer")
-      (with-current-buffer outbox
-        (should (string-match-p "can't send: its thread isn't on the pull request" (buffer-string)))
-        (should-error (bndos-review-outbox-mark) :type 'user-error)))))
+      (should (string-match-p "its thread isn't on the pull request" (car (bndos-review-outbox-problems review draft))))
+      (cl-letf (((symbol-function 'display-message-or-buffer) #'ignore))
+        (should-error (bndos-test-send review) :type 'user-error))
+      (should-not (bndos-test-posts stubs)))))
 
 (ert-deftest bndos-outbox-fetches-again-before-sending-on-old-threads ()
   (bndos-test-with-pr (review stubs wt)
     (bndos-test-draft-reply review "later")
-    (let ((outbox (bndos-test-outbox review)))
-      (with-current-buffer outbox (bndos-test-mark-all))
-      (with-current-buffer review
-        (setq bndos-review-github--state
-              (plist-put bndos-review-github--state :at (time-subtract nil 3600))))
-      (let ((asked nil))
-        (bndos-test-send outbox (lambda (&rest _) (setq asked t)))
-        (should-not asked))
-      (should (bndos-proc-wait (lambda () (< (bndos-review-outbox--age review) 60)) 10))
-      (should-not (bndos-test-posts stubs)))))
+    (with-current-buffer review
+      (setq bndos-review-github--state
+            (plist-put bndos-review-github--state :at (time-subtract nil 3600))))
+    (let* ((asked 0)
+           (bndos-review-outbox-choose-function (lambda (_review _drafts) (cl-incf asked) nil)))
+      (with-current-buffer review (bndos-review-send))
+      ;; Not asked on the old threads: once fetched.
+      (should (= asked 0))
+      (should (bndos-proc-wait (lambda () (= asked 1)) 10)))
+    (should (< (bndos-review-outbox--age review) 60))
+    (should-not (bndos-test-posts stubs))))
 
 (ert-deftest bndos-outbox-shows-agents-drafts-for-checking ()
   (bndos-test-with-pr (review stubs wt)
@@ -933,10 +918,173 @@ gh in STUBS serves, fetched."
     (bndos-review-outbox-changed (bndos-review-outbox-store review))
     (should (bndos-proc-wait (lambda () (with-current-buffer review (string-match-p "✎ agent:codex" (buffer-string))))
                              5))
-    (let ((outbox (bndos-test-outbox review)))
-      (with-current-buffer outbox
-        (should (string-match-p "drafted by agent:codex: read it before sending" (buffer-string)))))))
+    (should (string-match-p "agent:codex: “Drafted for you\\.”  ⚠ drafted by agent:codex: read it before sending"
+                            (bndos-test-asked review (car (bndos-test-drafts review)))))
+    ;; Edited at point: mine from then on, sent as mine.
+    (bndos-test-at-thread review "Why uppercase\\?")
+    (with-current-buffer review
+      (cl-letf (((symbol-function 'read-string-from-buffer) (lambda (_prompt initial) (concat initial " Checked."))))
+        (bndos-review-draft-edit)))
+    (let ((draft (car (bndos-test-drafts review))))
+      (should (equal (plist-get draft :body) "Drafted for you. Checked."))
+      (should-not (string-prefix-p "agent:" (plist-get draft :author)))
+      (should-not (string-match-p "drafted by" (bndos-test-asked review draft))))
+    ;; And no agent's to change any more.
+    (should-not (zerop (car (bndos-test-gh-cli wt "drafts" "edit" (plist-get (car (bndos-test-drafts review)) :id)
+                                               "--body" "x"))))))
 
+;;; Comments on lines and files, and the review they make
+
+(ert-deftest bndos-cli-drafts-comments-on-the-pull-requests-lines ()
+  (bndos-test-with-pr (review stubs wt t)
+    (let ((head (bndos-test-git wt "rev-parse" "HEAD")))
+      ;; The lines GitHub takes comments on: its diff's, from main.
+      (let ((lines (cdr (bndos-test-gh-cli wt "drafts" "lines"))))
+        (should (equal (plist-get lines :head) head))
+        (should (equal (mapcar (lambda (f) (plist-get f :path)) (plist-get lines :files)) '("b.txt" "src/a.txt")))
+        (should (equal (plist-get (seq-find (lambda (f) (equal (plist-get f :path) "src/a.txt")) (plist-get lines :files))
+                                  :right)
+                       '((1 3)))))
+      ;; On lines out of its diff, or a file it doesn't change: refused, said why.
+      (let ((refused (bndos-test-gh-cli wt "drafts" "add" "--path" "src/a.txt" "--line" "9" "--body" "x" "--author" "w")))
+        (should-not (zerop (car refused)))
+        (should (string-match-p "isn't in one hunk.*lines there: 1-3" (format "%s" (cdr refused)))))
+      (should-not (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--path" "nope.txt" "--body" "x" "--author" "w"))))
+      (should-not (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--conversation" "--line" "2" "--body" "x"))))
+      (should-not (bndos-test-drafts review))
+      ;; On lines 2-3, on b.txt, the summary; one summary only.
+      (should (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--path" "src/a.txt" "--start-line" "2" "--line" "3"
+                                          "--body" "Why uppercase here?" "--author" "worker"))))
+      (should (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--path" "b.txt" "--body" "Is this file needed?"
+                                          "--author" "worker"))))
+      (should (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--review" "--body" "Close; two questions."
+                                          "--author" "worker"))))
+      (should-not (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--review" "--body" "again" "--author" "worker"))))
+      (should (equal (plist-get (plist-get (bndos-test-draft review "Why uppercase here?") :target)
+                                :start_line)
+                     2))
+      (should (equal (plist-get (bndos-test-draft review "Why uppercase here?") :target)
+                     (list :kind "line" :path "src/a.txt" :line 3 :side "RIGHT" :commit head :start_line 2)))
+      (should (equal (plist-get (bndos-test-draft review "Is this file needed?") :target)
+                     (list :kind "file" :path "b.txt" :commit head)))
+      ;; Quoting a message: by its id from threads.
+      (should (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--thread" "T1" "--quote" "501"
+                                          "--body" "Lowercased." "--author" "worker"))))
+      (should (bndos-test-draft review "> Why uppercase?\n\nLowercased."))
+      (should-not (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--conversation" "--quote" "999" "--body" "x")))))
+    ;; Drawn as comments of the review: on their lines, in the conversation.
+    (bndos-test-redraw review)
+    (with-current-buffer review
+      (let ((text (buffer-string)))
+        (should (string-match-p "Why uppercase here\\?" text))
+        (should (string-match-p "Is this file needed\\?" text))
+        (should (string-match-p "Draft review" text))
+        (should (string-match-p "Close; two questions\\." text))))
+    (let ((file (bndos-test-open-file review "src/a.txt")))
+      (with-current-buffer file
+        (should (seq-find (lambda (o) (equal (gethash "body" (overlay-get o 'diff-review-comment)) "Why uppercase here?"))
+                          (diff-review--thread-overlays)))))
+    ;; Sent: the comments on lines and the summary as one review, asking for
+    ;; changes; the file's comment and the reply alone.
+    (let (question)
+      (bndos-test-send review (lambda (q &rest _) (setq question q) ?r))
+      (should (string-match-p "Send 2 drafts and a review (its summary, 1 comment on lines) to me/repo#7 as @tester"
+                              question)))
+    (should (string-match-p "4 sent" (bndos-test-report review)))
+    (let* ((posts (bndos-test-posts stubs))
+           (reviewed (seq-find (lambda (p) (string-suffix-p "/reviews" (plist-get p :path))) posts))
+           (payload (plist-get reviewed :payload))
+           (file (seq-find (lambda (p) (equal (plist-get p :path) "repos/me/repo/pulls/7/comments")) posts)))
+      (should (= (length posts) 3))
+      (should (equal (plist-get payload :event) "REQUEST_CHANGES"))
+      (should (equal (plist-get payload :commit_id) (bndos-test-git wt "rev-parse" "HEAD")))
+      (should (string-match-p "\\`Close; two questions\\.\n\n<!-- bndos-draft:" (plist-get payload :body)))
+      (let ((c (car (plist-get payload :comments))))
+        (should (= (length (plist-get payload :comments)) 1))
+        (should (equal (list (plist-get c :path) (plist-get c :start_line) (plist-get c :line) (plist-get c :side))
+                       '("src/a.txt" 2 3 "RIGHT")))
+        (should (string-match-p "\\`Why uppercase here\\?\n\n<!-- bndos-draft:" (plist-get c :body))))
+      (should (equal (plist-get (plist-get file :payload) :subject_type) "file"))
+      (should (equal (plist-get (plist-get file :payload) :path) "b.txt")))
+    ;; Fetched back: all on GitHub, by their markers, none left as drafts.
+    (bndos-test-fetch review)
+    (should (= (length (bndos-test-drafts review "sent")) 4))
+    (should-not (bndos-test-drafts review "drafts"))
+    (should-not (bndos-test-drafts review "sending"))))
+
+(ert-deftest bndos-outbox-a-review-is-settled-as-one ()
+  (bndos-test-with-pr (review stubs wt t)
+    (dolist (args '(("--path" "src/a.txt" "--line" "2" "--body" "one")
+                    ("--path" "src/a.txt" "--line" "3" "--body" "two")))
+      (should (zerop (car (apply #'bndos-test-gh-cli wt "drafts" "add" "--author" "worker" args)))))
+    ;; Asking for changes needs what to change.
+    (should-error (bndos-test-send review (lambda (&rest _) ?r)) :type 'user-error)
+    (should-not (bndos-test-posts stubs))
+    ;; Refused: both drafts again, said why.
+    (bndos-test-gh-pr-write stubs "modes.json" ["refused"])
+    (bndos-test-send review)
+    (should (string-match-p "2 failed" (bndos-test-report review)))
+    (should (seq-every-p (lambda (d) (string-match-p "HTTP 422" (plist-get d :error))) (bndos-test-drafts review "drafts")))
+    ;; Posted, its answer lost: both unconfirmed, then found by their markers.
+    (bndos-test-gh-pr-write stubs "modes.json" ["lost"])
+    (bndos-test-send review)
+    (should (string-match-p "2 unconfirmed" (bndos-test-report review)))
+    (should (= (length (bndos-test-drafts review "sent")) 2))
+    (should (= (length (bndos-test-posts stubs)) 1))
+    (should (equal (plist-get (plist-get (car (bndos-test-posts stubs)) :payload) :event) "COMMENT"))))
+
+(ert-deftest bndos-outbox-a-review-of-your-own-pull-request-only-comments ()
+  (bndos-test-with-pr (review stubs wt t)
+    (bndos-test-gh-pr-write stubs "author.json" "tester")
+    (bndos-test-fetch review)
+    (should (zerop (car (bndos-test-gh-cli wt "drafts" "add" "--review" "--body" "Notes to self." "--author" "w"))))
+    (let (question)
+      (cl-letf (((symbol-function 'read-multiple-choice) (lambda (&rest _) (error "Asked for a verdict"))))
+        (bndos-test-send review (lambda (q &rest _) (setq question q) t)))
+      (should (string-match-p "your own pull request: a comment review" question)))
+    (should (equal (plist-get (plist-get (car (bndos-test-posts stubs)) :payload) :event) "COMMENT"))))
+
+(ert-deftest bndos-outbox-drafts-a-comment-on-the-lines-at-point ()
+  (bndos-test-with-pr (review stubs wt t)
+    (let ((file (bndos-test-open-file review "src/a.txt")))
+      (with-current-buffer file
+        (goto-char (point-min))
+        (forward-line 1)
+        (cl-letf (((symbol-function 'read-string-from-buffer) (lambda (&rest _) "Mine, on two.")))
+          (bndos-review-draft-comment))
+        ;; A file comment, with a prefix argument.
+        (cl-letf (((symbol-function 'read-string-from-buffer) (lambda (&rest _) "On the whole file.")))
+          (bndos-review-draft-comment t)))
+      (should (equal (plist-get (bndos-test-draft review "Mine, on two.") :target)
+                     (list :kind "line" :path "src/a.txt" :line 2 :side "RIGHT" :commit (bndos-test-git wt "rev-parse" "HEAD"))))
+      (should (equal (plist-get (plist-get (bndos-test-draft review "On the whole file.") :target) :kind) "file"))
+      (should-not (string-prefix-p "agent:" (plist-get (bndos-test-draft review "Mine, on two.") :author)))
+      ;; Not as GitHub has it, edited here: refused.
+      (with-current-buffer file
+        (goto-char (point-max))
+        (insert "five\n")
+        (should (string-match-p "isn.t as the pull request.s head has it"
+                                (cadr (should-error (bndos-review-draft-comment) :type 'user-error))))
+        (set-buffer-modified-p nil))
+      ;; The summary: drafted, then edited, one.
+      (with-current-buffer review
+        (cl-letf (((symbol-function 'read-string-from-buffer) (lambda (_prompt initial) (concat initial "Looks good."))))
+          (bndos-review-draft-summary)
+          (bndos-review-draft-summary)))
+      (should (bndos-test-draft review "Looks good.Looks good."))
+      ;; Quoting at a thread: a reply starting with the quote.
+      (bndos-test-at-thread review "Why uppercase\\?")
+      (with-current-buffer review
+        (cl-letf (((symbol-function 'read-string-from-buffer) (lambda (_prompt initial) (concat initial "Done."))))
+          (bndos-review-draft-quote)))
+      (should (equal (plist-get (plist-get (bndos-test-draft review "> Why uppercase?\n\nDone.") :target) :kind) "reply"))
+      ;; Sent as one review with the line's comment, approving.
+      (bndos-test-send review (lambda (&rest _) ?a))
+      (let ((payload (plist-get (seq-find (lambda (p) (string-suffix-p "/reviews" (plist-get p :path)))
+                                          (bndos-test-posts stubs))
+                                :payload)))
+        (should (equal (plist-get payload :event) "APPROVE"))
+        (should (equal (mapcar (lambda (c) (plist-get c :line)) (plist-get payload :comments)) '(2)))))))
 
 ;;; The command agents draft with
 
@@ -994,7 +1142,7 @@ gh in STUBS serves, fetched."
 
 (ert-deftest bndos-outbox-live-replies-reach-github-once ()
   "Opens a draft pull request on a test branch of BNDOS_TEST_GITHUB_REPO,
-replies through the outbox, checks what GitHub has, and closes it."
+replies and reviews through the drafts, checks what GitHub has, and closes it."
   (skip-unless (getenv "BNDOS_TEST_GITHUB_REPO"))
   (let* ((repo (getenv "BNDOS_TEST_GITHUB_REPO"))
          (dir (file-name-as-directory (file-truename (make-temp-file "bndos-live-" t))))
@@ -1029,10 +1177,8 @@ replies through the outbox, checks what GitHub has, and closes it."
             (bndos-review-outbox-comment review))
           (should-not (string-match-p "Two is the second"
                                       (bndos-test-live-gh clone "api" (format "repos/%s/pulls/%d/comments" repo number))))
-          (let ((outbox (bndos-test-outbox-of review)))
-            (with-current-buffer outbox (bndos-test-mark-all))
-            (bndos-test-send outbox)
-            (should (string-match-p "2 sent" (with-current-buffer outbox bndos-review-outbox--report))))
+          (bndos-test-send review)
+          (should (string-match-p "2 sent" (bndos-test-report review)))
           ;; On GitHub, at once (not in a pending review), each once, with the marker.
           (let ((replies (json-parse-string (bndos-test-live-gh clone "api" (format "repos/%s/pulls/%d/comments" repo number))
                                             :object-type 'plist :array-type 'list))
@@ -1052,6 +1198,30 @@ replies through the outbox, checks what GitHub has, and closes it."
           (with-current-buffer review
             (should (string-match-p "Two is the second line — ça va ✓\\." (buffer-string)))
             (should-not (string-match-p "bndos-draft" (buffer-string))))
+          ;; An agent's comment on line 3 and the summary: one review, at
+          ;; once; its comment a thread of its own on line 3.
+          (let ((default-directory clone))
+            (should (zerop (call-process bndos-task-cli nil nil nil "drafts" "add" "--path" "bndos-outbox-test.txt"
+                                         "--line" "3" "--body" "Three, inline." "--author" "worker")))
+            (should (zerop (call-process bndos-task-cli nil nil nil "drafts" "add" "--review"
+                                         "--body" "Reviewed here." "--author" "worker"))))
+          (bndos-review-outbox-changed (bndos-review-outbox-store review))
+          (bndos-test-send review)
+          (should (string-match-p "2 sent" (bndos-test-report review)))
+          (let ((inline (seq-find (lambda (c) (string-prefix-p "Three, inline.\n\n<!-- bndos-draft:" (plist-get c :body)))
+                                  (json-parse-string (bndos-test-live-gh clone "api" (format "repos/%s/pulls/%d/comments" repo number))
+                                                     :object-type 'plist :array-type 'list :null-object nil)))
+                (reviews (json-parse-string (bndos-test-live-gh clone "api" (format "repos/%s/pulls/%d/reviews" repo number))
+                                            :object-type 'plist :array-type 'list :null-object nil)))
+            (should inline)
+            (should (equal (plist-get inline :line) 3))
+            (should-not (plist-get inline :in_reply_to_id))
+            (should (seq-find (lambda (r) (and (string-prefix-p "Reviewed here.\n\n<!-- bndos-draft:" (or (plist-get r :body) ""))
+                                               (equal (plist-get r :state) "COMMENTED")))
+                              reviews)))
+          (bndos-test-fetch review)
+          (should (= (length (bndos-test-drafts review "sent")) 4))
+          (should-not (bndos-test-drafts review "drafts"))
           ;; A review's summary, answered point by point in the conversation.
           (let ((input (expand-file-name "summary.json" dir)))
             (with-temp-file input
@@ -1169,17 +1339,6 @@ lags a push by a moment, as g after a push does."
     (re-search-forward regexp)
     (cl-letf (((symbol-function 'read-string-from-buffer) (lambda (&rest _) body)))
       (diff-review-reply))))
-
-(defun bndos-test-outbox-of (review)
-  "REVIEW's outbox, whatever its pull request."
-  (cl-letf (((symbol-function 'pop-to-buffer) #'set-buffer))
-    (let ((outbox (with-current-buffer review (bndos-review-outbox))))
-      (should (bndos-proc-wait (lambda () (and (with-current-buffer outbox bndos-review-outbox--login)
-                                               (not (plist-get (buffer-local-value 'bndos-review-github--state review)
-                                                               :fetching))))
-                               20))
-      (with-current-buffer outbox (bndos-review-outbox--render))
-      outbox)))
 
 (provide 'bndos-outbox-tests)
 ;;; bndos-outbox-tests.el ends here

@@ -17,10 +17,12 @@ agents and this command are all clients of the same session.
   bndos-task migrate [--repo DIR] [--dry-run]
   bndos-task drafts threads [--repo DIR] [--pr N] [--all]
   bndos-task drafts list [--repo DIR] [--pr N]
+  bndos-task drafts lines [--path PATH] [--repo DIR] [--pr N]
   bndos-task drafts hunks (--thread ID | --conversation [--base REF]) [--repo DIR] [--pr N]
-  bndos-task drafts add (--thread ID | --conversation) (--body TEXT | --body-file FILE)
+  bndos-task drafts add (--thread ID | --conversation | --path PATH [--line N [--start-line M]
+                         [--side RIGHT|LEFT]] | --review) (--body TEXT | --body-file FILE)
+                        [--quote MESSAGE-ID] [--author NAME] [--repo DIR] [--pr N]
                         [--hunks REF... | --hunks-in PATH... | --hunks-matching REGEXP...]
-                        [--author NAME] [--repo DIR] [--pr N]
   bndos-task drafts edit ID [--body TEXT | --body-file FILE] [--hunks... | --unlink]
                         [--repo DIR] [--pr N]
   bndos-task drafts delete ID [--repo DIR] [--pr N]
@@ -60,16 +62,26 @@ worktrees, records and reviews; it refuses while an agent is working or
 waiting, and tasks get a new agent on their next start.  --dry-run reports
 what it would move and what to redo by hand.
 
-drafts are replies to a pull request's GitHub review threads, or comments
-on its conversation, that wait for the user: Emacs shows them in their
-threads and sends only those the user marks and confirms in its outbox.
-threads lists the pull request's threads (unresolved ones, or --all) with
-their ids; add drafts a reply to one (--thread) or a comment on the
-conversation, as an agent's (agent:NAME, from --author); edit and delete
-change only agents' drafts that are still drafts.  The pull request is the
-current branch's, or --pr.  Nothing is posted to GitHub from here.
+drafts are what the user may say on a pull request, written for them to
+read, change and send as their own: Emacs shows each where it goes and
+sends only those the user picks.  add drafts, as an agent's (agent:NAME,
+from --author):
+  --thread ID       a reply in a review thread (ids from threads);
+  --conversation    a comment on the pull request's conversation;
+  --path P --line N a comment on line N of P (--start-line M for lines
+                    M to N; --side LEFT for removed lines), sent with the
+                    user's review;
+  --path P          a comment on the whole file P;
+  --review          the review's summary, sent with its line comments.
+A line comment is on the pull request's head as GitHub has it, on lines
+its diff shows (GitHub takes no other): lines lists them, per file.
+--quote ID puts a message of the threads or the conversation (its id, from
+threads) above the body, quoted.  threads lists the unresolved threads
+(or --all) and the conversation, each message with its id.  edit and
+delete change only agents' drafts that are still drafts.  The pull request
+is the current branch's, or --pr.  Nothing is posted to GitHub from here.
 
-A draft may link the changes that answer it, for the user to review: hunks
+A reply or a comment may link the changes that answer it, for the user to review: hunks
 of the diff from the commit its thread was written on (for the
 conversation, the latest review's, or --base) to HEAD.  hunks lists them,
 each with a ref; --hunks links refs, --hunks-in every hunk in files or
@@ -832,8 +844,8 @@ THREADS_QUERY = """query($owner: String!, $name: String!, $number: Int!, $after:
       pageInfo { hasNextPage endCursor }
       nodes { id isResolved isOutdated path line originalLine
         comments(first: 100) { %s } } }
-    comments(last: 100) { nodes { body createdAt author { login } } }
-    reviews(last: 100) { nodes { body state submittedAt author { login } commit { oid } } } } } }"""
+    comments(last: 100) { nodes { id body createdAt author { login } } }
+    reviews(last: 100) { nodes { id body state submittedAt author { login } commit { oid } } } } } }"""
 COMMENT_FIELDS = ("pageInfo { hasNextPage endCursor } "
                   "nodes { databaseId body createdAt author { login } originalCommit { oid } }")
 COMMENTS_QUERY = """query($id: ID!, $after: String) {
@@ -892,7 +904,8 @@ def pr_threads(repo, pr):
 
 
 def gh_message(node):
-    message = {"author": "@" + ((node.get("author") or {}).get("login") or "ghost"),
+    message = {"id": str(node["databaseId"]) if node.get("databaseId") else node.get("id"),
+               "author": "@" + ((node.get("author") or {}).get("login") or "ghost"),
                "at": node.get("createdAt"), "body": DRAFT_MARKER.sub("", node.get("body") or "")}
     if node.get("state"):
         message["review"] = node["state"].lower()
@@ -1037,6 +1050,77 @@ def linked_changes(repo, base, refs_given, paths, patterns):
             "links": [{"id": i, "path": p, "from": f, "to": t} for i, p, f, t in links], "rules": rules}
 
 
+def pr_diff_lines(repo, refs, path=None):
+    """The lines of the pull request's diff, as GitHub shows it (3 lines of
+    context): {path: {"RIGHT": [(from, to)...], "LEFT": [...]}}, of its head
+    on GitHub."""
+    head, base = refs.get("head"), refs.get("base")
+    if not (head and base and have_commit(repo, head) and have_commit(repo, base)):
+        raise Failure("the pull request's head or base isn't here, nor on origin")
+    merge_base = git_out(repo, "merge-base", base, head).strip()
+    out = git_out(repo, "diff", "-U3", "--no-color", "--no-ext-diff", "--no-renames",
+                  "--src-prefix=a/", "--dst-prefix=b/", merge_base, head, "--", *([path] if path else []))
+    files, current, hunk = {}, None, False
+    for line in out.split("\n"):
+        if line.startswith("diff --git "):
+            current, hunk = None, False
+        elif not hunk and line.startswith("+++ "):
+            current = line[6:].rstrip("\t") if line != "+++ /dev/null" else current
+        elif not hunk and line.startswith("--- "):
+            current = line[6:].rstrip("\t") if line != "--- /dev/null" else None
+        elif m := HUNK_HEADER.match(line):
+            hunk = True
+            ranges = files.setdefault(current, {"RIGHT": [], "LEFT": []})
+            old, old_len, new, new_len = int(m[1]), int(m[2] or 1), int(m[3]), int(m[4] or 1)
+            if new_len:
+                ranges["RIGHT"].append((new, new + new_len - 1))
+            if old_len:
+                ranges["LEFT"].append((old, old + old_len - 1))
+    return files
+
+
+def ranges_text(ranges):
+    return ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in ranges) or "none"
+
+
+def line_target(repo, refs, args):
+    """A comment on lines of a file, or on the file: its target, or a Failure
+    when GitHub wouldn't take it."""
+    files = pr_diff_lines(repo, refs, args.path)
+    if args.path not in files:
+        raise Failure(f"{args.path} isn't changed by the pull request: comments go on its changed files")
+    if args.line is None:
+        if args.start_line is not None or args.side:
+            raise Failure("--start-line and --side are for a comment on lines: give --line")
+        return {"kind": "file", "path": args.path, "commit": refs["head"]}
+    side = (args.side or "RIGHT").upper()
+    if side not in ("RIGHT", "LEFT"):
+        raise Failure("--side is RIGHT (the lines as changed) or LEFT (removed lines)")
+    start = args.start_line if args.start_line is not None else args.line
+    if start > args.line:
+        raise Failure("--start-line is after --line")
+    ranges = files[args.path][side]
+    if not any(a <= start and args.line <= b for a, b in ranges):
+        raise Failure(f"{args.path}:{start if start == args.line else f'{start}-{args.line}'} ({side}) isn't in one "
+                      f"hunk of the pull request's diff, so GitHub won't take it; lines there: {ranges_text(ranges)}")
+    target = {"kind": "line", "path": args.path, "line": args.line, "side": side, "commit": refs["head"]}
+    if start != args.line:
+        target["start_line"] = start
+    return target
+
+
+def quoted(text):
+    return "\n".join("> " + l if l.strip() else ">" for l in text.rstrip().split("\n"))
+
+
+def find_message(threads, conversation, message_id):
+    for thread in threads:
+        for node in thread["comments"]["nodes"]:
+            if str(node.get("databaseId")) == message_id:
+                return node
+    return next((c for c in conversation if c.get("id") == message_id), None)
+
+
 def load_drafts(store):
     drafts = []
     for state in ("drafts", "sending", "sent"):
@@ -1097,7 +1181,7 @@ def cmd_drafts(args):
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if args.action == "threads":
         threads, conversation = pr_threads(args.repo, pr)
-        emit({"protocol": "bndos-task/1", "pull_request": pr,
+        emit({"protocol": "bndos-task/1", "pull_request": pr, "head": refs.get("head"),
               "threads": [{"id": t["id"], "path": t["path"], "line": t.get("line") or t.get("originalLine"),
                            "commit": ((t["comments"]["nodes"][0].get("originalCommit") or {}).get("oid")
                                       if t["comments"]["nodes"] else None),
@@ -1107,6 +1191,13 @@ def cmd_drafts(args):
               "conversation": [gh_message(c) for c in conversation]})
     elif args.action == "list":
         emit({"protocol": "bndos-task/1", "pull_request": pr, "drafts": load_drafts(store)})
+    elif args.action == "lines":
+        files = pr_diff_lines(args.repo, refs, args.path)
+        if args.path and args.path not in files:
+            raise Failure(f"{args.path} isn't changed by the pull request")
+        emit({"protocol": "bndos-task/1", "pull_request": pr, "head": refs["head"],
+              "files": [{"path": p, "right": [list(r) for r in ranges["RIGHT"]],
+                         "left": [list(r) for r in ranges["LEFT"]]} for p, ranges in sorted(files.items())]})
     elif args.action == "hunks":
         threads, conversation = pr_threads(args.repo, pr)
         base = reply_base(args.repo, args, threads, conversation, refs)
@@ -1119,6 +1210,17 @@ def cmd_drafts(args):
     elif args.action == "add":
         body = read_body(args)
         threads, conversation = pr_threads(args.repo, pr)
+        linking = args.hunks or args.hunks_in or args.hunks_matching
+        if linking and not (args.thread or args.conversation):
+            raise Failure("changes are linked to replies and comments on the conversation")
+        if (args.line is not None or args.start_line is not None or args.side) and not args.path:
+            raise Failure("--line, --start-line and --side go with --path")
+        if args.quote:
+            node = find_message(threads, conversation, args.quote)
+            if not node:
+                raise Failure(f"no message {args.quote} on the pull request (ids from threads)")
+            body = quoted(DRAFT_MARKER.sub("", node.get("body") or "")) + "\n\n" + body
+        seen = None
         if args.thread:
             thread = next((t for t in threads if t["id"] == args.thread), None)
             if not thread:
@@ -1127,13 +1229,21 @@ def cmd_drafts(args):
             target = {"kind": "reply", "thread": thread["id"], "comment": comments[0]["databaseId"],
                       "path": thread["path"], "line": thread.get("line") or thread.get("originalLine")}
             seen = max(c["createdAt"] for c in comments)
+        elif args.path:
+            target = line_target(args.repo, refs, args)
+        elif args.review:
+            live = [d for d in load_drafts(store) if d["state"] != "sent"
+                    and (d.get("target") or {}).get("kind") == "summary"]
+            if live:
+                raise Failure(f"the review's summary is drafted already ({live[0]['id']}): edit it")
+            target = {"kind": "summary"}
         else:
             target = {"kind": "comment"}
             seen = max((c["createdAt"] for c in conversation), default=None)
         author = args.author if args.author.startswith("agent:") else f"agent:{args.author}"
         changes = linked_changes(args.repo, reply_base(args.repo, args, threads, conversation, refs),
                                  args.hunks, args.hunks_in, args.hunks_matching) \
-            if (args.hunks or args.hunks_in or args.hunks_matching) else None
+            if linking else None
         draft_id = f"d{datetime.datetime.now(datetime.timezone.utc):%Y%m%d%H%M%S}-{secrets.token_hex(4)}"
         draft = {"version": 1, "id": draft_id, "pr": pr, "target": target, "body": body, "author": author,
                  "seen": seen, "created": now, "updated": now}
@@ -1413,16 +1523,25 @@ def main():
     d.add_argument("--all", action="store_true", help="resolved threads too")
     drafts_args(d)
     drafts_args(drafts_sub.add_parser("list", help="the drafts, being sent and sent"))
+    d = drafts_sub.add_parser("lines", help="the lines of the pull request's diff, which line comments go on")
+    d.add_argument("--path", help="only this file")
+    drafts_args(d)
     d = drafts_sub.add_parser("hunks", help="the hunks a reply can link: from the commit commented on to HEAD")
     target = d.add_mutually_exclusive_group(required=True)
     target.add_argument("--thread", help="the review thread's id (from threads)")
     target.add_argument("--conversation", action="store_true", help="a comment on the pull request")
     d.add_argument("--base", help="for the conversation: the commit to start from (default the latest review's)")
     drafts_args(d)
-    d = drafts_sub.add_parser("add", help="draft a reply to a thread, or a comment on the conversation")
+    d = drafts_sub.add_parser("add", help="draft a reply, a comment, a line comment or the review's summary")
     target = d.add_mutually_exclusive_group(required=True)
     target.add_argument("--thread", help="the review thread's id (from threads)")
     target.add_argument("--conversation", action="store_true", help="a comment on the pull request")
+    target.add_argument("--path", help="a comment on this file, or on --line of it, sent with the review")
+    target.add_argument("--review", action="store_true", help="the review's summary")
+    d.add_argument("--line", type=int, help="with --path: the (last) line commented on")
+    d.add_argument("--start-line", type=int, help="with --line: the first line")
+    d.add_argument("--side", help="with --line: RIGHT, the lines as changed (default), or LEFT, removed lines")
+    d.add_argument("--quote", metavar="MESSAGE-ID", help="quote this message (an id from threads) above the body")
     body_args(d)
     changes_args(d)
     d.add_argument("--author", default=os.environ.get("BNDOS_TASK_AGENT", "agent"),

@@ -1837,5 +1837,40 @@ functions of HEAD (the worktree's HEAD), fetched before BODY."
         (should (eql (car (bndos-test-cli repo "status" "--wait" "bogus" "layer-a")) 1))
         (should (eql (car (bndos-test-cli repo "status" "--wait" "done" "--timeout" "1" "layer-a")) 2))))))
 
+;;; Drawn again, the review stays where you are
+
+(defun bndos-test-note (id at body)
+  (let ((c (make-hash-table :test #'equal)))
+    (puthash "id" id c) (puthash "author" "@octo" c) (puthash "at" at c) (puthash "body" body c)
+    (puthash "external" "GitHub" c) (puthash "note" t c) (puthash "where" "conversation" c)
+    c))
+
+(ert-deftest bndos-review-a-redraw-keeps-point ()
+  (bndos-test-with-two-files (key wt review)
+    (with-current-buffer review
+      (setq diff-review-external-comments
+            (list (bndos-test-note "n1" "2026-11-12T10:00:00Z" "First note.")
+                  (bndos-test-note "n2" "2026-11-12T11:00:00Z" "Second note.")))
+      (diff-review--render-all)
+      (goto-char (point-min))
+      (re-search-forward "Second note\\.")
+      (let ((column (current-column)))
+        ;; Drawn again as it is: the same place.
+        (diff-review--render-all)
+        (should (looking-back "Second note\\." (line-beginning-position)))
+        ;; A note drawn above it: still on it, though it moved down.
+        (let ((line (line-number-at-pos)))
+          (setq diff-review-external-comments
+                (cons (bndos-test-note "n0" "2026-11-12T09:00:00Z" "An earlier note,\non two lines.")
+                      diff-review-external-comments))
+          (diff-review--render-all)
+          (should (> (line-number-at-pos) line))
+          (should (= (current-column) column))
+          (should (looking-back "Second note\\." (line-beginning-position)))))
+      ;; Another file current: the overview goes to it.
+      (setq diff-review--index 1)
+      (diff-review--render-all)
+      (should (eql (get-text-property (point) 'diff-review-index) 1)))))
+
 (provide 'bndos-review-tests)
 ;;; bndos-review-tests.el ends here

@@ -725,18 +725,21 @@ skips that).  You choose whether the agent may edit code."
   (format "Draft replies to the review threads of pull request #%d (%s/%s), for me to read and send.
 
 1. `%s drafts threads --pr %d` lists the unresolved threads with their ids (--all adds resolved ones), and the conversation: its latest comments and reviews' summaries.
-2. For each thread where you have something worth saying (an answer, what you changed and in which commit, or a question back), write the reply to a file and run `%s drafts add --pr %d --thread ID --body-file FILE`.  `--conversation` instead of `--thread ID` drafts a comment on the pull request itself: that is how a comment or a review's summary on the conversation is answered (GitHub has no replies to those), in one comment quoting each point it answers (`> ` lines) above the answer.
+2. For each thread where you have something worth saying (an answer, what you changed and in which commit, or a question back), write the reply to a file and run `%s drafts add --pr %d --thread ID --body-file FILE`.  `--conversation` instead of `--thread ID` drafts a comment on the pull request itself: that is how a comment or a review's summary on the conversation is answered (GitHub has no replies to those), in one comment quoting each point it answers (`> ` lines) above the answer.  `--quote ID` (a message's id from threads) starts a draft with that message quoted.
 3. A reply saying you changed something links those changes, for me to check them against the code: commit the fixes (one commit for several threads is fine), then `%s drafts hunks --pr %d --thread ID` lists the hunks since the commit the thread was written on, each with a ref; add `--hunks REF...` to `drafts add` for the ones that answer that thread (or `--hunks-in PATH...`, or `--hunks-matching REGEXP...` for a rename and the like).  Two replies may link the same hunk.  Don't push; say whether the branch needs pushing, as I can't send a reply whose changes GitHub doesn't have.
-4. `%s drafts list --pr %d` shows your drafts; `drafts edit ID --body-file FILE` and `drafts delete ID` change them (`drafts edit ID --hunks ...` links others).
+4. Something to point out in the code itself goes in a review, as a comment on its lines: `%s drafts lines --pr %d` lists the lines of the pull request's diff GitHub takes comments on (as GitHub has the branch: push first); `drafts add --pr %d --path PATH --line N --body-file FILE` drafts one (`--start-line M` for lines M to N, `--side LEFT` on removed lines, no `--line` for the whole file), and `drafts add --review` the review's summary.  They go as one review when I send them.
+5. `%s drafts list --pr %d` shows your drafts; `drafts edit ID --body-file FILE` and `drafts delete ID` change them (`drafts edit ID --hunks ...` links others).
 
 Only drafts: never post to GitHub, resolve threads or push yourself; I review the drafts and send them.  Write as the author of the change, plainly, in GitHub markdown.  Then tell me which threads you drafted replies to, and which you left and why."
           (plist-get state :number) (plist-get state :owner) (plist-get state :name)
           bndos-task-cli (plist-get state :number) bndos-task-cli (plist-get state :number)
-          bndos-task-cli (plist-get state :number) bndos-task-cli (plist-get state :number)))
+          bndos-task-cli (plist-get state :number) bndos-task-cli (plist-get state :number) (plist-get state :number)
+          bndos-task-cli (plist-get state :number)))
 
 (defun bndos/task-review-draft-replies ()
   "Ask this task's agent to draft replies to its pull request's GitHub threads.
-They come back as drafts, shown in their threads, sent from the outbox."
+They come back as drafts, shown as comments of the review, sent those picked
+with \\[bndos-review-send]."
   (interactive)
   (bndos-task-review--ensure)
   (require 'bndos-task-agent)
@@ -747,7 +750,7 @@ They come back as drafts, shown in their threads, sent from the outbox."
      key
      (lambda (buffer)
        (agent-shell-insert :text (bndos-task-review--draft-replies-prompt state) :submit t :shell-buffer buffer)
-       (message "Asked the agent for drafts: they show in their threads and the outbox"))
+       (message "Asked the agent for drafts: they show as comments of the review"))
      :display t)))
 
 (defun bndos/task-review-send-to-agent ()

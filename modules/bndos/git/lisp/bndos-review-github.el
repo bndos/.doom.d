@@ -16,7 +16,7 @@
 (require 'diff-review)
 
 (declare-function bndos-gh-token "autoload")
-(declare-function bndos-review-outbox-notes "bndos-review-outbox")
+(declare-function bndos-review-outbox-comments "bndos-review-outbox")
 (declare-function bndos-review-outbox-live-count "bndos-review-outbox")
 (declare-function bndos-review-outbox-reconcile "bndos-review-outbox")
 
@@ -58,12 +58,15 @@ or (:fetching t).")
 
 (defconst bndos-review-github--conversation-query
   "query($owner: String!, $name: String!, $number: Int!) {
+  viewer { login }
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    author { login }
     comments(last: 100) { nodes { id url body createdAt author { login } } }
     reviews(last: 100) { nodes { id url body state submittedAt author { login } } }
     pending: reviews(states: [PENDING]) { totalCount } } } }"
   "A pull request's latest comments and reviews, the ones on no lines; and
-whether one of mine is pending (only its author sees a pending review).")
+whether one of mine is pending (only its author sees a pending review); who
+posts, and whose the pull request is.")
 
 (defconst bndos-review-github--review-chips
   '(("APPROVED" "Approved" success) ("CHANGES_REQUESTED" "Changes requested" error)
@@ -137,11 +140,12 @@ kept as \"sent-draft\" with its \"url\"."
 
 (defun bndos-review-github--sent-drafts (comments)
   "The drafts COMMENTS show on GitHub, as (ID URL WHERE): WHERE the id of
-the thread it is in, or `conversation'."
+the thread it is in, `conversation', or `review' (a review's summary)."
   (let (sent)
     (dolist (c comments)
       (let ((where (cond ((gethash "thread-id" c))
-                         ((gethash "conversation" c) 'conversation))))
+                         ((gethash "conversation" c) 'conversation)
+                         ((gethash "review" c) 'review))))
         (dolist (m (cons c (append (gethash "replies" c) nil)))
           (when-let* ((id (gethash "sent-draft" m))
                       ((not (gethash "draft" m))))
@@ -192,7 +196,7 @@ the review: on no lines, nothing to resolve.  KIND is `comment' or `review'."
     (puthash "id" (concat "github:" (gethash "id" node)) c)
     (puthash "external" "GitHub" c)
     (puthash "note" t c)
-    (unless (eq kind 'review) (puthash "conversation" t c))
+    (puthash (if (eq kind 'review) "review" "conversation") t c)
     (puthash "where" "conversation" c)
     (puthash "chip" (car chip) c)
     (puthash "chip-face" (cadr chip) c)
@@ -273,7 +277,7 @@ Such a review fetches nothing: it shows what SOURCE has.")
             (unless bndos-review-github--hidden
               (append bndos-review-github--comments
                       ;; Comments on the conversation not sent yet.
-                      (and (fboundp 'bndos-review-outbox-notes) (bndos-review-outbox-notes review)))))
+                      (and (fboundp 'bndos-review-outbox-comments) (bndos-review-outbox-comments review)))))
       (diff-review--render-all)
       (diff-review--redecorate-files))
     ;; And the reviews showing some of its threads.
@@ -284,7 +288,7 @@ Such a review fetches nothing: it shows what SOURCE has.")
 (defun bndos-review-github--known (state)
   "What STATE knows of the pull request, kept while it is fetched again or
 a fetch fails: drafts are found by it."
-  (cl-loop for key in '(:number :url :owner :name :pr-state :threads :resolved :outdated :notes :pending-review :head-oid :base-oid :at)
+  (cl-loop for key in '(:number :url :owner :name :pr-state :threads :resolved :outdated :notes :pending-review :head-oid :base-oid :viewer :author :at)
            when (plist-member state key) append (list key (plist-get state key))))
 
 (defun bndos-review-github--fail (review message)
@@ -363,7 +367,9 @@ stay quiet."
                                             (match-string 2 (gethash "url" pr)) manual)))))))))))
 
 (defun bndos-review-github--conversation (review owner name number done)
-  "Fetch pull request NUMBER's comments and reviews, then DONE with them as notes."
+  "Fetch pull request NUMBER's comments and reviews, then DONE with them as
+notes, whether a review of mine is pending, and (VIEWER AUTHOR): who posts,
+whose the pull request is."
   (with-current-buffer review
     (bndos-review-github--gh
      (list "api" "graphql" "-f" (concat "query=" bndos-review-github--conversation-query)
@@ -373,7 +379,9 @@ stay quiet."
            (bndos-review-github--fail review (plist-get data :error))
          (let ((pull-request (bndos-review-github--get data "data" "repository" "pullRequest")))
            (funcall done (bndos-review-github--notes pull-request)
-                    (> (or (bndos-review-github--get pull-request "pending" "totalCount") 0) 0))))))))
+                    (> (or (bndos-review-github--get pull-request "pending" "totalCount") 0) 0)
+                    (list (bndos-review-github--get data "data" "viewer" "login")
+                          (bndos-review-github--get pull-request "author" "login")))))))))
 
 (defun bndos-review-github--load (review pr owner name manual)
   "Fetch PR's threads, comments and reviews into REVIEW, its missing commits first."
@@ -384,7 +392,7 @@ stay quiet."
      (lambda (threads)
       (bndos-review-github--conversation
        review owner name number
-       (lambda (notes pending)
+       (lambda (notes pending people)
        (when (buffer-live-p review)
          (with-current-buffer review
            (let* ((default-directory diff-review--root)
@@ -410,6 +418,7 @@ stay quiet."
                                        :resolved (seq-count (lambda (c) (gethash "resolved" c)) comments)
                                        :outdated (seq-count (lambda (c) (gethash "outdated" c)) comments)
                                        :notes (length notes) :pending-review pending
+                                       :viewer (car people) :author (cadr people)
                                        :head-oid (gethash "headRefOid" pr) :base-oid (gethash "baseRefOid" pr)
                                        :at (current-time) :manual manual))
                            (when (fboundp 'bndos-review-outbox-reconcile)
@@ -459,7 +468,7 @@ stay quiet."
                                   (n (bndos-review-outbox-live-count (current-buffer)))
                                   ((> n 0)))
                             (concat (propertize (format " · ✎ %d draft%s" n (if (= n 1) "" "s")) 'face 'diff-review-draft)
-                                    (propertize (substitute-command-keys " (\\[bndos-review-outbox] outbox)") 'face 'shadow))
+                                    (propertize (substitute-command-keys " (\\[bndos-review-send] sends)") 'face 'shadow))
                           ""))))
             "\n\n")))
 
@@ -474,7 +483,7 @@ stay quiet."
                 bndos-review-github--hidden nil
                 diff-review-external-comments
                 (append bndos-review-github--comments
-                        (and (fboundp 'bndos-review-outbox-notes) (seq-filter keep (bndos-review-outbox-notes review))))))
+                        (and (fboundp 'bndos-review-outbox-comments) (seq-filter keep (bndos-review-outbox-comments review))))))
         (diff-review--render-all)
         (diff-review--redecorate-files)))))
 

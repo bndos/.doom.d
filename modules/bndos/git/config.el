@@ -88,21 +88,35 @@ worktree against, or nil for `diff-review-default-base'.")
 (use-package! bndos-review-workspace
   :after diff-review)
 
-;; A branch's pull request threads in its reviews, read only.
+;; A branch's pull request threads in its reviews.
 (use-package! bndos-review-github
   :after diff-review
   :config
-  (setq bndos-review-github-threads t)
-  (define-key diff-review-mode-map (kbd "C-c C-g") #'bndos-review-github-toggle))
+  (setq bndos-review-github-threads t))
 
-;; Replies to those threads: drafts, sent from the outbox once confirmed.
+;; Drafts for that pull request, the agent's and mine, drawn as comments of
+;; the review: edited at point, sent those I pick.  `C-c C-g' has them all.
 (use-package! bndos-review-outbox
   :after bndos-review-github
   :config
-  (define-key diff-review-mode-map (kbd "C-c C-r") #'bndos-review-outbox)
-  (define-key diff-review-file-mode-map (kbd "C-c C-r") #'bndos-review-outbox)
-  (define-key diff-review-mode-map (kbd "C-c C-v") #'bndos-review-outbox-thread-changes)
-  (define-key diff-review-file-mode-map (kbd "C-c C-v") #'bndos-review-outbox-thread-changes))
+  (defvar-keymap bndos-review-draft-map
+    :doc "The pull request's drafts, in a review."
+    "g" #'bndos-review-github-toggle
+    "s" #'bndos-review-send
+    "e" #'bndos-review-draft-edit
+    "d" #'bndos-review-draft-delete
+    "q" #'bndos-review-draft-quote
+    "c" #'bndos-review-draft-comment
+    "m" #'bndos-review-outbox-comment
+    "S" #'bndos-review-draft-summary
+    "v" #'bndos-review-outbox-thread-changes
+    "u" #'bndos-review-outbox-unexplained
+    "p" #'bndos-review-draft-put-back)
+  (dolist (map (list diff-review-mode-map diff-review-file-mode-map diff-review-view-mode-map
+                     diff-review-thread-mode-map))
+    (define-key map (kbd "C-c C-g") bndos-review-draft-map)
+    (define-key map (kbd "C-c C-r") #'bndos-review-send)
+    (define-key map (kbd "C-c C-v") #'bndos-review-outbox-thread-changes)))
 
 (map! :after magit
       :map magit-status-mode-map

@@ -1142,8 +1142,69 @@ draw, so its whole thread is here in any case."
   (dolist (window (get-buffer-window-list nil nil t))
     (set-window-point window (point))))
 
+(defvar-local diff-review--drawn-index 'none
+  "bndos: the file index the buffer was last drawn for.")
+
+(defun diff-review--place (pos)
+  "bndos: where POS is, so a redraw finds it again: the ident of its section,
+its line in the section, its column, and its line in the buffer."
+  (save-excursion
+    (goto-char pos)
+    (let ((section (magit-current-section)))
+      (list (and section (magit-section-ident section))
+            (and section (count-lines (oref section start) (line-beginning-position)))
+            (current-column)
+            (line-number-at-pos)))))
+
+(defun diff-review--find-place (place)
+  "bndos: the position PLACE names, in its section if it is drawn still."
+  (pcase-let ((`(,ident ,line ,column ,absolute) place))
+    (save-excursion
+      (let ((section (and ident (ignore-errors (magit-get-section ident)))))
+        (if section
+            (progn (goto-char (oref section start))
+                   (forward-line line)
+                   (when (> (point) (oref section end)) (goto-char (oref section start))))
+          (goto-char (point-min))
+          (forward-line (1- absolute))))
+      (move-to-column column)
+      (point))))
+
+(defun diff-review--places ()
+  "bndos: the places of this buffer's point and of the windows showing it."
+  (cons (diff-review--place (point))
+        (mapcar (lambda (window)
+                  (list window (diff-review--place (window-point window)) (diff-review--place (window-start window))))
+                (get-buffer-window-list nil nil t))))
+
+(defun diff-review--restore-places (places)
+  "bndos: put point, and each window's point and start, back at PLACES."
+  (goto-char (diff-review--find-place (car places)))
+  (pcase-dolist (`(,window ,at ,start) (cdr places))
+    (when (and (window-live-p window) (eq (window-buffer window) (current-buffer)))
+      (set-window-start window (diff-review--find-place start) t)
+      (set-window-point window (diff-review--find-place at)))))
+
+(defmacro diff-review--keeping-place (&rest body)
+  "bndos: run BODY, which draws the buffer again, then put point back where
+it was; on the current file only when another one is current, or the
+buffer was never drawn."
+  (declare (indent 0))
+  `(let ((places (and (> (buffer-size) 0) (eql diff-review--drawn-index diff-review--index)
+                      (ignore-errors (diff-review--places)))))
+     ,@body
+     (setq diff-review--drawn-index diff-review--index)
+     (if (and places (ignore-errors (diff-review--restore-places places) t))
+         nil
+       (diff-review--goto-current))))
+
 (defun diff-review--render ()
-  "Redraw the overview.  The review buffer must be current."
+  "Redraw the overview.  The review buffer must be current.
+bndos: point stays where it was, see `diff-review--keeping-place'."
+  (diff-review--keeping-place (diff-review--draw)))
+
+(defun diff-review--draw ()
+  "Draw the overview."
   (let ((inhibit-read-only t)
         (n (seq-count (lambda (f) (not (equal (plist-get f :status) " "))) diff-review--files)))
     (erase-buffer)
@@ -1169,8 +1230,7 @@ draw, so its whole thread is here in any case."
     (magit-section-show magit-root-section)
     (set-buffer-modified-p nil)
     (when diff-review-overview-diffs   ; bndos
-      (run-with-idle-timer 0.5 nil #'diff-review--warm-modes (current-buffer)))
-    (diff-review--goto-current)))
+      (run-with-idle-timer 0.5 nil #'diff-review--warm-modes (current-buffer)))))
 
 (defun diff-review--render-all ()
   "Redraw the overview and the sidebar.  The review buffer must be current."
@@ -1525,16 +1585,18 @@ as one atomic window.  The keys are those of `diff-review-mode';
   "Redraw the sidebar.  The sidebar buffer must be current."
   (let ((inhibit-read-only t)
         (review (diff-review--review-buffer)))
-    (erase-buffer)
-    (when review
+    (if (not review)
+        (erase-buffer)
       (let ((moved (not (eql diff-review--index (buffer-local-value 'diff-review--index review)))))
+        ;; bndos: drawn again where it was, unless another file is current.
         ;; Local copies of the review's state, for the rendering it shares.
         (dolist (var '(diff-review--files diff-review--index diff-review--viewed
                        diff-review--comments diff-review-external-comments))
           (set (make-local-variable var) (buffer-local-value var review)))
-        (magit-insert-section (diff-review-root)
-          (diff-review--insert-files))
-        (diff-review--goto-current)
+        (diff-review--keeping-place
+          (erase-buffer)
+          (magit-insert-section (diff-review-root)
+            (diff-review--insert-files)))
         (when (and moved diff-review--index)   ; show the new file, else keep the folds
           (magit-section-reveal (magit-current-section)))))))
 
