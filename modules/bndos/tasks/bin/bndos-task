@@ -34,7 +34,8 @@ i.e. auto review).
 
 start on a task without an agent (none recorded, or missing from Hydra)
 starts one there, from its recorded parent; --base is needed only for a
-new branch.
+new branch.  start also lists the repository in the Emacs dashboard
+(projects.json); project_added says whether it wasn't listed yet.
 
 sessions lists the agent's own earlier conversations in a worktree (one
 made before it was a task); adopt makes the one you name the task's
@@ -498,6 +499,25 @@ def existing_task(target, repo):
     return task
 
 
+def remember_project(directory):
+    """List DIRECTORY's repository in the dashboard (projects.json, as Emacs's
+    bndos-task-remember-project does); whether it was new."""
+    main = os.path.dirname(common_dir(directory)) + "/"
+    path = os.path.join(state_dir(), "projects.json")
+    try:
+        with open(path) as f:
+            dirs = json.load(f)
+    except (OSError, ValueError):
+        dirs = []
+    if not isinstance(dirs, list):
+        dirs = []
+    if any(isinstance(d, str) and os.path.realpath(d) == main.rstrip("/") for d in dirs):
+        return False
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    write_json(path, dirs + [main])
+    return True
+
+
 def cmd_start(args):
     task = existing_task(args.branch, args.repo)
     if task is None and not args.base:
@@ -523,6 +543,7 @@ def cmd_start(args):
     result = {"protocol": "bndos-task/1", "status": "started", "branch": branch,
               "worktree": worktree, "parent": base, "agent": agent, "ticket": ticket,
               "existing": task is not None, "context": context_dir(worktree), "warnings": []}
+    result["project_added"] = remember_project(worktree)
     log = task_log(worktree)
     acp = Acp([HYDRA, "launch", agent], worktree, log)
     try:

@@ -31,7 +31,11 @@ Run these from the repository root before planning:
   or null when the repo isn't in a project folder (a folder holding the main
   checkout and a `.tasks` folder, where task worktrees go beside the main
   checkout). If it's null, mention that the repo could move into one (see
-  "Project folder" below); don't move it unasked.
+  "Project folder" below); don't move it unasked. Two things are called a
+  project here: the dashboard's list of repos, which `start` joins on its
+  own, and the project folder, which only `migrate` makes (a `.tasks`
+  folder made by hand works too, but tasks already started stay where
+  they are, so prefer `migrate`).
 
 If anything is missing, stop and say what. Don't install or configure
 anything yourself.
@@ -121,7 +125,9 @@ $bt start --repo . --base feat-b --prompt-file "$dir/feat-c.md" feat-c
 ```
 
 `start` returns once the prompt is sent, with the branch, worktree, agent,
-session, mode and any `warnings` (a mode or model the agent refused). Pass
+session, mode and any `warnings` (a mode or model the agent refused). It
+also lists the repo in the dashboard's projects (`project_added: true` the
+first time), so the tasks show up in `SPC g w w` without anything in Emacs. Pass
 `--ticket ID` if the user gave a ticket.
 
 What `status` tells you (`state`, `done`) and what to do:

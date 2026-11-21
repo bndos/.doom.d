@@ -381,6 +381,20 @@ Return (KEY WORKTREE REVIEW-BUFFER)."
                 (should (equal (bndos-task-get (bndos-task-store-load key) :agent :provider) "bndos-stub")))
             (bndos-test-kill-shell shell)))))))
 
+(ert-deftest bndos-integration-a-leader-s-start-lists-the-repo-in-the-dashboard ()
+  (bndos-test-with-hydra
+    (bndos-test-with-repo repo
+      (let ((main (file-name-as-directory (file-truename repo))))
+        (should-not (member main (bndos-task-known-projects)))
+        (let ((first (bndos-test-cli repo "start" "--base" "main" "--agent" "bndos-stub" "one")))
+          (should (eql (car first) 0))
+          (should (eq (plist-get (cdr first) :project_added) t)))
+        (should (member main (bndos-task-known-projects)))
+        (let ((second (bndos-test-cli repo "start" "--base" "main" "--agent" "bndos-stub" "two")))
+          (should (eql (car second) 0))
+          (should-not (plist-get (cdr second) :project_added)))
+        (should (equal (seq-count (lambda (d) (equal d main)) (bndos-task-known-projects)) 1))))))
+
 (ert-deftest bndos-integration-a-conversation-emacs-starts-is-recorded-in-git ()
   (bndos-test-with-hydra
     (bndos-test-with-repo repo
